@@ -24,6 +24,7 @@ import {
   ModelSelection,
   ProjectId,
   ThreadId,
+  type TokenUsageStats,
 } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
@@ -107,6 +108,10 @@ const ProjectionStateDbRowSchema = ProjectionState;
 const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
+});
+const ProjectionTokenUsageRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  payload: Schema.fromJsonString(Schema.Unknown),
 });
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
@@ -655,6 +660,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           (SELECT COUNT(*) FROM projection_projects) AS "projectCount",
           (SELECT COUNT(*) FROM projection_threads) AS "threadCount"
+      `,
+  });
+  const listTokenUsageRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionTokenUsageRowSchema,
+    execute: () =>
+      sql`
+        SELECT thread_id AS "threadId", payload_json AS payload
+        FROM projection_thread_activities
+        WHERE kind = 'context-window.updated'
+        ORDER BY thread_id ASC, created_at DESC, activity_id DESC
       `,
   });
 
@@ -1705,6 +1721,33 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
+  const getTokenUsageStats: NonNullable<ProjectionSnapshotQueryShape["getTokenUsageStats"]> = () =>
+    listTokenUsageRows(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getTokenUsageStats:query",
+          "ProjectionSnapshotQuery.getTokenUsageStats:decodeRows",
+        ),
+      ),
+      Effect.map((rows): TokenUsageStats => {
+        const seen = new Set<string>();
+        let lifetimeTokens = 0;
+        let peakThreadTokens = 0;
+        for (const row of rows) {
+          if (seen.has(row.threadId)) continue;
+          if (typeof row.payload !== "object" || row.payload === null) continue;
+          const payload = row.payload as Record<string, unknown>;
+          const value = payload.totalProcessedTokens ?? payload.usedTokens;
+          if (typeof value !== "number" || !Number.isFinite(value) || value < 0) continue;
+          const tokens = Math.floor(value);
+          seen.add(row.threadId);
+          lifetimeTokens += tokens;
+          peakThreadTokens = Math.max(peakThreadTokens, tokens);
+        }
+        return { lifetimeTokens, peakThreadTokens, trackedThreads: seen.size };
+      }),
+    );
+
   const getActiveProjectByWorkspaceRoot: ProjectionSnapshotQueryShape["getActiveProjectByWorkspaceRoot"] =
     (workspaceRoot) =>
       getActiveProjectRowByWorkspaceRoot({ workspaceRoot }).pipe(
@@ -2070,6 +2113,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getArchivedShellSnapshot,
     getSnapshotSequence,
     getCounts,
+    getTokenUsageStats,
     getActiveProjectByWorkspaceRoot,
     getProjectShellById,
     getFirstActiveThreadIdByProjectId,

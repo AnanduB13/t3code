@@ -25,11 +25,16 @@ export interface PersistedUiState {
   projectOrderCwds?: string[];
   defaultAdvertisedEndpointKey?: string | null;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
+  sidebarSectionOrder?: SidebarSectionId[];
 }
+
+export type SidebarSectionId = "chats" | "projects";
+export const DEFAULT_SIDEBAR_SECTION_ORDER: readonly SidebarSectionId[] = ["chats", "projects"];
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
+  sidebarSectionOrder: SidebarSectionId[];
 }
 
 export interface UiThreadState {
@@ -46,6 +51,7 @@ export interface UiState extends UiProjectState, UiThreadState, UiEndpointState 
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  sidebarSectionOrder: [...DEFAULT_SIDEBAR_SECTION_ORDER],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -68,6 +74,18 @@ function sanitizeStringArray(value: unknown): string[] {
       value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0),
     ),
   ];
+}
+
+function sanitizeSidebarSectionOrder(value: unknown): SidebarSectionId[] {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_SIDEBAR_SECTION_ORDER];
+  }
+  const sections = value.filter(
+    (entry): entry is SidebarSectionId => entry === "chats" || entry === "projects",
+  );
+  return sections.length === 2 && new Set(sections).size === 2
+    ? sections
+    : [...DEFAULT_SIDEBAR_SECTION_ORDER];
 }
 
 function sanitizeBooleanRecord(value: unknown): Record<string, boolean> {
@@ -123,6 +141,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   return {
     projectExpandedById,
     projectOrder,
+    sidebarSectionOrder: sanitizeSidebarSectionOrder(parsed.sidebarSectionOrder),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
       parsed.threadChangedFilesExpandedById,
@@ -172,8 +191,8 @@ function sanitizePersistedThreadChangedFilesExpanded(
 
     const nextTurns: Record<string, boolean> = {};
     for (const [turnId, expanded] of Object.entries(turns)) {
-      if (turnId && typeof expanded === "boolean" && expanded === false) {
-        nextTurns[turnId] = false;
+      if (turnId && typeof expanded === "boolean" && expanded === true) {
+        nextTurns[turnId] = true;
       }
     }
 
@@ -198,7 +217,7 @@ export function persistState(state: UiState): void {
     const threadChangedFilesExpandedById = Object.fromEntries(
       Object.entries(state.threadChangedFilesExpandedById).flatMap(([threadId, turns]) => {
         const nextTurns = Object.fromEntries(
-          Object.entries(turns).filter(([, expanded]) => expanded === false),
+          Object.entries(turns).filter(([, expanded]) => expanded === true),
         );
         return Object.keys(nextTurns).length > 0 ? [[threadId, nextTurns]] : [];
       }),
@@ -208,6 +227,7 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         projectExpandedById,
         projectOrder: state.projectOrder,
+        sidebarSectionOrder: state.sidebarSectionOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpandedById,
@@ -281,12 +301,12 @@ export function setThreadChangedFilesExpanded(
   expanded: boolean,
 ): UiState {
   const currentThreadState = state.threadChangedFilesExpandedById[threadId] ?? {};
-  const currentExpanded = currentThreadState[turnId] ?? true;
+  const currentExpanded = currentThreadState[turnId] ?? false;
   if (currentExpanded === expanded) {
     return state;
   }
 
-  if (expanded) {
+  if (!expanded) {
     if (!(turnId in currentThreadState)) {
       return state;
     }
@@ -317,7 +337,7 @@ export function setThreadChangedFilesExpanded(
       ...state.threadChangedFilesExpandedById,
       [threadId]: {
         ...currentThreadState,
-        [turnId]: false,
+        [turnId]: true,
       },
     },
   };
@@ -411,6 +431,17 @@ export function reorderProjects(
   };
 }
 
+export function setSidebarSectionOrder(
+  state: UiState,
+  order: readonly SidebarSectionId[],
+): UiState {
+  const sidebarSectionOrder = sanitizeSidebarSectionOrder(order);
+  if (sidebarSectionOrder.every((section, index) => state.sidebarSectionOrder[index] === section)) {
+    return state;
+  }
+  return { ...state, sidebarSectionOrder };
+}
+
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
@@ -422,6 +453,7 @@ interface UiStateStore extends UiState {
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
   ) => void;
+  setSidebarSectionOrder: (order: readonly SidebarSectionId[]) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -440,6 +472,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),
     ),
+  setSidebarSectionOrder: (order) => set((state) => setSidebarSectionOrder(state, order)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));

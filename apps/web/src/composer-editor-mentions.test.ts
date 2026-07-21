@@ -71,6 +71,23 @@ describe("splitPromptIntoComposerSegments", () => {
     ).toEqual([{ type: "text", text: "Read [the docs](https://example.com/docs) first" }]);
   });
 
+  it("splits Computer Use references into labeled plugin segments", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        "Use [@Computer](plugin://computer-use@openai-bundled) to open Settings",
+      ),
+    ).toEqual([
+      { type: "text", text: "Use " },
+      {
+        type: "plugin",
+        label: "Computer",
+        target: "plugin://computer-use@openai-bundled",
+        source: "[@Computer](plugin://computer-use@openai-bundled)",
+      },
+      { type: "text", text: " to open Settings" },
+    ]);
+  });
+
   it("decodes reserved path characters from generated links", () => {
     expect(
       splitPromptIntoComposerSegments(

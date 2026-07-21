@@ -53,7 +53,10 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
-import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
+import {
+  checkpointBaselineRefForThreadTurn,
+  checkpointRefForThreadTurn,
+} from "../../checkpointing/Utils.ts";
 import { ServerConfig } from "../../config.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
@@ -144,13 +147,21 @@ async function waitForThread(
     readonly threads: ReadonlyArray<{
       readonly id: ThreadId;
       readonly latestTurn: { readonly turnId: string } | null;
-      readonly checkpoints: ReadonlyArray<{ readonly checkpointTurnCount: number }>;
+      readonly checkpoints: ReadonlyArray<{
+        readonly checkpointTurnCount: number;
+        readonly turnId: string;
+        readonly files: ReadonlyArray<{ readonly path: string }>;
+      }>;
       readonly activities: ReadonlyArray<{ readonly kind: string }>;
     }>;
   }>,
   predicate: (thread: {
     latestTurn: { turnId: string } | null;
-    checkpoints: ReadonlyArray<{ checkpointTurnCount: number }>;
+    checkpoints: ReadonlyArray<{
+      checkpointTurnCount: number;
+      turnId: string;
+      files: ReadonlyArray<{ path: string }>;
+    }>;
     activities: ReadonlyArray<{ kind: string }>;
   }) => boolean,
   timeoutMs = 15_000,
@@ -158,7 +169,11 @@ async function waitForThread(
   const deadline = (await Effect.runPromise(Clock.currentTimeMillis)) + timeoutMs;
   const poll = async (): Promise<{
     latestTurn: { turnId: string } | null;
-    checkpoints: ReadonlyArray<{ checkpointTurnCount: number }>;
+    checkpoints: ReadonlyArray<{
+      checkpointTurnCount: number;
+      turnId: string;
+      files: ReadonlyArray<{ path: string }>;
+    }>;
     activities: ReadonlyArray<{ kind: string }>;
   }> => {
     const snapshot = await readModel();
@@ -453,7 +468,7 @@ describe("CheckpointReactor", () => {
     });
     await waitForGitRefExists(
       harness.cwd,
-      checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+      checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0),
     );
 
     NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "v2\n", "utf8");
@@ -475,7 +490,7 @@ describe("CheckpointReactor", () => {
     );
     expect(thread.checkpoints[0]?.checkpointTurnCount).toBe(1);
     expect(
-      gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0)),
+      gitRefExists(harness.cwd, checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0)),
     ).toBe(true);
     expect(
       gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 1)),
@@ -483,7 +498,7 @@ describe("CheckpointReactor", () => {
     expect(
       gitShowFileAtRef(
         harness.cwd,
-        checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+        checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0),
         "README.md",
       ),
     ).toBe("v1\n");
@@ -494,6 +509,64 @@ describe("CheckpointReactor", () => {
         "README.md",
       ),
     ).toBe("v2\n");
+  });
+
+  it("excludes workspace changes made between turns from the next turn summary", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const threadId = ThreadId.make("thread-1");
+
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.make("evt-turn-started-isolated-1"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId,
+      turnId: asTurnId("turn-isolated-1"),
+    });
+    await waitForGitRefExists(harness.cwd, checkpointBaselineRefForThreadTurn(threadId, 0));
+    NodeFS.writeFileSync(NodePath.join(harness.cwd, "first-turn.txt"), "first\n", "utf8");
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-completed-isolated-1"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:01.000Z",
+      threadId,
+      turnId: asTurnId("turn-isolated-1"),
+      payload: { state: "completed" },
+    });
+    await waitForGitRefExists(harness.cwd, checkpointRefForThreadTurn(threadId, 1));
+
+    // Simulates a different chat changing the shared workspace while this chat
+    // is idle.
+    NodeFS.writeFileSync(NodePath.join(harness.cwd, "other-chat.txt"), "other\n", "utf8");
+
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.make("evt-turn-started-isolated-2"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:02.000Z",
+      threadId,
+      turnId: asTurnId("turn-isolated-2"),
+    });
+    await waitForGitRefExists(harness.cwd, checkpointBaselineRefForThreadTurn(threadId, 1));
+    NodeFS.writeFileSync(NodePath.join(harness.cwd, "second-turn.txt"), "second\n", "utf8");
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-completed-isolated-2"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:03.000Z",
+      threadId,
+      turnId: asTurnId("turn-isolated-2"),
+      payload: { state: "completed" },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.checkpoints.some((checkpoint) => checkpoint.turnId === "turn-isolated-2"),
+    );
+    const secondTurn = thread.checkpoints.find(
+      (checkpoint) => checkpoint.turnId === "turn-isolated-2",
+    );
+    expect(secondTurn?.files.map((file) => file.path)).toEqual(["second-turn.txt"]);
   });
 
   it("refreshes local git status state on turn completion using the session cwd", async () => {
@@ -551,7 +624,7 @@ describe("CheckpointReactor", () => {
     });
     await waitForGitRefExists(
       harness.cwd,
-      checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+      checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0),
     );
 
     NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "v2\n", "utf8");
@@ -625,7 +698,7 @@ describe("CheckpointReactor", () => {
     });
     await waitForGitRefExists(
       harness.cwd,
-      checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+      checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0),
     );
 
     NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "v2\n", "utf8");
@@ -724,12 +797,12 @@ describe("CheckpointReactor", () => {
 
     await waitForGitRefExists(
       harness.cwd,
-      checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+      checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0),
     );
     expect(
       gitShowFileAtRef(
         harness.cwd,
-        checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+        checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0),
         "README.md",
       ),
     ).toBe("v1\n");
@@ -881,10 +954,10 @@ describe("CheckpointReactor", () => {
 
     await waitForGitRefExists(
       harness.cwd,
-      checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+      checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0),
     );
     expect(
-      gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0)),
+      gitRefExists(harness.cwd, checkpointBaselineRefForThreadTurn(ThreadId.make("thread-1"), 0)),
     ).toBe(true);
   });
 

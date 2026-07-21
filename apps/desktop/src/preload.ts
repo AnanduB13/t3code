@@ -239,4 +239,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         ipcRenderer.removeListener(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
     },
   },
+  computerUse: {
+    describe: () => ipcRenderer.invoke(IpcChannels.COMPUTER_USE_DESCRIBE_CHANNEL, {}),
+    execute: (operation, input) =>
+      ipcRenderer.invoke(IpcChannels.COMPUTER_USE_EXECUTE_CHANNEL, { operation, input }),
+  },
 } satisfies DesktopBridge);

@@ -141,6 +141,17 @@ export interface CodexSessionRuntimeShape {
   readonly rollbackThread: (
     numTurns: number,
   ) => Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
+  readonly getGoal: Effect.Effect<
+    EffectCodexSchema.V2ThreadGoalGetResponse,
+    CodexSessionRuntimeError
+  >;
+  readonly setGoal: (
+    input: Omit<EffectCodexSchema.V2ThreadGoalSetParams, "threadId">,
+  ) => Effect.Effect<EffectCodexSchema.V2ThreadGoalSetResponse, CodexSessionRuntimeError>;
+  readonly clearGoal: Effect.Effect<
+    EffectCodexSchema.V2ThreadGoalClearResponse,
+    CodexSessionRuntimeError
+  >;
   readonly respondToRequest: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -225,6 +236,130 @@ interface PendingUserInput {
   readonly turnId: TurnId | undefined;
   readonly itemId: ProviderItemId | undefined;
   readonly answers: Deferred.Deferred<ProviderUserInputAnswers>;
+}
+
+type CodexMcpElicitationParams = EffectCodexSchema.ServerRequest__McpServerElicitationRequestParams;
+
+function asStringKeyedRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function mcpElicitationMeta(
+  payload: CodexMcpElicitationParams,
+): Record<string, unknown> | undefined {
+  return asStringKeyedRecord(payload._meta);
+}
+
+export function isCodexMcpApprovalElicitation(payload: CodexMcpElicitationParams): boolean {
+  if (payload.mode === "url") return false;
+  const kind = readNonEmptyString(mcpElicitationMeta(payload)?.codex_approval_kind);
+  return kind === "mcp_tool_call" || kind === "tool_suggestion";
+}
+
+export function isComputerUseMcpElicitation(payload: CodexMcpElicitationParams): boolean {
+  const meta = mcpElicitationMeta(payload);
+  const candidates = [
+    payload.serverName,
+    meta?.connector_name,
+    meta?.tool_name,
+    meta?.tool_title,
+    meta?.tool_id,
+  ];
+  return candidates.some((value) => {
+    const normalized = readNonEmptyString(value)?.toLowerCase();
+    return normalized?.includes("computer use") || normalized?.includes("computer-use");
+  });
+}
+
+function formatMcpApprovalValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (value === null) return "null";
+  if (Array.isArray(value)) return value.map(formatMcpApprovalValue).join(", ");
+  const record = asStringKeyedRecord(value);
+  return record
+    ? Object.entries(record)
+        .map(([key, entry]) => `${key}: ${formatMcpApprovalValue(entry)}`)
+        .join(", ")
+    : "[unavailable]";
+}
+
+export function describeMcpApprovalElicitation(payload: CodexMcpElicitationParams): string {
+  const meta = mcpElicitationMeta(payload);
+  const toolName =
+    readNonEmptyString(meta?.tool_title) ??
+    readNonEmptyString(meta?.tool_name) ??
+    readNonEmptyString(meta?.tool_id);
+  const lines = [payload.message.trim()];
+  if (toolName) lines.push(`Tool: ${toolName}`);
+
+  const displayParams = Array.isArray(meta?.tool_params_display)
+    ? meta.tool_params_display
+    : undefined;
+  if (displayParams) {
+    for (const entry of displayParams.slice(0, 6)) {
+      const record = asStringKeyedRecord(entry);
+      const name = readNonEmptyString(record?.display_name) ?? readNonEmptyString(record?.name);
+      if (name && record && "value" in record) {
+        lines.push(`${name}: ${formatMcpApprovalValue(record.value)}`);
+      }
+    }
+  }
+  return lines.filter((line) => line.length > 0).join("\n");
+}
+
+export function buildMcpElicitationApprovalResponse(
+  payload: CodexMcpElicitationParams,
+  decision: ProviderApprovalDecision,
+): EffectCodexSchema.McpServerElicitationRequestResponse {
+  if (decision === "decline") return { action: "decline" };
+  if (decision === "cancel") return { action: "cancel" };
+  if (decision !== "acceptForSession") return { action: "accept" };
+
+  const persist = mcpElicitationMeta(payload)?.persist;
+  const supportsSession =
+    persist === "session" ||
+    (Array.isArray(persist) && persist.some((value) => value === "session"));
+  return supportsSession
+    ? { action: "accept", _meta: { persist: "session" } }
+    : { action: "accept" };
+}
+
+export function buildPermissionApprovalResponse(
+  payload: EffectCodexSchema.ServerRequest__PermissionsRequestApprovalParams,
+  decision: ProviderApprovalDecision,
+): EffectCodexSchema.PermissionsRequestApprovalResponse {
+  if (decision === "accept") {
+    return { permissions: payload.permissions, scope: "turn" };
+  }
+  if (decision === "acceptForSession") {
+    return { permissions: payload.permissions, scope: "session" };
+  }
+  return { permissions: {} };
+}
+
+function describePermissionApproval(
+  payload: EffectCodexSchema.ServerRequest__PermissionsRequestApprovalParams,
+): string {
+  const lines = [payload.reason?.trim() || "Additional permissions requested"];
+  if (payload.permissions.network?.enabled) lines.push("Network access");
+  const fileSystem = payload.permissions.fileSystem;
+  const readPaths = fileSystem?.read ?? [];
+  const writePaths = fileSystem?.write ?? [];
+  if (readPaths.length > 0) lines.push(`Read: ${readPaths.join(", ")}`);
+  if (writePaths.length > 0) lines.push(`Write: ${writePaths.join(", ")}`);
+  if ((fileSystem?.entries?.length ?? 0) > 0) {
+    lines.push(`${fileSystem?.entries?.length ?? 0} additional filesystem rule(s)`);
+  }
+  return lines.join("\n");
 }
 
 type CodexServerNotification = {
@@ -1113,6 +1248,113 @@ export const makeCodexSessionRuntime = (
       }),
     );
 
+    yield* client.handleServerRequest("mcpServer/elicitation/request", (payload) => {
+      if (!isCodexMcpApprovalElicitation(payload)) {
+        // T3 currently has no generic form or URL-elicitation renderer. Decline
+        // safely so an unrelated MCP server cannot leave the turn hung.
+        return Effect.succeed({ action: "decline" } as const);
+      }
+      return Effect.gen(function* () {
+        const requestId = ApprovalRequestId.make(yield* randomUUIDv4("mcp-approval-request"));
+        const turnId = payload.turnId ? TurnId.make(payload.turnId) : undefined;
+        const decision = yield* Deferred.make<ProviderApprovalDecision>();
+        const requestKind: ProviderRequestKind = isComputerUseMcpElicitation(payload)
+          ? "computer-use"
+          : "command";
+
+        yield* Ref.update(pendingApprovalsRef, (current) => {
+          const next = new Map(current);
+          next.set(requestId, {
+            requestId,
+            jsonRpcId: requestId,
+            requestKind,
+            turnId,
+            itemId: undefined,
+            decision,
+          });
+          return next;
+        });
+
+        yield* emitEvent({
+          kind: "request",
+          threadId: options.threadId,
+          method: "mcpServer/elicitation/request",
+          requestId,
+          requestKind,
+          ...(turnId ? { turnId } : {}),
+          payload: {
+            ...payload,
+            message: describeMcpApprovalElicitation(payload),
+          },
+        });
+
+        const resolved = yield* Deferred.await(decision).pipe(
+          Effect.ensuring(
+            Ref.update(pendingApprovalsRef, (current) => {
+              const next = new Map(current);
+              next.delete(requestId);
+              return next;
+            }),
+          ),
+        );
+        return buildMcpElicitationApprovalResponse(payload, resolved);
+      });
+    });
+
+    yield* client.handleServerRequest("item/permissions/requestApproval", (payload) =>
+      Effect.gen(function* () {
+        const requestId = ApprovalRequestId.make(
+          yield* randomUUIDv4("permission-approval-request"),
+        );
+        const turnId = TurnId.make(payload.turnId);
+        const itemId = ProviderItemId.make(payload.itemId);
+        const decision = yield* Deferred.make<ProviderApprovalDecision>();
+        const requestKind: ProviderRequestKind = payload.reason
+          ?.toLowerCase()
+          .includes("computer use")
+          ? "computer-use"
+          : "command";
+
+        yield* Ref.update(pendingApprovalsRef, (current) => {
+          const next = new Map(current);
+          next.set(requestId, {
+            requestId,
+            jsonRpcId: payload.itemId,
+            requestKind,
+            turnId,
+            itemId,
+            decision,
+          });
+          return next;
+        });
+
+        yield* emitEvent({
+          kind: "request",
+          threadId: options.threadId,
+          method: "item/permissions/requestApproval",
+          requestId,
+          requestKind,
+          turnId,
+          itemId,
+          payload: {
+            ...payload,
+            reason: describePermissionApproval(payload),
+          },
+        });
+
+        const resolved = yield* Deferred.await(decision).pipe(
+          Effect.ensuring(
+            Ref.update(pendingApprovalsRef, (current) => {
+              const next = new Map(current);
+              next.delete(requestId);
+              return next;
+            }),
+          ),
+        );
+        return buildPermissionApprovalResponse(payload, resolved);
+      }),
+    );
+
     yield* client.handleUnknownServerRequest((method) =>
       Effect.fail(CodexErrors.CodexAppServerRequestError.methodNotFound(method)),
     );
@@ -1346,6 +1588,22 @@ export const makeCodexSessionRuntime = (
           });
           return parseThreadSnapshot(response);
         }),
+      getGoal: Effect.gen(function* () {
+        const providerThreadId = yield* readProviderThreadId;
+        return yield* client.request("thread/goal/get", { threadId: providerThreadId });
+      }),
+      setGoal: (input) =>
+        Effect.gen(function* () {
+          const providerThreadId = yield* readProviderThreadId;
+          return yield* client.request("thread/goal/set", {
+            threadId: providerThreadId,
+            ...input,
+          });
+        }),
+      clearGoal: Effect.gen(function* () {
+        const providerThreadId = yield* readProviderThreadId;
+        return yield* client.request("thread/goal/clear", { threadId: providerThreadId });
+      }),
       respondToRequest: (requestId, decision) =>
         Effect.gen(function* () {
           const pending = (yield* Ref.get(pendingApprovalsRef)).get(requestId);

@@ -70,4 +70,47 @@ describe("registerComposerInlineTokenPaste", () => {
       "<mention:.changeset/improve-deploy-error-logging.md> ",
     );
   });
+
+  it("captures long pasted text without inserting it into the editor", () => {
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    const editor = createEditor();
+    const pastedText = "long clipboard text";
+    const onPasteText = vi.fn(() => true);
+    const plainTextFallback = vi.fn(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) return false;
+      selection.insertText(pastedText);
+      return true;
+    });
+
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode();
+        $getRoot().append(paragraph);
+        paragraph.selectEnd();
+      },
+      { discrete: true },
+    );
+    registerComposerInlineTokenPaste(editor, {
+      createMentionNode: (path) => $createTextNode(`<mention:${path}>`),
+      getExpandedAbsoluteOffsetForPoint: () => 0,
+      onPasteText,
+    });
+    editor.registerCommand(PASTE_COMMAND, plainTextFallback, COMMAND_PRIORITY_EDITOR);
+
+    const event = new TestClipboardEvent(pastedText);
+    let handled = false;
+    editor.update(
+      () => {
+        handled = editor.dispatchCommand(PASTE_COMMAND, event as ClipboardEvent);
+      },
+      { discrete: true },
+    );
+
+    expect(handled).toBe(true);
+    expect(onPasteText).toHaveBeenCalledWith(pastedText);
+    expect(plainTextFallback).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("");
+  });
 });

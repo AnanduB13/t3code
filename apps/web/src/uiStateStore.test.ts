@@ -13,6 +13,7 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setSidebarSectionOrder,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -21,6 +22,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    sidebarSectionOrder: ["chats", "projects"],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -116,17 +118,34 @@ describe("uiStateStore pure functions", () => {
     );
   });
 
-  it("stores only collapsed changed-file turns", () => {
-    const threadId = ThreadId.make("thread-1");
-    const collapsed = setThreadChangedFilesExpanded(makeUiState(), threadId, "turn-1", false);
+  it("reorders the chats and projects sidebar sections", () => {
+    const initialState = makeUiState();
+    const next = setSidebarSectionOrder(initialState, ["projects", "chats"]);
 
-    expect(collapsed.threadChangedFilesExpandedById).toEqual({
+    expect(next.sidebarSectionOrder).toEqual(["projects", "chats"]);
+    expect(setSidebarSectionOrder(next, ["projects", "chats"])).toBe(next);
+    expect(setSidebarSectionOrder(next, ["projects"])).toEqual({
+      ...next,
+      sidebarSectionOrder: ["chats", "projects"],
+    });
+  });
+
+  it("defaults changed-file turns to collapsed and stores only expanded turns", () => {
+    const threadId = ThreadId.make("thread-1");
+    const initialState = makeUiState();
+    expect(setThreadChangedFilesExpanded(initialState, threadId, "turn-1", false)).toBe(
+      initialState,
+    );
+
+    const expanded = setThreadChangedFilesExpanded(initialState, threadId, "turn-1", true);
+
+    expect(expanded.threadChangedFilesExpandedById).toEqual({
       [threadId]: {
-        "turn-1": false,
+        "turn-1": true,
       },
     });
     expect(
-      setThreadChangedFilesExpanded(collapsed, threadId, "turn-1", true)
+      setThreadChangedFilesExpanded(expanded, threadId, "turn-1", false)
         .threadChangedFilesExpandedById,
     ).toEqual({});
   });
@@ -150,6 +169,7 @@ describe("parsePersistedState", () => {
         invalid: "no" as unknown as boolean,
       },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
+      sidebarSectionOrder: ["projects", "chats"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -168,13 +188,14 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      sidebarSectionOrder: ["projects", "chats"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
-          "turn-1": false,
+          "turn-2": true,
         },
       },
     });
@@ -252,6 +273,7 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      sidebarSectionOrder: ["projects", "chats"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -274,13 +296,14 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      sidebarSectionOrder: ["projects", "chats"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
-          "turn-1": false,
+          "turn-2": true,
         },
       },
     });
@@ -288,7 +311,7 @@ describe("uiStateStore persistence", () => {
       ...state,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
-          "turn-1": false,
+          "turn-2": true,
         },
       },
     });

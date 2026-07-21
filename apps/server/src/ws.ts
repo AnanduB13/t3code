@@ -44,6 +44,7 @@ import {
   ProjectReadFileError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
+  ProviderUsageError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
   OrchestrationReplayEventsError,
@@ -53,6 +54,7 @@ import {
   AssetWorkspaceContextResolutionError,
   EnvironmentAuthorizationError,
   ThreadId,
+  ThreadGoalError,
   type TerminalAttachStreamEvent,
   type TerminalError,
   type TerminalEvent,
@@ -83,6 +85,7 @@ import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
+import * as ComputerUseBroker from "./mcp/ComputerUseBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl } from "./assets/AssetAccess.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -299,6 +302,10 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverUpsertKeybinding, AuthOrchestrationOperateScope],
   [WS_METHODS.serverRemoveKeybinding, AuthOrchestrationOperateScope],
   [WS_METHODS.serverGetSettings, AuthOrchestrationReadScope],
+  [WS_METHODS.serverGetProviderUsage, AuthOrchestrationReadScope],
+  [WS_METHODS.threadGoalGet, AuthOrchestrationReadScope],
+  [WS_METHODS.threadGoalSet, AuthOrchestrationOperateScope],
+  [WS_METHODS.threadGoalClear, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpdateSettings, AuthOrchestrationOperateScope],
   [WS_METHODS.serverDiscoverSourceControl, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetTraceDiagnostics, AuthOrchestrationReadScope],
@@ -349,6 +356,8 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.previewAutomationConnect, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationRespond, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationFocusHost, AuthOrchestrationOperateScope],
+  [WS_METHODS.computerUseConnect, AuthOrchestrationOperateScope],
+  [WS_METHODS.computerUseRespond, AuthOrchestrationOperateScope],
   [WS_METHODS.subscribePreviewEvents, AuthOrchestrationReadScope],
   [WS_METHODS.subscribeDiscoveredLocalServers, AuthOrchestrationReadScope],
   [WS_METHODS.subscribeServerConfig, AuthOrchestrationReadScope],
@@ -399,6 +408,7 @@ function toAuthAccessStreamEvent(
 const makeWsRpcLayer = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  computerUseBroker: ComputerUseBroker.ComputerUseBroker["Service"],
 ) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -1102,6 +1112,29 @@ const makeWsRpcLayer = (
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
+      const resolveGoalAdapter = Effect.fn("resolveGoalAdapter")(function* (threadId: ThreadId) {
+        const thread = yield* projectionSnapshotQuery.getThreadShellById(threadId);
+        if (Option.isNone(thread)) {
+          return yield* new ThreadGoalError({ message: "Thread was not found." });
+        }
+        const instanceId =
+          thread.value.session?.providerInstanceId ?? thread.value.modelSelection.instanceId;
+        if (!providerRegistry.goals) {
+          return yield* new ThreadGoalError({
+            message: "This server does not support goals.",
+          });
+        }
+        return { goals: providerRegistry.goals, instanceId };
+      });
+
+      const isThreadGoalError = Schema.is(ThreadGoalError);
+      const mapGoalError = (cause: unknown) =>
+        isThreadGoalError(cause)
+          ? cause
+          : new ThreadGoalError({
+              message: cause instanceof Error ? cause.message : "The goal request failed.",
+            });
+
       return WsRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
@@ -1503,6 +1536,59 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "server",
             },
+          ),
+        [WS_METHODS.serverGetProviderUsage]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetProviderUsage,
+            Effect.all({
+              providers: providerRegistry.getUsage ?? Effect.succeed([]),
+              tokenUsage: projectionSnapshotQuery.getTokenUsageStats
+                ? projectionSnapshotQuery
+                    .getTokenUsageStats()
+                    .pipe(
+                      Effect.mapError(
+                        () => new ProviderUsageError({ message: "Token usage is unavailable." }),
+                      ),
+                    )
+                : Effect.succeed({ lifetimeTokens: 0, peakThreadTokens: 0, trackedThreads: 0 }),
+            }),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.threadGoalGet]: ({ threadId }) =>
+          observeRpcEffect(
+            WS_METHODS.threadGoalGet,
+            resolveGoalAdapter(threadId).pipe(
+              Effect.flatMap(({ goals, instanceId }) => goals.get(instanceId, threadId)),
+              Effect.map((goal) => ({ goal })),
+              Effect.mapError(mapGoalError),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.threadGoalSet]: ({ threadId, ...input }) =>
+          observeRpcEffect(
+            WS_METHODS.threadGoalSet,
+            resolveGoalAdapter(threadId).pipe(
+              Effect.flatMap(({ goals, instanceId }) =>
+                goals.set(instanceId, threadId, {
+                  ...(input.objective !== undefined ? { objective: input.objective } : {}),
+                  ...(input.status !== undefined ? { status: input.status } : {}),
+                  ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+                }),
+              ),
+              Effect.map((goal) => ({ goal })),
+              Effect.mapError(mapGoalError),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.threadGoalClear]: ({ threadId }) =>
+          observeRpcEffect(
+            WS_METHODS.threadGoalClear,
+            resolveGoalAdapter(threadId).pipe(
+              Effect.flatMap(({ goals, instanceId }) => goals.clear(instanceId, threadId)),
+              Effect.map((cleared) => ({ cleared })),
+              Effect.mapError(mapGoalError),
+            ),
+            { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.serverUpdateSettings]: ({ patch }) =>
           observeRpcEffect(
@@ -1948,6 +2034,14 @@ const makeWsRpcLayer = (
             previewAutomationBroker.focusHost(input),
             { "rpc.aggregate": "preview-automation" },
           ),
+        [WS_METHODS.computerUseConnect]: (input) =>
+          observeRpcStreamEffect(WS_METHODS.computerUseConnect, computerUseBroker.connect(input), {
+            "rpc.aggregate": "computer-use",
+          }),
+        [WS_METHODS.computerUseRespond]: (input) =>
+          observeRpcEffect(WS_METHODS.computerUseRespond, computerUseBroker.respond(input), {
+            "rpc.aggregate": "computer-use",
+          }),
         [WS_METHODS.subscribePreviewEvents]: (_input) =>
           observeRpcStream(WS_METHODS.subscribePreviewEvents, previewManager.events, {
             "rpc.aggregate": "preview",
@@ -2079,6 +2173,7 @@ const makeWsRpcLayer = (
 export const websocketRpcRouteLayer = Layer.unwrap(
   Effect.gen(function* () {
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+    const computerUseBroker = yield* ComputerUseBroker.ComputerUseBroker;
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -2098,7 +2193,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           disableTracing: true,
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(session, previewAutomationBroker).pipe(
+            makeWsRpcLayer(session, previewAutomationBroker, computerUseBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(

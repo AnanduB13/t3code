@@ -9,6 +9,22 @@ export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number
   );
 }
 
+/**
+ * Snapshot taken immediately before the next turn starts.
+ *
+ * This must be distinct from the completed-turn ref. Other threads can mutate
+ * a shared workspace between two turns of this thread, so the prior completed
+ * checkpoint is not necessarily the correct baseline for the next turn.
+ */
+export function checkpointBaselineRefForThreadTurn(
+  threadId: ThreadId,
+  turnCount: number,
+): CheckpointRef {
+  return CheckpointRef.make(
+    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/baseline/${turnCount}`,
+  );
+}
+
 export function resolveThreadWorkspaceCwd(input: {
   readonly thread: {
     readonly projectId: ProjectId;

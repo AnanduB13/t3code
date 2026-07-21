@@ -25,11 +25,14 @@
 import {
   defaultInstanceIdForDriver,
   ProviderDriverKind,
+  unavailableProviderUsage,
   type ProviderInstanceId,
   type ServerProvider,
   type ServerProviderUpdateState,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
@@ -52,6 +55,7 @@ import {
   writeProviderStatusCache,
 } from "../providerStatusCache.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
+import { ProviderAdapterValidationError } from "../Errors.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import type { ProviderSnapshotSource } from "../builtInProviderCatalog.ts";
 
@@ -682,8 +686,79 @@ export const ProviderRegistryLive = Layer.effect(
       return yield* Ref.get(providersRef);
     });
 
+    const getUsage = Effect.gen(function* () {
+      const instances = yield* instanceRegistry.listInstances;
+      return yield* Effect.forEach(
+        instances,
+        (instance) =>
+          Effect.gen(function* () {
+            const updatedAt = DateTime.formatIso(yield* DateTime.now);
+            if (!instance.usage) {
+              return unavailableProviderUsage({
+                instanceId: instance.instanceId,
+                provider: instance.driverKind,
+                displayName: instance.displayName ?? String(instance.driverKind),
+                status: "unsupported",
+                message: "This provider does not expose subscription usage.",
+                updatedAt,
+              });
+            }
+            return yield* instance.usage.read.pipe(
+              Effect.catchCause(() =>
+                Effect.logWarning("provider usage refresh failed", {
+                  instanceId: instance.instanceId,
+                  provider: instance.driverKind,
+                }).pipe(
+                  Effect.as(
+                    unavailableProviderUsage({
+                      instanceId: instance.instanceId,
+                      provider: instance.driverKind,
+                      displayName: instance.displayName ?? String(instance.driverKind),
+                      message:
+                        "Usage is unavailable. Check that this provider is signed in, then refresh.",
+                      updatedAt,
+                    }),
+                  ),
+                ),
+              ),
+            );
+          }),
+        { concurrency: "unbounded" },
+      );
+    });
+
+    const getGoalAdapter = Effect.fn("ProviderRegistry.getGoalAdapter")(function* (
+      instanceId: ProviderInstanceId,
+    ) {
+      const instance = yield* instanceRegistry.getInstance(instanceId);
+      if (!instance) {
+        return yield* new ProviderAdapterValidationError({
+          provider: String(instanceId),
+          operation: "thread goal",
+          issue: "The selected provider is unavailable.",
+        });
+      }
+      if (!instance.adapter.goal) {
+        return yield* new ProviderAdapterValidationError({
+          provider: instance.driverKind,
+          operation: "thread goal",
+          issue: "Goals are only available for Codex provider sessions.",
+        });
+      }
+      return instance.adapter.goal;
+    });
+
     return {
       getProviders: Ref.get(providersRef),
+      getUsage,
+      goals: {
+        get: (instanceId, threadId) =>
+          getGoalAdapter(instanceId).pipe(Effect.flatMap((goal) => goal.get(threadId))),
+        set: (instanceId, threadId, input) =>
+          getGoalAdapter(instanceId).pipe(Effect.flatMap((goal) => goal.set(threadId, input))),
+        clear: (instanceId, threadId) =>
+          getGoalAdapter(instanceId).pipe(Effect.flatMap((goal) => goal.clear(threadId))),
+      },
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>

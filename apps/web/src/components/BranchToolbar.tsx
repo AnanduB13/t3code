@@ -37,6 +37,7 @@ import {
   MenuTrigger,
 } from "./ui/menu";
 import { Separator } from "./ui/separator";
+import { ComposerWeeklyUsage } from "./chat/ComposerWeeklyUsage";
 
 interface BranchToolbarProps {
   environmentId: EnvironmentId;
@@ -217,6 +218,9 @@ export const BranchToolbar = memo(function BranchToolbar({
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
+  const composerDraft = useComposerDraftStore((store) =>
+    store.getComposerDraft(draftId ?? threadRef),
+  );
   const activeProjectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
@@ -233,6 +237,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       draftThreadEnvMode: draftThread?.envMode,
     });
   const envModeLocked = envLocked || (serverThread !== null && activeWorktreePath !== null);
+  const usageInstanceId = composerDraft?.activeProvider ?? serverThread?.modelSelection.instanceId;
 
   const showEnvironmentPicker = Boolean(
     availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
@@ -283,6 +288,10 @@ export const BranchToolbar = memo(function BranchToolbar({
           />
         </div>
       )}
+
+      {usageInstanceId ? (
+        <ComposerWeeklyUsage environmentId={environmentId} instanceId={usageInstanceId} />
+      ) : null}
 
       <BranchToolbarBranchSelector
         className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"

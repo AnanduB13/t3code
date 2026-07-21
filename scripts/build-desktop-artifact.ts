@@ -787,6 +787,8 @@ export function renderMacPasskeyEntitlements(
     <array>
 ${associatedDomains}
     </array>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
@@ -1435,9 +1437,14 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
+            entitlementsInherit: macPasskeySigning.entitlementsPath,
             provisioningProfile: macPasskeySigning.provisioningProfilePath,
           }
         : {}),
+      extendInfo: {
+        NSAppleEventsUsageDescription:
+          "T3 Code needs Automation access so Codex Computer Use can inspect and control apps you explicitly ask it to use.",
+      },
     };
   }
 

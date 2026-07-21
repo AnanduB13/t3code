@@ -219,6 +219,34 @@ function buildUserTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("offers editing only for the latest user message in a stopped session", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const firstEntry = buildUserTimelineEntry("First prompt.");
+    const latestEntry = {
+      ...buildUserTimelineEntry("Prompt to revise."),
+      id: "entry-latest-user",
+      message: {
+        ...buildUserTimelineEntry("Prompt to revise.").message,
+        id: MessageId.make("message-latest-user"),
+      },
+    };
+
+    const editableMarkup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[firstEntry, latestEntry]}
+        canEditLatestUserMessage
+      />,
+    );
+    const runningMarkup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[latestEntry]} />,
+    );
+
+    expect(editableMarkup.match(/aria-label="Edit and resend message"/g)).toHaveLength(1);
+    expect(editableMarkup).toContain("Edit and resend");
+    expect(runningMarkup).not.toContain('aria-label="Edit and resend message"');
+  });
+
   it("keeps assistant changed-files headers sticky below the thread header", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const assistantMessageId = MessageId.make("message-assistant-with-files");
@@ -266,7 +294,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("whitespace-nowrap");
     expect(markup).toContain("!size-[22px]");
     expect(markup).toContain("size-3");
-    expect(markup).toContain('aria-label="Collapse all"');
+    expect(markup).toContain('aria-label="Expand all"');
     expect(markup).toContain('aria-label="View diff"');
     expect(markup).toContain("1 changed file");
   });

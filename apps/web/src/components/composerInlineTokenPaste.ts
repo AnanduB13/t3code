@@ -14,6 +14,7 @@ import {
 interface ComposerInlineTokenPasteOptions {
   createMentionNode: (path: string) => LexicalNode;
   getExpandedAbsoluteOffsetForPoint: (node: LexicalNode, pointOffset: number) => number;
+  onPasteText?: (text: string) => boolean;
 }
 
 export function registerComposerInlineTokenPaste(
@@ -32,6 +33,10 @@ export function registerComposerInlineTokenPaste(
       const text = event.clipboardData.getData("text/plain");
       if (text.length === 0) {
         return false;
+      }
+      if (options.onPasteText?.(text)) {
+        event.preventDefault();
+        return true;
       }
       // Token grammar requires trailing whitespace; a virtual newline lets a
       // mention at the very end of the pasted text still parse.

@@ -10,6 +10,7 @@ import type {
   ScopedThreadRef,
   ServerProvider,
   ThreadId,
+  ThreadGoal,
   TurnId,
 } from "@t3tools/contracts";
 import {
@@ -50,6 +51,7 @@ import {
 } from "./composerMentionDrag";
 import {
   type ComposerImageAttachment,
+  type ComposerPastedTextAttachment,
   type DraftId,
   type PersistedComposerImageAttachment,
   useComposerDraftStore,
@@ -67,6 +69,8 @@ import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
 import { ComposerPreviewAnnotationCards } from "./ComposerPreviewAnnotationCards";
+import { ComposerPastedTextAttachments } from "./ComposerPastedTextAttachments";
+import { shouldAttachPastedText } from "./composerPastedText";
 import {
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
@@ -102,6 +106,7 @@ import {
   CheckIcon,
   CircleAlertIcon,
   ListTodoIcon,
+  TargetIcon,
   PencilRulerIcon,
   type LucideIcon,
   LockIcon,
@@ -131,6 +136,8 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import { WhisperVoiceInput } from "./WhisperVoiceInput";
+import { insertTranscriptAtCursor } from "../../lib/whisperAudio";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -404,6 +411,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 export interface ChatComposerHandle {
   focusAtEnd: () => void;
   focusAt: (cursor: number) => void;
+  replacePrompt: (text: string) => void;
   insertTextAtEnd: (text: string, options?: { ensureLeadingBoundary?: boolean }) => boolean;
   openModelPicker: () => void;
   toggleModelPicker: () => void;
@@ -426,6 +434,7 @@ export interface ChatComposerHandle {
   getSendContext: () => {
     prompt: string;
     images: ComposerImageAttachment[];
+    pastedTexts: ComposerPastedTextAttachment[];
     terminalContexts: TerminalContextDraft[];
     elementContexts: ElementContextDraft[];
     previewAnnotations: PreviewAnnotationPayload[];
@@ -497,6 +506,8 @@ export interface ChatComposerProps {
   // Mode
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
+  goal: ThreadGoal | null;
+  goalPending: boolean;
 
   // Provider / model
   lockedProvider: ProviderDriverKind | null;
@@ -593,6 +604,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planSidebarOpen,
     runtimeMode,
     interactionMode,
+    goal,
+    goalPending,
     lockedProvider,
     providerStatuses,
     activeProjectDefaultModelSelection,
@@ -634,6 +647,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerDraft = useComposerThreadDraft(composerDraftTarget);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
+  const composerPastedTexts = composerDraft.pastedTexts;
   const composerTerminalContexts = composerDraft.terminalContexts;
   const composerElementContexts = composerDraft.elementContexts;
   const composerPreviewAnnotations = composerDraft.previewAnnotations;
@@ -644,6 +658,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
+  const addComposerDraftPastedText = useComposerDraftStore((store) => store.addPastedText);
+  const removeComposerDraftPastedText = useComposerDraftStore((store) => store.removePastedText);
   const insertComposerDraftTerminalContext = useComposerDraftStore(
     (store) => store.insertTerminalContext,
   );
@@ -928,6 +944,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       deriveComposerSendState({
         prompt,
         imageCount: composerImages.length,
+        pastedTextCount: composerPastedTexts.length,
         terminalContexts: composerTerminalContexts,
         elementContextCount:
           composerElementContexts.length +
@@ -937,6 +954,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [
       composerElementContexts.length,
       composerImages.length,
+      composerPastedTexts.length,
       composerPreviewAnnotations.length,
       composerReviewComments.length,
       composerTerminalContexts,
@@ -970,6 +988,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     if (composerTrigger.kind === "slash-command") {
       const builtInSlashCommandItems = [
+        ...(selectedProvider === "codex"
+          ? [
+              {
+                id: "slash:goal",
+                type: "slash-command" as const,
+                command: "goal" as const,
+                label: "/goal",
+                description: "Start or manage a persistent Codex goal",
+              },
+              {
+                id: "slash:computer",
+                type: "slash-command" as const,
+                command: "computer" as const,
+                label: "/computer",
+                description: "Operate a native app on a connected computer",
+              },
+            ]
+          : []),
         {
           id: "slash:model",
           type: "slash-command",
@@ -1597,6 +1633,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "slash-command") {
+        if (item.command === "computer") {
+          const replacement = "Use [@T3 Computer Use](plugin://t3-computer-use@personal) ";
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
+        if (item.command === "goal") {
+          const replacement = "/goal ";
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
         if (item.command === "model") {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -1848,6 +1906,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     addComposerImages(imageFiles);
   };
 
+  const onComposerPasteText = useCallback(
+    (text: string) => {
+      if (pendingUserInputs.length > 0 || !shouldAttachPastedText(text)) return false;
+      addComposerDraftPastedText(composerDraftTarget, { id: randomUUID(), text });
+      return true;
+    },
+    [addComposerDraftPastedText, composerDraftTarget, pendingUserInputs.length],
+  );
+
   const onComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
@@ -2006,6 +2073,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       focusAt: (cursor: number) => {
         composerEditorRef.current?.focusAt(cursor);
       },
+      replacePrompt: (text: string) => {
+        promptRef.current = text;
+        setComposerDraftPrompt(composerDraftTarget, text);
+        const cursor = collapseExpandedComposerCursor(text, text.length);
+        setComposerCursor(cursor);
+        setComposerTrigger(null);
+        scheduleComposerFocus();
+      },
       insertTextAtEnd: insertComposerTextAtEnd,
       openModelPicker: () => {
         setIsComposerModelPickerOpen(true);
@@ -2073,6 +2148,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getSendContext: () => ({
         prompt: promptRef.current,
         images: composerImagesRef.current,
+        pastedTexts: composerPastedTexts,
         terminalContexts: composerTerminalContextsRef.current,
         elementContexts: composerElementContextsRef.current,
         previewAnnotations: composerPreviewAnnotations,
@@ -2093,6 +2169,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       insertComposerDraftTerminalContext,
       promptRef,
       composerImagesRef,
+      composerPastedTexts,
       composerTerminalContextsRef,
       composerElementContextsRef,
       composerPreviewAnnotations,
@@ -2193,6 +2270,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 />
               </div>
             ) : null)}
+
+          {!isComposerCollapsedMobile && (goal || goalPending) ? (
+            <div
+              className="flex items-center gap-2 border-b border-violet-500/20 bg-violet-500/8 px-4 py-2 text-xs"
+              data-thread-goal-indicator="true"
+            >
+              <TargetIcon className="size-3.5 shrink-0 text-violet-500" aria-hidden="true" />
+              <span className="font-medium text-violet-700 dark:text-violet-300">Goal</span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {goal?.objective ?? "Starting goal…"}
+              </span>
+              <span className="shrink-0 capitalize text-muted-foreground">
+                {goal?.status.replace("_", " ") ?? "pending"}
+              </span>
+            </div>
+          ) : null}
 
           {isComposerCollapsedMobile && activePendingApproval ? (
             <div
@@ -2388,6 +2481,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {!isComposerCollapsedMobile &&
               !isComposerApprovalState &&
               pendingUserInputs.length === 0 &&
+              composerPastedTexts.length > 0 && (
+                <ComposerPastedTextAttachments
+                  pastedTexts={composerPastedTexts}
+                  onRemove={(id) => removeComposerDraftPastedText(composerDraftTarget, id)}
+                  className="mb-3"
+                />
+              )}
+
+            {!isComposerCollapsedMobile &&
+              !isComposerApprovalState &&
+              pendingUserInputs.length === 0 &&
               composerImages.some(
                 (image) =>
                   !composerPreviewAnnotations.some((annotation) => annotation.id === image.id),
@@ -2485,6 +2589,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 onChange={onPromptChange}
                 onCommandKeyDown={onComposerCommandKey}
                 onPaste={onComposerPaste}
+                onPasteText={onComposerPasteText}
                 placeholder={
                   isComposerApprovalState
                     ? (activePendingApproval?.detail ?? "Resolve this approval request to continue")
@@ -2625,6 +2730,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 }
                 className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
               >
+                <WhisperVoiceInput
+                  disabled={
+                    isConnecting ||
+                    isComposerApprovalState ||
+                    projectSelectionRequired ||
+                    (environmentUnavailable !== null && activePendingProgress === null)
+                  }
+                  onTranscript={(transcript) => {
+                    const snapshot = readComposerSnapshot();
+                    const insertion = insertTranscriptAtCursor(
+                      snapshot.value,
+                      snapshot.expandedCursor,
+                      transcript,
+                    );
+                    applyPromptReplacement(
+                      snapshot.expandedCursor,
+                      snapshot.expandedCursor,
+                      insertion.text.slice(snapshot.expandedCursor, insertion.cursor),
+                    );
+                  }}
+                />
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
                   activeContextWindow={activeContextWindow}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "T3 Computer Use"
+  short_description: "Operate a selected connected desktop"
+  default_prompt: "Use T3 Computer Use to operate a native application."
+policy:
+  allow_implicit_invocation: true

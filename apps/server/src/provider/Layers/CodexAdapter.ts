@@ -23,6 +23,7 @@ import {
   ProviderApprovalDecision,
   ThreadId,
   ProviderSendTurnInput,
+  type ThreadGoal,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
@@ -40,6 +41,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { prepareCodexInputForComputerUse } from "../CodexComputerUse.ts";
 
 import {
   ProviderAdapterRequestError,
@@ -308,6 +310,10 @@ function toRequestTypeFromMethod(method: string): CanonicalRequestType {
       return "tool_user_input";
     case "item/tool/call":
       return "dynamic_tool_call";
+    case "mcpServer/elicitation/request":
+      return "computer_use_approval";
+    case "item/permissions/requestApproval":
+      return "command_execution_approval";
     case "account/chatgptAuthTokens/refresh":
       return "auth_tokens_refresh";
     default:
@@ -323,6 +329,8 @@ function toRequestTypeFromKind(kind: ProviderRequestKind | undefined): Canonical
       return "file_read_approval";
     case "file-change":
       return "file_change_approval";
+    case "computer-use":
+      return "computer_use_approval";
     default:
       return "unknown";
   }
@@ -572,17 +580,36 @@ function mapToRuntimeEvents(
           );
           return payload?.tool ?? undefined;
         }
+        case "mcpServer/elicitation/request": {
+          const payload = readPayload(
+            EffectCodexSchema.ServerRequest__McpServerElicitationRequestParams,
+            event.payload,
+          );
+          return payload?.message ?? undefined;
+        }
+        case "item/permissions/requestApproval": {
+          const payload = readPayload(
+            EffectCodexSchema.ServerRequest__PermissionsRequestApprovalParams,
+            event.payload,
+          );
+          return payload?.reason ?? undefined;
+        }
         default:
           return undefined;
       }
     })();
+
+    const requestType =
+      event.requestKind !== undefined
+        ? toRequestTypeFromKind(event.requestKind)
+        : toRequestTypeFromMethod(event.method);
 
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "request.opened",
         payload: {
-          requestType: toRequestTypeFromMethod(event.method),
+          requestType,
           ...(detail ? { detail } : {}),
           ...(event.payload !== undefined ? { args: event.payload } : {}),
         },
@@ -1544,9 +1571,11 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       input.modelSelection?.instanceId === boundInstanceId
         ? getCodexServiceTierOptionValue(input.modelSelection)
         : undefined;
+    const codexInput =
+      input.input === undefined ? undefined : prepareCodexInputForComputerUse(input.input);
     return yield* session.runtime
       .sendTurn({
-        ...(input.input !== undefined ? { input: input.input } : {}),
+        ...(codexInput !== undefined ? { input: codexInput } : {}),
         ...(input.modelSelection?.instanceId === boundInstanceId
           ? { model: input.modelSelection.model }
           : {}),
@@ -1620,6 +1649,70 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         turns: snapshot.turns,
       })),
     );
+  };
+
+  const toThreadGoal = (
+    threadId: ThreadId,
+    goal: EffectCodexSchema.V2ThreadGoalGetResponse__ThreadGoal,
+  ): ThreadGoal => ({
+    threadId,
+    objective: goal.objective,
+    status:
+      goal.status === "usageLimited"
+        ? "usage_limited"
+        : goal.status === "budgetLimited"
+          ? "budget_limited"
+          : goal.status,
+    tokenBudget: goal.tokenBudget ?? null,
+    tokensUsed: goal.tokensUsed,
+    timeUsedSeconds: goal.timeUsedSeconds,
+    createdAt: goal.createdAt,
+    updatedAt: goal.updatedAt,
+  });
+
+  const goal: NonNullable<CodexAdapterShape["goal"]> = {
+    get: (threadId) =>
+      requireSession(threadId).pipe(
+        Effect.flatMap((session) => session.runtime.getGoal),
+        Effect.map((response) => (response.goal ? toThreadGoal(threadId, response.goal) : null)),
+        Effect.mapError((cause) =>
+          cause._tag === "ProviderAdapterSessionNotFoundError"
+            ? cause
+            : mapCodexRuntimeError(threadId, "thread/goal/get", cause),
+        ),
+      ),
+    set: (threadId, input) =>
+      requireSession(threadId).pipe(
+        Effect.flatMap((session) => {
+          const status =
+            input.status === "usage_limited"
+              ? "usageLimited"
+              : input.status === "budget_limited"
+                ? "budgetLimited"
+                : input.status;
+          return session.runtime.setGoal({
+            ...(input.objective !== undefined ? { objective: input.objective } : {}),
+            ...(status !== undefined ? { status } : {}),
+            ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+          });
+        }),
+        Effect.map((response) => toThreadGoal(threadId, response.goal)),
+        Effect.mapError((cause) =>
+          cause._tag === "ProviderAdapterSessionNotFoundError"
+            ? cause
+            : mapCodexRuntimeError(threadId, "thread/goal/set", cause),
+        ),
+      ),
+    clear: (threadId) =>
+      requireSession(threadId).pipe(
+        Effect.flatMap((session) => session.runtime.clearGoal),
+        Effect.map((response) => response.cleared),
+        Effect.mapError((cause) =>
+          cause._tag === "ProviderAdapterSessionNotFoundError"
+            ? cause
+            : mapCodexRuntimeError(threadId, "thread/goal/clear", cause),
+        ),
+      ),
   };
 
   const respondToRequest: CodexAdapterShape["respondToRequest"] = (threadId, requestId, decision) =>
@@ -1709,6 +1802,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     interruptTurn,
     readThread,
     rollbackThread,
+    goal,
     respondToRequest,
     respondToUserInput,
     stopSession,

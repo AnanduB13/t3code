@@ -81,4 +81,19 @@ describe("collectComposerInlineTokens", () => {
   it("ignores normal web links", () => {
     expect(collectComposerInlineTokens("Read [docs](https://example.com) first")).toEqual([]);
   });
+
+  it("collects plugin links as dedicated inline tokens", () => {
+    const text = "Use [@Computer](plugin://computer-use@openai-bundled) to open Settings";
+
+    expect(collectComposerInlineTokens(text)).toEqual([
+      {
+        type: "plugin",
+        value: "Computer",
+        target: "plugin://computer-use@openai-bundled",
+        source: "[@Computer](plugin://computer-use@openai-bundled)",
+        start: 4,
+        end: 53,
+      },
+    ]);
+  });
 });

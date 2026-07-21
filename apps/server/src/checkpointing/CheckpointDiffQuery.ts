@@ -30,7 +30,7 @@ import {
   CheckpointWorkspacePathMissingError,
 } from "./Errors.ts";
 import type { CheckpointServiceError } from "./Errors.ts";
-import { checkpointRefForThreadTurn } from "./Utils.ts";
+import { checkpointBaselineRefForThreadTurn, checkpointRefForThreadTurn } from "./Utils.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
 
 /** Service tag for checkpoint diff queries. */
@@ -137,12 +137,24 @@ export const make = Effect.gen(function* () {
         });
       }
 
+      const isolatedBaselineRef = checkpointBaselineRefForThreadTurn(
+        input.threadId,
+        input.fromTurnCount,
+      );
+      const isolatedBaselineExists = yield* checkpointStore.hasCheckpointRef({
+        cwd: workspaceCwd,
+        checkpointRef: isolatedBaselineRef,
+      });
       const fromCheckpointRef =
-        input.fromTurnCount === 0
-          ? checkpointRefForThreadTurn(input.threadId, 0)
-          : threadContext.value.checkpoints.find(
-              (checkpoint) => checkpoint.checkpointTurnCount === input.fromTurnCount,
-            )?.checkpointRef;
+        // Adjacent turn queries represent one chat turn and must exclude work
+        // performed by other threads since this thread's prior checkpoint.
+        input.toTurnCount === input.fromTurnCount + 1 && isolatedBaselineExists
+          ? isolatedBaselineRef
+          : input.fromTurnCount === 0
+            ? checkpointRefForThreadTurn(input.threadId, 0)
+            : threadContext.value.checkpoints.find(
+                (checkpoint) => checkpoint.checkpointTurnCount === input.fromTurnCount,
+              )?.checkpointRef;
       if (!fromCheckpointRef) {
         return yield* new CheckpointRefUnavailableError({
           operation,
@@ -254,10 +266,17 @@ export const make = Effect.gen(function* () {
       });
     }
 
+    const initialBaselineRef = checkpointBaselineRefForThreadTurn(input.threadId, 0);
+    const initialBaselineExists = yield* checkpointStore.hasCheckpointRef({
+      cwd: workspaceCwd,
+      checkpointRef: initialBaselineRef,
+    });
     const diff = yield* checkpointStore
       .diffCheckpoints({
         cwd: workspaceCwd,
-        fromCheckpointRef: checkpointRefForThreadTurn(input.threadId, 0),
+        fromCheckpointRef: initialBaselineExists
+          ? initialBaselineRef
+          : checkpointRefForThreadTurn(input.threadId, 0),
         toCheckpointRef: threadContext.value.toCheckpointRef as CheckpointRef,
         fallbackFromToHead: false,
         ignoreWhitespace,

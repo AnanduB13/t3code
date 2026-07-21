@@ -33,6 +33,7 @@ import type * as Scope from "effect/Scope";
 import type * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { ProviderAdapterError, ProviderDriverError } from "./Errors.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
+import type { ProviderUsageReader } from "./providerUsage.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider.ts";
 
 /**
@@ -71,6 +72,7 @@ export interface ProviderInstance {
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  readonly usage?: ProviderUsageReader;
 }
 
 export interface ProviderContinuationIdentity {

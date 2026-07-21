@@ -7,6 +7,7 @@ import {
   KeyboardIcon,
   Link2Icon,
   Settings2Icon,
+  UserRoundIcon,
 } from "lucide-react";
 import { useCanGoBack, useNavigate } from "@tanstack/react-router";
 
@@ -23,6 +24,7 @@ import {
 import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
 
 export type SettingsSectionPath =
+  | "/settings/profile"
   | "/settings/general"
   | "/settings/keybindings"
   | "/settings/providers"
@@ -35,6 +37,7 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   to: SettingsSectionPath;
   icon: ComponentType<{ className?: string }>;
 }> = [
+  { label: "Profile & usage", to: "/settings/profile", icon: UserRoundIcon },
   { label: "General", to: "/settings/general", icon: Settings2Icon },
   { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
   { label: "Providers", to: "/settings/providers", icon: BotIcon },

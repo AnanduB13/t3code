@@ -7,6 +7,8 @@ import {
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
   parseStandaloneComposerSlashCommand,
+  parseComposerGoalCommand,
+  expandComposerComputerCommand,
   replaceTextRange,
   shouldSubmitComposerOnEnter,
 } from "./composer-logic";
@@ -209,6 +211,15 @@ describe("expandCollapsedComposerCursor", () => {
       expandedCursorAfterSkill,
     );
   });
+
+  it("maps a collapsed plugin chip cursor to the serialized plugin link boundary", () => {
+    const text = "Use [@Computer](plugin://computer-use@openai-bundled) now";
+    const collapsedCursorAfterPlugin = "Use ".length + 1;
+
+    expect(expandCollapsedComposerCursor(text, collapsedCursorAfterPlugin)).toBe(
+      "Use [@Computer](plugin://computer-use@openai-bundled)".length,
+    );
+  });
 });
 
 describe("collapseExpandedComposerCursor", () => {
@@ -263,6 +274,14 @@ describe("collapseExpandedComposerCursor", () => {
     expect(collapseExpandedComposerCursor(text, expandedCursorAfterSkill)).toBe(
       collapsedCursorAfterSkill,
     );
+  });
+
+  it("maps a serialized plugin link cursor back to one chip position", () => {
+    const text = "Use [@Computer](plugin://computer-use@openai-bundled) now";
+    const expandedCursorAfterPlugin = "Use [@Computer](plugin://computer-use@openai-bundled)"
+      .length;
+
+    expect(collapseExpandedComposerCursor(text, expandedCursorAfterPlugin)).toBe("Use ".length + 1);
   });
 });
 
@@ -361,5 +380,37 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+  });
+});
+
+describe("parseComposerGoalCommand", () => {
+  it("parses an objective and lifecycle actions", () => {
+    expect(parseComposerGoalCommand("/goal ship the migration")).toEqual({
+      type: "set",
+      objective: "ship the migration",
+    });
+    expect(parseComposerGoalCommand(" /GOAL pause ")).toEqual({ type: "pause" });
+    expect(parseComposerGoalCommand("/goal resume")).toEqual({ type: "resume" });
+    expect(parseComposerGoalCommand("/goal clear")).toEqual({ type: "clear" });
+  });
+
+  it("requires an objective or action", () => {
+    expect(parseComposerGoalCommand("/goal")).toBeNull();
+    expect(parseComposerGoalCommand("goal ship it")).toBeNull();
+  });
+});
+
+describe("expandComposerComputerCommand", () => {
+  it("expands a direct Computer Use command into the bundled plugin mention", () => {
+    expect(expandComposerComputerCommand("/computer open Settings")).toBe(
+      "Use [@T3 Computer Use](plugin://t3-computer-use@personal) open Settings",
+    );
+  });
+
+  it("supports a command without an inline task", () => {
+    expect(expandComposerComputerCommand(" /COMPUTER ")).toContain(
+      "plugin://t3-computer-use@personal",
+    );
+    expect(expandComposerComputerCommand("computer open Settings")).toBeNull();
   });
 });

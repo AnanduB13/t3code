@@ -291,7 +291,7 @@ function sessionStatusAllowsActiveTurn(
 
 function requestKindFromCanonicalRequestType(
   requestType: string | undefined,
-): "command" | "file-read" | "file-change" | undefined {
+): "command" | "file-read" | "file-change" | "computer-use" | undefined {
   switch (requestType) {
     case "command_execution_approval":
     case "exec_command_approval":
@@ -301,6 +301,8 @@ function requestKindFromCanonicalRequestType(
     case "file_change_approval":
     case "apply_patch_approval":
       return "file-change";
+    case "computer_use_approval":
+      return "computer-use";
     default:
       return undefined;
   }
@@ -331,11 +333,13 @@ export function runtimeEventToActivities(
           summary:
             requestKind === "command"
               ? "Command approval requested"
-              : requestKind === "file-read"
-                ? "File-read approval requested"
-                : requestKind === "file-change"
-                  ? "File-change approval requested"
-                  : "Approval requested",
+              : requestKind === "computer-use"
+                ? "Computer Use approval requested"
+                : requestKind === "file-read"
+                  ? "File-read approval requested"
+                  : requestKind === "file-change"
+                    ? "File-change approval requested"
+                    : "Approval requested",
           payload: {
             requestId: toApprovalRequestId(event.requestId),
             ...(requestKind ? { requestKind } : {}),
