@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
-import { formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+import { ComposerPrimaryActions, formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {
@@ -89,5 +91,38 @@ describe("formatPendingPrimaryActionLabel", () => {
         questionIndex: 5,
       }),
     ).toBe("Submit answers");
+  });
+});
+
+describe("ComposerPrimaryActions while running", () => {
+  const renderRunningActions = (hasSendableContent: boolean) =>
+    renderToStaticMarkup(
+      createElement(ComposerPrimaryActions, {
+        compact: false,
+        pendingAction: null,
+        isRunning: true,
+        showPlanFollowUpPrompt: false,
+        promptHasText: hasSendableContent,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        isPreparingWorktree: false,
+        hasSendableContent,
+        onPreviousPendingQuestion: () => undefined,
+        onInterrupt: () => undefined,
+        onImplementPlanInNewThread: () => undefined,
+      }),
+    );
+
+  it("offers queue and stop actions when the running composer has content", () => {
+    const markup = renderRunningActions(true);
+    expect(markup).toContain('aria-label="Queue message"');
+    expect(markup).toContain('aria-label="Stop generation"');
+  });
+
+  it("keeps only the stop action when there is no draft to queue", () => {
+    const markup = renderRunningActions(false);
+    expect(markup).not.toContain('aria-label="Queue message"');
+    expect(markup).toContain('aria-label="Stop generation"');
   });
 });

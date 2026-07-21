@@ -207,6 +207,7 @@ import {
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { QueuedPrompts } from "./chat/QueuedPrompts";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { appendPastedTextsToPrompt } from "./chat/composerPastedText";
@@ -445,6 +446,53 @@ interface TerminalLaunchContext {
   threadId: ThreadId;
   cwd: string;
   worktreePath: string | null;
+}
+
+type ComposerSendContext = ReturnType<ChatComposerHandle["getSendContext"]>;
+
+interface QueuedComposerSubmission {
+  readonly id: string;
+  readonly threadId: ThreadId;
+  readonly prompt: string;
+  readonly label: string;
+  readonly sendContext: ComposerSendContext;
+}
+
+function cloneComposerSendContext(context: ComposerSendContext): ComposerSendContext {
+  return {
+    ...context,
+    images: [...context.images],
+    pastedTexts: [...context.pastedTexts],
+    terminalContexts: [...context.terminalContexts],
+    elementContexts: [...context.elementContexts],
+    previewAnnotations: [...context.previewAnnotations],
+    reviewComments: [...context.reviewComments],
+    selectedProviderModels: [...context.selectedProviderModels],
+    selectedModelSelection: {
+      ...context.selectedModelSelection,
+      ...(context.selectedModelSelection.options
+        ? {
+            options: context.selectedModelSelection.options.map((option) => ({ ...option })),
+          }
+        : {}),
+    },
+  };
+}
+
+function queuedSubmissionLabel(prompt: string, context: ComposerSendContext): string {
+  const trimmed = prompt.trim();
+  if (trimmed) return trimmed.replace(/\s+/g, " ");
+  if (context.images.length > 0) {
+    return context.images.length === 1
+      ? `Image: ${context.images[0]?.name ?? "attachment"}`
+      : `${context.images.length} images`;
+  }
+  if (context.pastedTexts.length > 0) return "Pasted text";
+  if (context.terminalContexts.length > 0) return "Terminal context";
+  if (context.elementContexts.length > 0) return "Element context";
+  if (context.previewAnnotations.length > 0) return "Preview annotation";
+  if (context.reviewComments.length > 0) return "Review comments";
+  return "Queued message";
 }
 
 type PersistentTerminalLaunchContext = Pick<TerminalLaunchContext, "cwd" | "worktreePath">;
@@ -1262,7 +1310,26 @@ function ChatViewContent(props: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
+  const queuedAutoDispatchRef = useRef(false);
+  const [queuedSubmissionsByThreadKey, setQueuedSubmissionsByThreadKey] = useState<
+    Record<string, QueuedComposerSubmission[]>
+  >({});
+  const queuedSubmissionsByThreadKeyRef = useRef(queuedSubmissionsByThreadKey);
+  queuedSubmissionsByThreadKeyRef.current = queuedSubmissionsByThreadKey;
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
+
+  useEffect(
+    () => () => {
+      for (const submissions of Object.values(queuedSubmissionsByThreadKeyRef.current)) {
+        for (const submission of submissions) {
+          for (const image of submission.sendContext.images) {
+            revokeBlobPreviewUrl(image.previewUrl);
+          }
+        }
+      }
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
@@ -4069,7 +4136,10 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onSend = async (e?: { preventDefault: () => void }) => {
+  const onSend = async (
+    e?: { preventDefault: () => void },
+    queued?: { submission: QueuedComposerSubmission; mode: "dequeue" | "steer" },
+  ) => {
     e?.preventDefault();
     if (
       !activeThread ||
@@ -4079,11 +4149,12 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    if (activePendingProgress) {
+    if (queued && queued.submission.threadId !== activeThread.id) return;
+    if (!queued && activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    const sendCtx = composerRef.current?.getSendContext();
+    const sendCtx = queued?.submission.sendContext ?? composerRef.current?.getSendContext();
     if (!sendCtx) return;
     const {
       images: composerImages,
@@ -4098,7 +4169,7 @@ function ChatViewContent(props: ChatViewProps) {
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
-    const promptForSend = promptRef.current;
+    const promptForSend = queued?.submission.prompt ?? promptRef.current;
     const {
       trimmedPrompt: trimmed,
       sendableTerminalContexts: sendableComposerTerminalContexts,
@@ -4257,6 +4328,27 @@ function ChatViewContent(props: ChatViewProps) {
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
     if (shouldCreateWorktree && !activeThreadBranch) {
       setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
+      return;
+    }
+
+    if (phase === "running" && !queued) {
+      const queueThreadKey = scopedThreadKey(
+        scopeThreadRef(activeThread.environmentId, threadIdForSend),
+      );
+      const submission: QueuedComposerSubmission = {
+        id: newMessageId(),
+        threadId: threadIdForSend,
+        prompt: promptForSend,
+        label: queuedSubmissionLabel(promptForSend, sendCtx),
+        sendContext: cloneComposerSendContext(sendCtx),
+      };
+      setQueuedSubmissionsByThreadKey((existing) => ({
+        ...existing,
+        [queueThreadKey]: [...(existing[queueThreadKey] ?? []), submission],
+      }));
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
       return;
     }
 
@@ -4556,6 +4648,85 @@ function ChatViewContent(props: ChatViewProps) {
       resetLocalDispatch();
     }
   };
+
+  const activeQueuedSubmissions = activeThreadKey
+    ? (queuedSubmissionsByThreadKey[activeThreadKey] ?? [])
+    : [];
+
+  const removeQueuedSubmission = useCallback(
+    (submissionId: string, options?: { preserveImagePreviews?: boolean }) => {
+      if (!activeThreadKey) return null;
+      const removed = activeQueuedSubmissions.find((submission) => submission.id === submissionId);
+      if (!removed) return null;
+      setQueuedSubmissionsByThreadKey((existing) => {
+        const current = existing[activeThreadKey] ?? [];
+        const nextForThread = current.filter((submission) => submission.id !== submissionId);
+        if (nextForThread.length === current.length) return existing;
+        if (nextForThread.length > 0) {
+          return { ...existing, [activeThreadKey]: nextForThread };
+        }
+        const next = { ...existing };
+        delete next[activeThreadKey];
+        return next;
+      });
+      if (!options?.preserveImagePreviews) {
+        for (const image of removed.sendContext.images) {
+          revokeBlobPreviewUrl(image.previewUrl);
+        }
+      }
+      return removed;
+    },
+    [activeQueuedSubmissions, activeThreadKey],
+  );
+
+  const onRemoveQueuedSubmission = useCallback(
+    (submissionId: string) => {
+      removeQueuedSubmission(submissionId);
+    },
+    [removeQueuedSubmission],
+  );
+
+  const onSteerQueuedSubmission = useCallback(
+    (submissionId: string) => {
+      const submission = removeQueuedSubmission(submissionId, { preserveImagePreviews: true });
+      if (!submission) return;
+      void onSend(undefined, { submission, mode: "steer" });
+    },
+    [removeQueuedSubmission, onSend],
+  );
+
+  useEffect(() => {
+    if (
+      phase === "running" ||
+      isSendBusy ||
+      isConnecting ||
+      activeEnvironmentUnavailable ||
+      sendInFlightRef.current ||
+      queuedAutoDispatchRef.current
+    ) {
+      return;
+    }
+    const submission = activeQueuedSubmissions[0];
+    if (!submission) return;
+
+    queuedAutoDispatchRef.current = true;
+    const removed = removeQueuedSubmission(submission.id, { preserveImagePreviews: true });
+    if (!removed) {
+      queuedAutoDispatchRef.current = false;
+      return;
+    }
+    void onSend(undefined, { submission: removed, mode: "dequeue" }).finally(() => {
+      queuedAutoDispatchRef.current = false;
+    });
+  }, [
+    activeEnvironmentUnavailable,
+    activeQueuedSubmissions,
+    isConnecting,
+    isSendBusy,
+    onSend,
+    phase,
+    removeQueuedSubmission,
+  ]);
 
   const onInterrupt = async () => {
     if (!activeThread) return;
@@ -5507,6 +5678,13 @@ function ChatViewContent(props: ChatViewProps) {
                         : undefined
                     }
                   >
+                    {!isDraftHeroState ? (
+                      <QueuedPrompts
+                        prompts={activeQueuedSubmissions}
+                        onSteer={onSteerQueuedSubmission}
+                        onRemove={onRemoveQueuedSubmission}
+                      />
+                    ) : null}
                     <div
                       ref={attachDraftHeroComposerAnchorRef}
                       className="relative z-10 mx-auto w-full max-w-3xl"
