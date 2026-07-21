@@ -433,6 +433,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.include(entitlements, "<string>webcredentials:clerk.example.com</string>");
     assert.include(entitlements, "<string>webcredentials:example.clerk.accounts.dev</string>");
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
+    assert.include(entitlements, "<key>com.apple.security.automation.apple-events</key>");
   });
 
   it("rejects incomplete macOS passkey signing configuration", () => {
@@ -526,7 +527,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const mac = config.mac as Record<string, unknown>;
       assert.equal(config.appId, "com.t3tools.t3code");
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
+      assert.equal(mac.entitlementsInherit, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
+      assert.deepStrictEqual(mac.extendInfo, {
+        NSAppleEventsUsageDescription:
+          "T3 Code needs Automation access so Codex Computer Use can inspect and control apps you explicitly ask it to use.",
+      });
       assert.deepStrictEqual(mac.protocols, [
         { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
       ]);

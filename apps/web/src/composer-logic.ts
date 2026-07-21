@@ -2,7 +2,13 @@ import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "goal" | "computer";
+
+export type ComposerGoalCommand =
+  | { type: "set"; objective: string }
+  | { type: "pause" }
+  | { type: "resume" }
+  | { type: "clear" };
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -23,6 +29,7 @@ const isInlineTokenSegment = (
     | { type: "text"; text: string }
     | { type: "mention" }
     | { type: "skill" }
+    | { type: "plugin" }
     | { type: "terminal-context" },
 ): boolean => segment.type !== "text";
 
@@ -60,7 +67,7 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
   let expandedCursor = 0;
 
   for (const segment of segments) {
-    if (segment.type === "mention") {
+    if (segment.type === "mention" || segment.type === "plugin") {
       const expandedLength = segment.source.length;
       if (remaining <= 1) {
         return expandedCursor + (remaining === 0 ? 0 : expandedLength);
@@ -103,6 +110,7 @@ function collapsedSegmentLength(
     | { type: "text"; text: string }
     | { type: "mention" }
     | { type: "skill" }
+    | { type: "plugin" }
     | { type: "terminal-context" },
 ): number {
   if (segment.type === "text") {
@@ -116,6 +124,7 @@ function clampCollapsedComposerCursorForSegments(
     | { type: "text"; text: string }
     | { type: "mention" }
     | { type: "skill" }
+    | { type: "plugin" }
     | { type: "terminal-context" }
   >,
   cursorInput: number,
@@ -148,7 +157,7 @@ export function collapseExpandedComposerCursor(text: string, cursorInput: number
   let collapsedCursor = 0;
 
   for (const segment of segments) {
-    if (segment.type === "mention") {
+    if (segment.type === "mention" || segment.type === "plugin") {
       const expandedLength = segment.source.length;
       if (remaining === 0) {
         return collapsedCursor;
@@ -262,9 +271,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   };
 }
 
-export function parseStandaloneComposerSlashCommand(
-  text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+export function parseStandaloneComposerSlashCommand(text: string): "plan" | "default" | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
@@ -272,6 +279,26 @@ export function parseStandaloneComposerSlashCommand(
   const command = match[1]?.toLowerCase();
   if (command === "plan") return "plan";
   return "default";
+}
+
+export function parseComposerGoalCommand(text: string): ComposerGoalCommand | null {
+  const match = /^\/goal(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) return null;
+  const argument = (match[1] ?? "").trim();
+  if (!argument) return null;
+  const action = argument.toLowerCase();
+  if (action === "pause") return { type: "pause" };
+  if (action === "resume") return { type: "resume" };
+  if (action === "clear") return { type: "clear" };
+  return { type: "set", objective: argument };
+}
+
+export function expandComposerComputerCommand(text: string): string | null {
+  const match = /^\/computer(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) return null;
+  const task = (match[1] ?? "").trim();
+  const computer = "Use [@T3 Computer Use](plugin://t3-computer-use@personal)";
+  return task ? `${computer} ${task}` : `${computer} and ask what desktop task to perform.`;
 }
 
 export function replaceTextRange(

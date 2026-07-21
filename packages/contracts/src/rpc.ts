@@ -64,6 +64,16 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { ProviderUsageError, ProviderUsageResult } from "./providerUsage.ts";
+import {
+  ThreadGoalClearInput,
+  ThreadGoalClearResult,
+  ThreadGoalError,
+  ThreadGoalGetInput,
+  ThreadGoalGetResult,
+  ThreadGoalSetInput,
+  ThreadGoalSetResult,
+} from "./threadGoal.ts";
 import {
   RelayClientInstallFailedError,
   RelayClientInstallProgressEventSchema,
@@ -121,6 +131,12 @@ import {
   PreviewAutomationResponse,
   PreviewAutomationStreamEvent,
 } from "./previewAutomation.ts";
+import {
+  ComputerUseError,
+  ComputerUseHost,
+  ComputerUseResponse,
+  ComputerUseStreamEvent,
+} from "./computerUse.ts";
 import {
   ServerConfigStreamEvent,
   ServerConfig,
@@ -218,6 +234,8 @@ export const WS_METHODS = {
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
+  computerUseConnect: "computerUse.connect",
+  computerUseRespond: "computerUse.respond",
 
   // Server meta
   serverProbe: "server.probe",
@@ -229,6 +247,10 @@ export const WS_METHODS = {
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverRemoveKeybinding: "server.removeKeybinding",
   serverGetSettings: "server.getSettings",
+  serverGetProviderUsage: "server.getProviderUsage",
+  threadGoalGet: "thread.goal.get",
+  threadGoalSet: "thread.goal.set",
+  threadGoalClear: "thread.goal.clear",
   serverUpdateSettings: "server.updateSettings",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
@@ -327,6 +349,30 @@ export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+export const WsServerGetProviderUsageRpc = Rpc.make(WS_METHODS.serverGetProviderUsage, {
+  payload: Schema.Struct({}),
+  success: ProviderUsageResult,
+  error: Schema.Union([ProviderUsageError, EnvironmentAuthorizationError]),
+});
+
+export const WsThreadGoalGetRpc = Rpc.make(WS_METHODS.threadGoalGet, {
+  payload: ThreadGoalGetInput,
+  success: ThreadGoalGetResult,
+  error: Schema.Union([ThreadGoalError, EnvironmentAuthorizationError]),
+});
+
+export const WsThreadGoalSetRpc = Rpc.make(WS_METHODS.threadGoalSet, {
+  payload: ThreadGoalSetInput,
+  success: ThreadGoalSetResult,
+  error: Schema.Union([ThreadGoalError, EnvironmentAuthorizationError]),
+});
+
+export const WsThreadGoalClearRpc = Rpc.make(WS_METHODS.threadGoalClear, {
+  payload: ThreadGoalClearInput,
+  success: ThreadGoalClearResult,
+  error: Schema.Union([ThreadGoalError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
@@ -661,6 +707,18 @@ export const WsPreviewAutomationFocusHostRpc = Rpc.make(WS_METHODS.previewAutoma
   error: EnvironmentAuthorizationError,
 });
 
+export const WsComputerUseConnectRpc = Rpc.make(WS_METHODS.computerUseConnect, {
+  payload: ComputerUseHost,
+  success: ComputerUseStreamEvent,
+  error: Schema.Union([ComputerUseError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsComputerUseRespondRpc = Rpc.make(WS_METHODS.computerUseRespond, {
+  payload: ComputerUseResponse,
+  error: Schema.Union([ComputerUseError, EnvironmentAuthorizationError]),
+});
+
 export const WsSubscribePreviewEventsRpc = Rpc.make(WS_METHODS.subscribePreviewEvents, {
   payload: Schema.Struct({}),
   success: PreviewEvent,
@@ -793,6 +851,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpsertKeybindingRpc,
   WsServerRemoveKeybindingRpc,
   WsServerGetSettingsRpc,
+  WsServerGetProviderUsageRpc,
+  WsThreadGoalGetRpc,
+  WsThreadGoalSetRpc,
+  WsThreadGoalClearRpc,
   WsServerUpdateSettingsRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerGetTraceDiagnosticsRpc,
@@ -849,6 +911,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,
+  WsComputerUseConnectRpc,
+  WsComputerUseRespondRpc,
   WsSubscribePreviewEventsRpc,
   WsSubscribeDiscoveredLocalServersRpc,
   WsSubscribeServerConfigRpc,

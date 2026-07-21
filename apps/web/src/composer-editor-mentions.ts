@@ -22,6 +22,12 @@ export type ComposerPromptSegment =
       name: string;
     }
   | {
+      type: "plugin";
+      label: string;
+      target: string;
+      source: string;
+    }
+  | {
       type: "terminal-context";
       context: TerminalContextDraft | null;
     };
@@ -147,8 +153,15 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
         path: match.value,
         source: match.source,
       });
-    } else {
+    } else if (match.type === "skill") {
       segments.push({ type: "skill", name: match.value });
+    } else {
+      segments.push({
+        type: "plugin",
+        label: match.value,
+        target: match.target,
+        source: match.source,
+      });
     }
 
     cursor = match.end;

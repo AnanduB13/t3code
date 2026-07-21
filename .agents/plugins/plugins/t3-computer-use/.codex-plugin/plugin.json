@@ -1,0 +1,24 @@
+{
+  "name": "t3-computer-use",
+  "version": "0.1.0",
+  "description": "Operate a named desktop connected to T3 Code through a safe observe-act-verify loop.",
+  "author": {
+    "name": "T3 Tools"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "T3 Computer Use",
+    "shortDescription": "Control connected desktops by machine name",
+    "longDescription": "Observe and operate native applications on the backend computer or a connected T3 Code Desktop device, with explicit device routing and safety checks.",
+    "developerName": "T3 Tools",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Use Computer Use to operate an application",
+      "List the computers I can control"
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/computer-use.svg",
+    "logo": "./assets/computer-use.svg"
+  }
+}

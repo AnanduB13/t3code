@@ -19,6 +19,8 @@ import type {
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
+  ThreadGoal,
+  ThreadGoalStatus,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
@@ -113,6 +115,20 @@ export interface ProviderAdapterShape<TError> {
     threadId: ThreadId,
     numTurns: number,
   ) => Effect.Effect<ProviderThreadSnapshot, TError>;
+
+  /** Native persisted-goal controls, when supported by the provider. */
+  readonly goal?: {
+    readonly get: (threadId: ThreadId) => Effect.Effect<ThreadGoal | null, TError>;
+    readonly set: (
+      threadId: ThreadId,
+      input: {
+        readonly objective?: string;
+        readonly status?: ThreadGoalStatus;
+        readonly tokenBudget?: number | null;
+      },
+    ) => Effect.Effect<ThreadGoal, TError>;
+    readonly clear: (threadId: ThreadId) => Effect.Effect<boolean, TError>;
+  };
 
   /**
    * Stop all sessions owned by this adapter.

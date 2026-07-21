@@ -73,7 +73,9 @@ import { basenameOfPath } from "~/pierre-icons";
 import {
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
   COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
+  COMPOSER_INLINE_PLUGIN_CHIP_CLASS_NAME,
   COMPOSER_INLINE_SKILL_CHIP_CLASS_NAME,
+  PLUGIN_CHIP_ICON_SVG,
   SKILL_CHIP_ICON_SVG,
 } from "./composerInlineChip";
 import { FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
@@ -114,6 +116,17 @@ type SerializedComposerSkillNode = Spread<
     skillLabel?: string;
     skillDescription?: string;
     type: "composer-skill";
+    version: 1;
+  },
+  SerializedLexicalNode
+>;
+
+type SerializedComposerPluginNode = Spread<
+  {
+    label: string;
+    target: string;
+    source: string;
+    type: "composer-plugin";
     version: 1;
   },
   SerializedLexicalNode
@@ -360,6 +373,103 @@ function $createComposerSkillNode(
   return $applyNodeReplacement(new ComposerSkillNode(skillName, skillLabel, skillDescription));
 }
 
+function ComposerPluginDecorator(props: { label: string; target: string }) {
+  const chip = (
+    <span
+      className={COMPOSER_INLINE_PLUGIN_CHIP_CLASS_NAME}
+      contentEditable={false}
+      spellCheck={false}
+      data-composer-plugin-chip="true"
+    >
+      <span
+        aria-hidden="true"
+        className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
+        dangerouslySetInnerHTML={{ __html: PLUGIN_CHIP_ICON_SVG }}
+      />
+      <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>{props.label}</span>
+    </span>
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={chip} />
+      <TooltipPopup side="top" className="max-w-120 whitespace-normal leading-tight">
+        {props.label} plugin · {props.target}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
+class ComposerPluginNode extends DecoratorNode<React.ReactElement> {
+  __label: string;
+  __target: string;
+  __source: string;
+
+  static override getType(): string {
+    return "composer-plugin";
+  }
+
+  static override clone(node: ComposerPluginNode): ComposerPluginNode {
+    return new ComposerPluginNode(node.__label, node.__target, node.__source, node.__key);
+  }
+
+  static override importJSON(serializedNode: SerializedComposerPluginNode): ComposerPluginNode {
+    return $createComposerPluginNode(
+      serializedNode.label,
+      serializedNode.target,
+      serializedNode.source,
+    ).updateFromJSON(serializedNode);
+  }
+
+  constructor(label: string, target: string, source: string, key?: NodeKey) {
+    super(key);
+    this.__label = label;
+    this.__target = target;
+    this.__source = source;
+  }
+
+  override exportJSON(): SerializedComposerPluginNode {
+    return {
+      ...super.exportJSON(),
+      label: this.__label,
+      target: this.__target,
+      source: this.__source,
+      type: "composer-plugin",
+      version: 1,
+    };
+  }
+
+  override createDOM(): HTMLElement {
+    const dom = document.createElement("span");
+    dom.className = "composer-inline-chip relative inline-flex align-middle leading-none";
+    return dom;
+  }
+
+  override updateDOM(): false {
+    return false;
+  }
+
+  override getTextContent(): string {
+    return this.__source;
+  }
+
+  override isInline(): true {
+    return true;
+  }
+
+  override decorate(): React.ReactElement {
+    return <ComposerPluginDecorator label={this.__label} target={this.__target} />;
+  }
+}
+
+function $createComposerPluginNode(
+  label: string,
+  target: string,
+  source: string,
+): ComposerPluginNode {
+  return $applyNodeReplacement(new ComposerPluginNode(label, target, source));
+}
+
 function ComposerTerminalContextDecorator(props: { context: TerminalContextDraft }) {
   return <ComposerPendingTerminalContextChip context={props.context} />;
 }
@@ -427,12 +537,14 @@ function $createComposerTerminalContextNode(
 type ComposerInlineTokenNode =
   | ComposerMentionNode
   | ComposerSkillNode
+  | ComposerPluginNode
   | ComposerTerminalContextNode;
 
 function isComposerInlineTokenNode(candidate: unknown): candidate is ComposerInlineTokenNode {
   return (
     candidate instanceof ComposerMentionNode ||
     candidate instanceof ComposerSkillNode ||
+    candidate instanceof ComposerPluginNode ||
     candidate instanceof ComposerTerminalContextNode
   );
 }
@@ -844,6 +956,10 @@ function $setComposerEditorPrompt(
       );
       continue;
     }
+    if (segment.type === "plugin") {
+      paragraph.append($createComposerPluginNode(segment.label, segment.target, segment.source));
+      continue;
+    }
     if (segment.type === "terminal-context") {
       if (segment.context) {
         paragraph.append($createComposerTerminalContextNode(segment.context));
@@ -897,6 +1013,7 @@ interface ComposerPromptEditorProps {
     event: KeyboardEvent,
   ) => boolean;
   onPaste: React.ClipboardEventHandler<HTMLElement>;
+  onPasteText?: (text: string) => boolean;
   editorRef: React.RefObject<ComposerPromptEditorHandle | null>;
 }
 
@@ -1244,14 +1361,20 @@ function ComposerChipSelectionPlugin() {
   return null;
 }
 
-function ComposerInlineTokenPastePlugin() {
+function ComposerInlineTokenPastePlugin(props: { onPasteText?: (text: string) => boolean }) {
   const [editor] = useLexicalComposerContext();
+  const onPasteTextRef = useRef(props.onPasteText);
+
+  useEffect(() => {
+    onPasteTextRef.current = props.onPasteText;
+  }, [props.onPasteText]);
 
   useEffect(
     () =>
       registerComposerInlineTokenPaste(editor, {
         createMentionNode: $createComposerMentionNode,
         getExpandedAbsoluteOffsetForPoint,
+        onPasteText: (text) => onPasteTextRef.current?.(text) ?? false,
       }),
     [editor],
   );
@@ -1537,6 +1660,7 @@ function ComposerPromptEditorInner({
   onChange,
   onCommandKeyDown,
   onPaste,
+  onPasteText,
   editorRef,
 }: ComposerPromptEditorProps) {
   const [editor] = useLexicalComposerContext();
@@ -1752,7 +1876,7 @@ function ComposerPromptEditorInner({
           contentEditable={
             <ContentEditable
               className={cn(
-                "block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent text-[16px] leading-relaxed text-foreground focus:outline-none sm:text-[14px]",
+                "block max-h-20 min-h-6 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent text-[16px] leading-relaxed text-foreground focus:outline-none sm:text-[14px]",
                 className,
               )}
               data-testid="composer-editor"
@@ -1777,7 +1901,7 @@ function ComposerPromptEditorInner({
         <ComposerInlineTokenArrowPlugin />
         <ComposerInlineTokenSelectionNormalizePlugin />
         <ComposerInlineTokenBackspacePlugin />
-        <ComposerInlineTokenPastePlugin />
+        <ComposerInlineTokenPastePlugin {...(onPasteText ? { onPasteText } : {})} />
         <ComposerChipSelectionPlugin />
         <HistoryPlugin />
       </div>
@@ -1797,6 +1921,7 @@ export function ComposerPromptEditor({
   onChange,
   onCommandKeyDown,
   onPaste,
+  onPasteText,
   editorRef,
 }: ComposerPromptEditorProps) {
   const initialValueRef = useRef(value);
@@ -1806,7 +1931,12 @@ export function ComposerPromptEditor({
     () => ({
       namespace: "t3tools-composer-editor",
       editable: true,
-      nodes: [ComposerMentionNode, ComposerSkillNode, ComposerTerminalContextNode],
+      nodes: [
+        ComposerMentionNode,
+        ComposerSkillNode,
+        ComposerPluginNode,
+        ComposerTerminalContextNode,
+      ],
       editorState: () => {
         $setComposerEditorPrompt(
           initialValueRef.current,
@@ -1833,6 +1963,7 @@ export function ComposerPromptEditor({
         onRemoveTerminalContext={onRemoveTerminalContext}
         onChange={onChange}
         onPaste={onPaste}
+        {...(onPasteText ? { onPasteText } : {})}
         editorRef={editorRef}
         {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
         {...(className ? { className } : {})}

@@ -6,7 +6,7 @@ import * as Option from "effect/Option";
 import { describe, expect } from "vite-plus/test";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { checkpointRefForThreadTurn } from "./Utils.ts";
+import { checkpointBaselineRefForThreadTurn, checkpointRefForThreadTurn } from "./Utils.ts";
 import * as CheckpointDiffQuery from "./CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
 import { CheckpointThreadNotFoundError } from "./Errors.ts";
@@ -127,7 +127,7 @@ describe("CheckpointDiffQuery.layer", () => {
       expect(diffCheckpointsCalls).toEqual([
         {
           cwd: "/tmp/worktree",
-          fromCheckpointRef: checkpointRefForThreadTurn(threadId, 0),
+          fromCheckpointRef: checkpointBaselineRefForThreadTurn(threadId, 0),
           toCheckpointRef,
           ignoreWhitespace: true,
         },
@@ -141,7 +141,7 @@ describe("CheckpointDiffQuery.layer", () => {
     }),
   );
 
-  it.effect("computes diffs using canonical turn-0 checkpoint refs", () =>
+  it.effect("computes adjacent diffs using the isolated pre-turn baseline", () =>
     Effect.gen(function* () {
       const projectId = ProjectId.make("project-1");
       const threadId = ThreadId.make("thread-1");
@@ -217,7 +217,7 @@ describe("CheckpointDiffQuery.layer", () => {
         });
       }).pipe(Effect.provide(layer));
 
-      const expectedFromRef = checkpointRefForThreadTurn(threadId, 0);
+      const expectedFromRef = checkpointBaselineRefForThreadTurn(threadId, 0);
       expect(diffCheckpointsCalls).toEqual([
         {
           cwd: "/tmp/workspace",
@@ -304,7 +304,7 @@ describe("CheckpointDiffQuery.layer", () => {
     }),
   );
 
-  it.effect("does not preflight checkpoint refs before diffing", () =>
+  it.effect("checks for an isolated baseline before diffing", () =>
     Effect.gen(function* () {
       const projectId = ProjectId.make("project-no-preflight");
       const threadId = ThreadId.make("thread-no-preflight");
@@ -370,7 +370,7 @@ describe("CheckpointDiffQuery.layer", () => {
         });
       }).pipe(Effect.provide(layer));
 
-      expect(hasCheckpointRefCallCount).toBe(0);
+      expect(hasCheckpointRefCallCount).toBe(1);
     }),
   );
 

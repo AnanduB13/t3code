@@ -42,6 +42,7 @@ import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import type { ProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
+import { makeCodexUsageReader } from "../providerUsage.ts";
 import {
   enrichProviderSnapshotWithVersionAdvisory,
   makePackageManagedProviderMaintenanceResolver,
@@ -118,6 +119,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
+      const { cwd } = yield* ServerConfig;
       const eventLoggers = yield* ProviderEventLoggers;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const homeLayout = yield* resolveCodexHomeLayout(config);
@@ -161,6 +163,13 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       });
       const textGeneration = yield* makeCodexTextGeneration(effectiveConfig, processEnv);
+      const usage = yield* makeCodexUsageReader({
+        instanceId,
+        displayName: displayName ?? "Codex",
+        config: effectiveConfig,
+        environment: processEnv,
+        cwd,
+      });
 
       // Build a managed snapshot whose settings never change — mutations come
       // in as instance rebuilds from the registry rather than in-place
@@ -208,6 +217,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        usage,
       } satisfies ProviderInstance;
     }),
 };

@@ -57,7 +57,7 @@ const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
-const COMPOSER_DRAFT_STORAGE_VERSION = 8;
+const COMPOSER_DRAFT_STORAGE_VERSION = 9;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
@@ -91,6 +91,16 @@ export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "prev
   previewUrl: string;
   file: File;
 }
+
+export interface ComposerPastedTextAttachment {
+  id: string;
+  text: string;
+}
+
+const PersistedComposerPastedTextAttachment = Schema.Struct({
+  id: Schema.String,
+  text: Schema.String,
+});
 
 const PersistedTerminalContextDraft = Schema.Struct({
   id: Schema.String,
@@ -128,6 +138,7 @@ type PersistedElementContextDraft = typeof PersistedElementContextDraft.Type;
 const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
   attachments: Schema.Array(PersistedComposerImageAttachment),
+  pastedTexts: Schema.optionalKey(Schema.Array(PersistedComposerPastedTextAttachment)),
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
   elementContexts: Schema.optionalKey(Schema.Array(PersistedElementContextDraft)),
   previewAnnotations: Schema.optionalKey(Schema.Array(PreviewAnnotationPayloadSchema)),
@@ -250,6 +261,7 @@ const PersistedComposerDraftStoreStorage = Schema.Struct({
 export interface ComposerThreadDraftState {
   prompt: string;
   images: ComposerImageAttachment[];
+  pastedTexts: ComposerPastedTextAttachment[];
   nonPersistedImageIds: string[];
   persistedAttachments: PersistedComposerImageAttachment[];
   terminalContexts: TerminalContextDraft[];
@@ -446,6 +458,15 @@ interface ComposerDraftStoreState {
   addImage: (threadRef: ComposerThreadTarget, image: ComposerImageAttachment) => void;
   addImages: (threadRef: ComposerThreadTarget, images: ComposerImageAttachment[]) => void;
   removeImage: (threadRef: ComposerThreadTarget, imageId: string) => void;
+  addPastedText: (
+    threadRef: ComposerThreadTarget,
+    pastedText: ComposerPastedTextAttachment,
+  ) => void;
+  setPastedTexts: (
+    threadRef: ComposerThreadTarget,
+    pastedTexts: ReadonlyArray<ComposerPastedTextAttachment>,
+  ) => void;
+  removePastedText: (threadRef: ComposerThreadTarget, pastedTextId: string) => void;
   insertTerminalContext: (
     threadRef: ComposerThreadTarget,
     prompt: string,
@@ -568,6 +589,7 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
 });
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];
+const EMPTY_PASTED_TEXTS: ComposerPastedTextAttachment[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
 const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
@@ -575,6 +597,7 @@ const EMPTY_ELEMENT_CONTEXTS: ElementContextDraft[] = [];
 const EMPTY_PREVIEW_ANNOTATIONS: PreviewAnnotationPayload[] = [];
 const EMPTY_REVIEW_COMMENTS: ReviewCommentContext[] = [];
 Object.freeze(EMPTY_IMAGES);
+Object.freeze(EMPTY_PASTED_TEXTS);
 Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
 Object.freeze(EMPTY_ELEMENT_CONTEXTS);
@@ -590,6 +613,7 @@ const EMPTY_COMPOSER_DRAFT_MODEL_STATE = Object.freeze<ComposerDraftModelState>(
 const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   prompt: "",
   images: EMPTY_IMAGES,
+  pastedTexts: EMPTY_PASTED_TEXTS,
   nonPersistedImageIds: EMPTY_IDS,
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
@@ -612,6 +636,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
   return {
     prompt: "",
     images: [],
+    pastedTexts: [],
     nonPersistedImageIds: [],
     persistedAttachments: [],
     terminalContexts: [],
@@ -686,6 +711,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
   return (
     draft.prompt.length === 0 &&
     draft.images.length === 0 &&
+    draft.pastedTexts.length === 0 &&
     draft.persistedAttachments.length === 0 &&
     draft.terminalContexts.length === 0 &&
     draft.elementContexts.length === 0 &&
@@ -1658,6 +1684,18 @@ function normalizePersistedDraftsByThreadId(
           return normalized ? [normalized] : [];
         })
       : [];
+    const pastedTexts = Array.isArray(draftCandidate.pastedTexts)
+      ? draftCandidate.pastedTexts.flatMap((entry) => {
+          if (!entry || typeof entry !== "object") return [];
+          const candidate = entry as { id?: unknown; text?: unknown };
+          return typeof candidate.id === "string" &&
+            candidate.id.length > 0 &&
+            typeof candidate.text === "string" &&
+            candidate.text.length > 0
+            ? [{ id: candidate.id, text: candidate.text }]
+            : [];
+        })
+      : [];
     const terminalContexts = Array.isArray(draftCandidate.terminalContexts)
       ? draftCandidate.terminalContexts.flatMap((entry) => {
           const normalized = normalizePersistedTerminalContextDraft(entry);
@@ -1735,6 +1773,7 @@ function normalizePersistedDraftsByThreadId(
     if (
       promptCandidate.length === 0 &&
       attachments.length === 0 &&
+      pastedTexts.length === 0 &&
       terminalContexts.length === 0 &&
       elementContexts.length === 0 &&
       reviewComments.length === 0 &&
@@ -1759,6 +1798,7 @@ function normalizePersistedDraftsByThreadId(
     nextDraftsByThreadKey[normalizedThreadKey] = {
       prompt,
       attachments,
+      ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
       ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
       ...(elementContexts.length > 0 ? { elementContexts } : {}),
       ...(reviewComments.length > 0 ? { reviewComments } : {}),
@@ -1843,6 +1883,7 @@ function partializeComposerDraftStoreState(
     if (
       draft.prompt.length === 0 &&
       draft.persistedAttachments.length === 0 &&
+      draft.pastedTexts.length === 0 &&
       draft.terminalContexts.length === 0 &&
       draft.elementContexts.length === 0 &&
       draft.previewAnnotations.length === 0 &&
@@ -1856,6 +1897,7 @@ function partializeComposerDraftStoreState(
     const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
       prompt: draft.prompt,
       attachments: draft.persistedAttachments,
+      ...(draft.pastedTexts.length > 0 ? { pastedTexts: draft.pastedTexts } : {}),
       ...(draft.terminalContexts.length > 0
         ? {
             terminalContexts: draft.terminalContexts.map((context) => ({
@@ -2127,6 +2169,7 @@ function toHydratedThreadDraft(
   return {
     prompt: persistedDraft.prompt,
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
+    pastedTexts: persistedDraft.pastedTexts?.map((pastedText) => ({ ...pastedText })) ?? [],
     nonPersistedImageIds: [],
     persistedAttachments: [...persistedDraft.attachments],
     terminalContexts:
@@ -2931,6 +2974,63 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
         },
+        addPastedText: (threadRef, pastedText) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (
+            threadKey.length === 0 ||
+            pastedText.id.length === 0 ||
+            pastedText.text.length === 0
+          ) {
+            return;
+          }
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey] ?? createEmptyThreadDraft();
+            if (existing.pastedTexts.some((item) => item.id === pastedText.id)) {
+              return state;
+            }
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [threadKey]: {
+                  ...existing,
+                  pastedTexts: [...existing.pastedTexts, pastedText],
+                },
+              },
+            };
+          });
+        },
+        setPastedTexts: (threadRef, pastedTexts) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) return;
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey];
+            if (!existing && pastedTexts.length === 0) return state;
+            const base = existing ?? createEmptyThreadDraft();
+            const nextDraft = { ...base, pastedTexts: pastedTexts.map((item) => ({ ...item })) };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) delete nextDraftsByThreadKey[threadKey];
+            else nextDraftsByThreadKey[threadKey] = nextDraft;
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        removePastedText: (threadRef, pastedTextId) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) return;
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current || !current.pastedTexts.some((item) => item.id === pastedTextId)) {
+              return state;
+            }
+            const nextDraft = {
+              ...current,
+              pastedTexts: current.pastedTexts.filter((item) => item.id !== pastedTextId),
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) delete nextDraftsByThreadKey[threadKey];
+            else nextDraftsByThreadKey[threadKey] = nextDraft;
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
         insertTerminalContext: (threadRef, prompt, context, index) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           const threadId = resolveComposerThreadId(get(), threadRef);
@@ -3331,6 +3431,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               ...current,
               prompt: "",
               images: [],
+              pastedTexts: [],
               nonPersistedImageIds: [],
               persistedAttachments: [],
               terminalContexts: [],

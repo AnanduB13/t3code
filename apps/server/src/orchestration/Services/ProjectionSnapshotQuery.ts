@@ -20,6 +20,7 @@ import type {
   OrchestrationThreadShell,
   ProjectId,
   ThreadId,
+  TokenUsageStats,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Option from "effect/Option";
@@ -117,6 +118,9 @@ export interface ProjectionSnapshotQueryShape {
    * Read aggregate projection counts without hydrating the full read model.
    */
   readonly getCounts: () => Effect.Effect<ProjectionSnapshotCounts, ProjectionRepositoryError>;
+
+  /** Sum the latest cumulative token snapshot recorded for every thread. */
+  readonly getTokenUsageStats?: () => Effect.Effect<TokenUsageStats, ProjectionRepositoryError>;
 
   /**
    * Read the active project for an exact workspace root match.

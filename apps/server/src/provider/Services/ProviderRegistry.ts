@@ -9,6 +9,10 @@
 import type {
   ProviderInstanceId,
   ProviderDriverKind,
+  ProviderUsageSnapshot,
+  ThreadGoal,
+  ThreadGoalStatus,
+  ThreadId,
   ServerProvider,
   ServerProviderUpdateState,
 } from "@t3tools/contracts";
@@ -16,6 +20,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 import type { ProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+import type { ProviderAdapterError } from "../Errors.ts";
 
 export type ProviderMaintenanceActionKind = "update";
 
@@ -26,6 +31,26 @@ export interface ProviderRegistryShape {
    * instances of the same driver) and disambiguate via `instanceId`.
    */
   readonly getProviders: Effect.Effect<ReadonlyArray<ServerProvider>>;
+  readonly getUsage?: Effect.Effect<ReadonlyArray<ProviderUsageSnapshot>>;
+  readonly goals?: {
+    readonly get: (
+      instanceId: ProviderInstanceId,
+      threadId: ThreadId,
+    ) => Effect.Effect<ThreadGoal | null, ProviderAdapterError>;
+    readonly set: (
+      instanceId: ProviderInstanceId,
+      threadId: ThreadId,
+      input: {
+        readonly objective?: string;
+        readonly status?: ThreadGoalStatus;
+        readonly tokenBudget?: number | null;
+      },
+    ) => Effect.Effect<ThreadGoal, ProviderAdapterError>;
+    readonly clear: (
+      instanceId: ProviderInstanceId,
+      threadId: ThreadId,
+    ) => Effect.Effect<boolean, ProviderAdapterError>;
+  };
 
   /**
    * Refresh all providers, or the default instance of the specified

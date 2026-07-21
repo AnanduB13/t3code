@@ -34,6 +34,30 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("aggregates the latest cumulative token usage for each thread", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`
+        INSERT INTO projection_thread_activities
+          (activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at)
+        VALUES
+          ('usage-a-1', 'thread-a', NULL, 'info', 'context-window.updated', 'Usage', '{"totalProcessedTokens":1200}', 1, '2026-07-20T10:00:00.000Z'),
+          ('usage-a-2', 'thread-a', NULL, 'info', 'context-window.updated', 'Usage', '{"totalProcessedTokens":2500}', 2, '2026-07-20T11:00:00.000Z'),
+          ('usage-b-1', 'thread-b', NULL, 'info', 'context-window.updated', 'Usage', '{"usedTokens":750}', 1, '2026-07-20T12:00:00.000Z')
+      `;
+
+      const stats = yield* snapshotQuery.getTokenUsageStats!();
+      assert.deepEqual(stats, {
+        lifetimeTokens: 3_250,
+        peakThreadTokens: 2_500,
+        trackedThreads: 2,
+      });
+      yield* sql`DELETE FROM projection_thread_activities`;
+    }),
+  );
+
   it.effect("hydrates read model from projection tables and computes snapshot sequence", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

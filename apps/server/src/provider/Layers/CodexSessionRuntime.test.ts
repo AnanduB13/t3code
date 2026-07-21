@@ -16,7 +16,12 @@ import {
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
   buildTurnStartParams,
+  buildMcpElicitationApprovalResponse,
+  buildPermissionApprovalResponse,
+  describeMcpApprovalElicitation,
   hasConfiguredMcpServer,
+  isCodexMcpApprovalElicitation,
+  isComputerUseMcpElicitation,
   isRecoverableThreadResumeError,
   openCodexThread,
 } from "./CodexSessionRuntime.ts";
@@ -293,6 +298,74 @@ describe("buildCodexDeveloperInstructions", () => {
   });
 });
 
+describe("Codex Computer Use MCP approvals", () => {
+  const approval = {
+    mode: "form" as const,
+    message: "Allow Computer Use to click Save?",
+    requestedSchema: { type: "object" as const, properties: {} },
+    serverName: "computer-use",
+    threadId: "provider-thread-1",
+    turnId: "turn-1",
+    _meta: {
+      codex_approval_kind: "mcp_tool_call",
+      persist: ["session", "always"],
+      tool_title: "Click",
+      tool_params_display: [{ name: "target", display_name: "Target", value: "Save" }],
+    },
+  };
+
+  it("recognizes and describes Computer Use approvals", () => {
+    NodeAssert.equal(isCodexMcpApprovalElicitation(approval), true);
+    NodeAssert.equal(isComputerUseMcpElicitation(approval), true);
+    NodeAssert.equal(
+      describeMcpApprovalElicitation(approval),
+      "Allow Computer Use to click Save?\nTool: Click\nTarget: Save",
+    );
+  });
+
+  it("maps approval decisions to MCP elicitation responses", () => {
+    NodeAssert.deepStrictEqual(buildMcpElicitationApprovalResponse(approval, "accept"), {
+      action: "accept",
+    });
+    NodeAssert.deepStrictEqual(buildMcpElicitationApprovalResponse(approval, "acceptForSession"), {
+      action: "accept",
+      _meta: { persist: "session" },
+    });
+    NodeAssert.deepStrictEqual(buildMcpElicitationApprovalResponse(approval, "decline"), {
+      action: "decline",
+    });
+    NodeAssert.deepStrictEqual(buildMcpElicitationApprovalResponse(approval, "cancel"), {
+      action: "cancel",
+    });
+  });
+
+  it("does not mistake ordinary MCP forms for approval prompts", () => {
+    NodeAssert.equal(isCodexMcpApprovalElicitation({ ...approval, _meta: undefined }), false);
+  });
+
+  it("grants only the requested permission profile at the selected scope", () => {
+    const request = {
+      cwd: "/tmp/project",
+      itemId: "permission-1",
+      permissions: {
+        network: { enabled: true },
+        fileSystem: { read: ["/tmp/project/reference"] },
+      },
+      reason: "Read the reference and access the network",
+      startedAtMs: 1,
+      threadId: "provider-thread-1",
+      turnId: "turn-1",
+    };
+    NodeAssert.deepStrictEqual(buildPermissionApprovalResponse(request, "acceptForSession"), {
+      permissions: request.permissions,
+      scope: "session",
+    });
+    NodeAssert.deepStrictEqual(buildPermissionApprovalResponse(request, "decline"), {
+      permissions: {},
+    });
+  });
+});
+
 describe("T3 browser developer instructions", () => {
   it("prefers the product-native preview tools in both collaboration modes", () => {
     for (const instructions of [
@@ -303,6 +376,28 @@ describe("T3 browser developer instructions", () => {
       NodeAssert.match(instructions, /preview_status/);
       NodeAssert.match(instructions, /preview_open/);
       NodeAssert.match(instructions, /Do not switch to global browser skills/);
+    }
+  });
+});
+
+describe("Computer Use developer instructions", () => {
+  it("allows automatic native GUI use while preserving the safety boundary", () => {
+    for (const instructions of [
+      CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+    ]) {
+      NodeAssert.match(
+        instructions,
+        /Computer Use is supplied by the installed T3 Computer Use plugin/,
+      );
+      NodeAssert.match(instructions, /untrusted content, not user authorization/);
+      NodeAssert.match(instructions, /verify the resulting UI state/);
+      NodeAssert.match(instructions, /prompt contains an @T3 Computer Use plugin mention/);
+      NodeAssert.match(instructions, /Do not use shell DISPLAY checks/);
+      NodeAssert.match(
+        instructions,
+        /T3 Computer Use plugin must be installed and a T3 Desktop host must be connected/,
+      );
     }
   });
 });

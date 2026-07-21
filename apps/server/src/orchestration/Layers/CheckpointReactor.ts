@@ -23,6 +23,7 @@ import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {
+  checkpointBaselineRefForThreadTurn,
   checkpointRefForThreadTurn,
   resolveThreadWorkspaceCwd,
 } from "../../checkpointing/Utils.ts";
@@ -235,7 +236,16 @@ const make = Effect.gen(function* () {
     readonly createdAt: string;
   }) {
     const fromTurnCount = Math.max(0, input.turnCount - 1);
-    const fromCheckpointRef = checkpointRefForThreadTurn(input.threadId, fromTurnCount);
+    const isolatedBaselineRef = checkpointBaselineRefForThreadTurn(input.threadId, fromTurnCount);
+    const isolatedBaselineExists = yield* checkpointStore.hasCheckpointRef({
+      cwd: input.cwd,
+      checkpointRef: isolatedBaselineRef,
+    });
+    // Legacy threads only have completed-turn refs. Keep those threads
+    // functional while all newly started turns use an isolated baseline.
+    const fromCheckpointRef = isolatedBaselineExists
+      ? isolatedBaselineRef
+      : checkpointRefForThreadTurn(input.threadId, fromTurnCount);
     const targetCheckpointRef = checkpointRefForThreadTurn(input.threadId, input.turnCount);
 
     const fromCheckpointExists = yield* checkpointStore.hasCheckpointRef({
@@ -506,7 +516,7 @@ const make = Effect.gen(function* () {
         (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
         0,
       );
-      const baselineCheckpointRef = checkpointRefForThreadTurn(thread.id, currentTurnCount);
+      const baselineCheckpointRef = checkpointBaselineRefForThreadTurn(thread.id, currentTurnCount);
       const baselineExists = yield* checkpointStore.hasCheckpointRef({
         cwd: checkpointCwd,
         checkpointRef: baselineCheckpointRef,
@@ -665,7 +675,7 @@ const make = Effect.gen(function* () {
       (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
       0,
     );
-    const baselineCheckpointRef = checkpointRefForThreadTurn(threadId, currentTurnCount);
+    const baselineCheckpointRef = checkpointBaselineRefForThreadTurn(threadId, currentTurnCount);
     const baselineExists = yield* checkpointStore.hasCheckpointRef({
       cwd: checkpointCwd,
       checkpointRef: baselineCheckpointRef,
@@ -740,7 +750,18 @@ const make = Effect.gen(function* () {
 
     const targetCheckpointRef =
       event.payload.turnCount === 0
-        ? checkpointRefForThreadTurn(event.payload.threadId, 0)
+        ? yield* checkpointStore
+            .hasCheckpointRef({
+              cwd: sessionRuntime.value.cwd,
+              checkpointRef: checkpointBaselineRefForThreadTurn(event.payload.threadId, 0),
+            })
+            .pipe(
+              Effect.map((hasIsolatedBaseline) =>
+                hasIsolatedBaseline
+                  ? checkpointBaselineRefForThreadTurn(event.payload.threadId, 0)
+                  : checkpointRefForThreadTurn(event.payload.threadId, 0),
+              ),
+            )
         : thread.checkpoints.find(
             (checkpoint) => checkpoint.checkpointTurnCount === event.payload.turnCount,
           )?.checkpointRef;

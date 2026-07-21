@@ -19,6 +19,10 @@
       "types": "./src/errors/index.ts",
       "default": "./src/errors/index.ts"
     },
+    "./general-chats": {
+      "types": "./src/generalChats.ts",
+      "default": "./src/generalChats.ts"
+    },
     "./rpc": {
       "types": "./src/rpc/index.ts",
       "default": "./src/rpc/index.ts"
@@ -50,6 +54,10 @@
     "./state/connections": {
       "types": "./src/state/connections.ts",
       "default": "./src/state/connections.ts"
+    },
+    "./state/computer-use": {
+      "types": "./src/state/computerUse.ts",
+      "default": "./src/state/computerUse.ts"
     },
     "./state/entities": {
       "types": "./src/state/entities.ts",

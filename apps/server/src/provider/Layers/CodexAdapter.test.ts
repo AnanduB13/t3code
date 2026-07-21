@@ -141,6 +141,25 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
     return Effect.promise(() => this.rollbackThreadImpl(numTurns));
   }
 
+  getGoal = Effect.succeed({ goal: null });
+
+  setGoal(input: { readonly objective?: string | null }) {
+    return Effect.succeed({
+      goal: {
+        threadId: "provider-thread-1",
+        objective: input.objective ?? "test goal",
+        status: "active" as const,
+        tokenBudget: null,
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    });
+  }
+
+  clearGoal = Effect.succeed({ cleared: false });
+
   respondToRequest(requestId: ApprovalRequestId, decision: ProviderApprovalDecision) {
     return Effect.promise(() => this.respondToRequestImpl(requestId, decision));
   }
@@ -288,6 +307,28 @@ validationLayer("CodexAdapterLive validation", (it) => {
       });
     }),
   );
+  it.effect("delegates persisted goal controls to the active Codex runtime", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-goal");
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      NodeAssert.ok(adapter.goal);
+
+      const created = yield* adapter.goal.set(threadId, {
+        objective: "Ship the goal feature",
+        status: "active",
+      });
+      NodeAssert.equal(created.threadId, threadId);
+      NodeAssert.equal(created.objective, "Ship the goal feature");
+      NodeAssert.equal(created.status, "active");
+      NodeAssert.equal(yield* adapter.goal.get(threadId), null);
+      NodeAssert.equal(yield* adapter.goal.clear(threadId), false);
+    }),
+  );
 });
 
 const sessionRuntimeFactory = makeRuntimeFactory();
@@ -356,6 +397,34 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
         model: "gpt-5.3-codex",
         effort: "high",
         serviceTier: "priority",
+      });
+    }),
+  );
+
+  it.effect("activates Computer Use for explicit natural-language requests", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("computer-use-natural-language");
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const runtime = sessionRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      runtime.sendTurnImpl.mockClear();
+
+      yield* Effect.ignore(
+        adapter.sendTurn({
+          threadId,
+          input: "use computer use and open the ChatGPT app",
+          attachments: [],
+        }),
+      );
+
+      NodeAssert.deepStrictEqual(runtime.sendTurnImpl.mock.calls[0]?.[0], {
+        input:
+          "[@T3 Computer Use](plugin://t3-computer-use@personal) use computer use and open the ChatGPT app",
       });
     }),
   );

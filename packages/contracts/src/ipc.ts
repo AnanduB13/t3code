@@ -71,6 +71,13 @@ import {
   PreviewAutomationTypeInput,
   PreviewAutomationWaitForInput,
 } from "./previewAutomation.ts";
+import {
+  ComputerUseDevice,
+  ComputerUseOperation,
+  ComputerUseRequest,
+  ComputerUseResponse,
+  ComputerUseStreamEvent,
+} from "./computerUse.ts";
 import type {
   ClientOrchestrationCommand,
   OrchestrationGetFullThreadDiffInput,
@@ -1021,6 +1028,11 @@ export interface DesktopBridge {
    * Electron desktop build; web builds have `preview === undefined`.
    */
   preview?: DesktopPreviewBridge;
+  /** Native input and screen-capture host exposed only by T3 Desktop. */
+  computerUse?: {
+    describe: () => Promise<ComputerUseDevice>;
+    execute: (operation: ComputerUseOperation, input: unknown) => Promise<unknown>;
+  };
 }
 
 export interface DesktopPreviewBridge {
@@ -1251,4 +1263,18 @@ export interface EnvironmentApi {
       options?: { onResubscribe?: () => void },
     ) => () => void;
   };
+  computerUse: {
+    connect: (
+      input: import("./computerUse.ts").ComputerUseHost,
+      callback: (event: ComputerUseStreamEvent) => void,
+      options?: { onResubscribe?: () => void },
+    ) => () => void;
+    respond: (response: ComputerUseResponse) => Promise<void>;
+  };
 }
+
+export const DesktopComputerUseExecuteInput = Schema.Struct({
+  operation: ComputerUseOperation,
+  input: Schema.Unknown,
+});
+export const DesktopComputerUseRequest = ComputerUseRequest;

@@ -287,6 +287,20 @@ describe("composerDraftStore clearComposerContent", () => {
     expect(draft).toBeUndefined();
     expect(revokeSpy).not.toHaveBeenCalledWith("blob:optimistic");
   });
+
+  it("clears pasted text attachments with the rest of the composer", () => {
+    useComposerDraftStore
+      .getState()
+      .addPastedText(threadRef, { id: "paste-1", text: "a long pasted block" });
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.pastedTexts).toEqual([
+      { id: "paste-1", text: "a long pasted block" },
+    ]);
+
+    useComposerDraftStore.getState().clearComposerContent(threadRef);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
 });
 
 describe("composerDraftStore syncPersistedAttachments", () => {
