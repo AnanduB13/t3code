@@ -17,6 +17,7 @@ import ProjectScriptsControl, {
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { ProjectFavicon } from "../ProjectFavicon";
 import { cn } from "~/lib/utils";
 import { GENERAL_CHATS_PROJECT_ID } from "../../generalChats";
 
@@ -27,6 +28,7 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   activeProjectId: ProjectId | undefined;
   activeProjectName: string | undefined;
+  activeProjectCwd: string | null;
   openInCwd: string | null;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   preferredScriptId: string | null;
@@ -66,6 +68,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
+  activeProjectCwd,
   openInCwd,
   activeProjectScripts,
   preferredScriptId,
@@ -88,6 +91,26 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
+        {/* The project always leads the header: knowing which project a
+            thread lives in is priority zero, and the thread title alone
+            doesn't answer it. */}
+        {activeProjectName ? (
+          <span className="inline-flex shrink-0 items-center gap-2">
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <ProjectFavicon
+                environmentId={activeThreadEnvironmentId}
+                cwd={activeProjectCwd ?? ""}
+                className="size-3.5"
+              />
+              <span className="max-w-40 truncate text-sm font-medium text-muted-foreground">
+                {activeProjectName}
+              </span>
+            </span>
+            <span aria-hidden className="text-muted-foreground/40">
+              /
+            </span>
+          </span>
+        ) : null}
         <Tooltip>
           <TooltipTrigger
             render={
