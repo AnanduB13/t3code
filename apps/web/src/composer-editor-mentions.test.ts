@@ -21,12 +21,9 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
-  it("keeps newlines around mention tokens", () => {
-    expect(splitPromptIntoComposerSegments("one\n@src/index.ts \ntwo")).toEqual([
-      { type: "text", text: "one\n" },
-      { type: "mention", path: "src/index.ts", source: "@src/index.ts" },
-      { type: "text", text: " \ntwo" },
-    ]);
+  it("keeps newlines around ambiguous scoped-package text", () => {
+    const prompt = "one\n@src/index.ts \ntwo";
+    expect(splitPromptIntoComposerSegments(prompt)).toEqual([{ type: "text", text: prompt }]);
   });
 
   it("splits quoted mention tokens containing whitespace", () => {
