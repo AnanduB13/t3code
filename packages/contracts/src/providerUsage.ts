@@ -29,6 +29,12 @@ export const TokenUsageStats = Schema.Struct({
   lifetimeTokens: NonNegativeInt,
   peakThreadTokens: NonNegativeInt,
   trackedThreads: NonNegativeInt,
+  daily: Schema.Array(
+    Schema.Struct({
+      date: Schema.String,
+      tokens: NonNegativeInt,
+    }),
+  ),
 });
 export type TokenUsageStats = typeof TokenUsageStats.Type;
 

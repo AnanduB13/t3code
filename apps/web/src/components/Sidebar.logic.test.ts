@@ -17,6 +17,7 @@ import {
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarStageBadgeLabel,
+  resolveSidebarV2RecentChats,
   resolveThreadRowClassName,
   resolveSidebarV2Status,
   resolveThreadStatusPill,
@@ -730,6 +731,154 @@ describe("sortThreadsForSidebarV2", () => {
   });
 });
 
+describe("resolveSidebarV2RecentChats", () => {
+  const entry = (input: {
+    id: string;
+    latestUserMessageAt?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    standalone?: boolean;
+  }) => ({
+    thread: {
+      id: input.id,
+      createdAt: input.createdAt ?? "2026-03-09T08:00:00.000Z",
+      updatedAt: input.updatedAt ?? "2026-03-09T08:00:00.000Z",
+      latestUserMessageAt: input.latestUserMessageAt ?? null,
+    },
+    threadKey: `environment:${input.id}`,
+    duplicateGroupKey: `environment:project:${input.id}`,
+    includeWhenUnvisited: input.standalone ?? false,
+  });
+
+  it("shows only the five most recently active chats until expanded", () => {
+    const entries = Array.from({ length: 7 }, (_, index) =>
+      entry({
+        id: `thread-${index + 1}`,
+        latestUserMessageAt: `2026-03-09T${String(index + 10).padStart(2, "0")}:00:00.000Z`,
+      }),
+    );
+
+    const preview = resolveSidebarV2RecentChats({ entries, expanded: false, previewLimit: 5 });
+    expect(preview.visible.map(({ thread }) => thread.id)).toEqual([
+      "thread-7",
+      "thread-6",
+      "thread-5",
+      "thread-4",
+      "thread-3",
+    ]);
+    expect(preview.hiddenCount).toBe(2);
+
+    const expanded = resolveSidebarV2RecentChats({ entries, expanded: true, previewLimit: 5 });
+    expect(expanded.visible).toHaveLength(7);
+    expect(expanded.hiddenCount).toBe(2);
+  });
+
+  it("does not reorder from navigation or non-message updates", () => {
+    const entries = [
+      entry({
+        id: "newer-message",
+        latestUserMessageAt: "2026-03-09T12:00:00.000Z",
+        updatedAt: "2026-03-09T12:00:00.000Z",
+      }),
+      entry({
+        id: "older-message",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        updatedAt: "2026-03-09T13:00:00.000Z",
+      }),
+    ];
+
+    expect(
+      resolveSidebarV2RecentChats({ entries, expanded: false, previewLimit: 5 }).visible.map(
+        ({ thread }) => thread.id,
+      ),
+    ).toEqual(["newer-message", "older-message"]);
+  });
+
+  it("moves a chat only after a newer user message", () => {
+    const entries = [
+      entry({ id: "newer", latestUserMessageAt: "2026-03-09T12:00:00.000Z" }),
+      entry({ id: "older", latestUserMessageAt: "2026-03-09T09:00:00.000Z" }),
+    ];
+    const afterPrompt = entries.map((candidate) =>
+      candidate.thread.id === "older"
+        ? {
+            ...candidate,
+            thread: {
+              ...candidate.thread,
+              latestUserMessageAt: "2026-03-09T13:00:00.000Z",
+            },
+          }
+        : candidate,
+    );
+
+    expect(
+      resolveSidebarV2RecentChats({
+        entries: afterPrompt,
+        expanded: false,
+        previewLimit: 5,
+      }).visible.map(({ thread }) => thread.id),
+    ).toEqual(["older", "newer"]);
+  });
+
+  it("keeps standalone chats discoverable but excludes project threads without prompts", () => {
+    const result = resolveSidebarV2RecentChats({
+      entries: [
+        entry({ id: "standalone", standalone: true }),
+        entry({ id: "project-without-prompt" }),
+        entry({
+          id: "project-with-prompt",
+          latestUserMessageAt: "2026-03-09T12:00:00.000Z",
+        }),
+      ],
+      expanded: false,
+      previewLimit: 5,
+    });
+
+    expect(result.visible.map(({ thread }) => thread.id)).toEqual([
+      "project-with-prompt",
+      "standalone",
+    ]);
+  });
+
+  it("collapses case-only title duplicates within one project without hiding other projects", () => {
+    const olderDuplicate = {
+      ...entry({
+        id: "older-duplicate",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        standalone: true,
+      }),
+      duplicateGroupKey: "environment:project-a:chatgpt app hello test",
+    };
+    const newerDuplicate = {
+      ...entry({
+        id: "newer-duplicate",
+        latestUserMessageAt: "2026-03-09T12:00:00.000Z",
+        standalone: true,
+      }),
+      duplicateGroupKey: "environment:project-a:chatgpt app hello test",
+    };
+    const sameTitleOtherProject = {
+      ...entry({
+        id: "other-project",
+        latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+        standalone: true,
+      }),
+      duplicateGroupKey: "environment:project-b:chatgpt app hello test",
+    };
+
+    const result = resolveSidebarV2RecentChats({
+      entries: [olderDuplicate, newerDuplicate, sameTitleOtherProject],
+      expanded: true,
+      previewLimit: 5,
+    });
+
+    expect(result.visible.map(({ thread }) => thread.id)).toEqual([
+      "newer-duplicate",
+      "other-project",
+    ]);
+  });
+});
+
 describe("resolveThreadStatusPill", () => {
   const baseThread = {
     hasActionableProposedPlan: false,
@@ -993,6 +1142,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     messages: [],
+    queuedMessages: [],
+    pendingTurnStart: null,
     proposedPlans: [],
     createdAt: "2026-03-09T10:00:00.000Z",
     archivedAt: null,
@@ -1018,24 +1169,28 @@ describe("getFallbackThreadIdAfterDelete", () => {
           projectId: ProjectId.make("project-1"),
           createdAt: "2026-03-09T10:00:00.000Z",
           messages: [],
+          queuedMessages: [],
         }),
         makeThread({
           id: ThreadId.make("thread-active"),
           projectId: ProjectId.make("project-1"),
           createdAt: "2026-03-09T10:05:00.000Z",
           messages: [],
+          queuedMessages: [],
         }),
         makeThread({
           id: ThreadId.make("thread-newest"),
           projectId: ProjectId.make("project-1"),
           createdAt: "2026-03-09T10:10:00.000Z",
           messages: [],
+          queuedMessages: [],
         }),
         makeThread({
           id: ThreadId.make("thread-other-project"),
           projectId: ProjectId.make("project-2"),
           createdAt: "2026-03-09T10:20:00.000Z",
           messages: [],
+          queuedMessages: [],
         }),
       ],
       deletedThreadId: ThreadId.make("thread-active"),
@@ -1053,18 +1208,21 @@ describe("getFallbackThreadIdAfterDelete", () => {
           projectId: ProjectId.make("project-1"),
           createdAt: "2026-03-09T10:05:00.000Z",
           messages: [],
+          queuedMessages: [],
         }),
         makeThread({
           id: ThreadId.make("thread-newest"),
           projectId: ProjectId.make("project-1"),
           createdAt: "2026-03-09T10:10:00.000Z",
           messages: [],
+          queuedMessages: [],
         }),
         makeThread({
           id: ThreadId.make("thread-next"),
           projectId: ProjectId.make("project-1"),
           createdAt: "2026-03-09T10:07:00.000Z",
           messages: [],
+          queuedMessages: [],
         }),
       ],
       deletedThreadId: ThreadId.make("thread-active"),

@@ -3,7 +3,7 @@ import { SettingsIcon } from "lucide-react";
 import { memo, useCallback } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 
-import { APP_STAGE_LABEL } from "../../branding";
+import { APP_EDITION_LABEL, APP_STAGE_LABEL, APP_TAGLINE } from "../../branding";
 import { cn } from "../../lib/utils";
 import { primaryServerConfigAtom } from "../../state/server";
 import { resolveSidebarStageBadgeLabel } from "../Sidebar.logic";
@@ -19,6 +19,7 @@ import {
 } from "../ui/sidebar";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -49,24 +50,41 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      <T3Wordmark />
-      <span
-        className={cn(
-          "truncate text-sm font-medium tracking-tight",
-          onBackdrop ? "text-white/70" : "text-muted-foreground",
-        )}
-      >
-        Code
-      </span>
-    </Link>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link
+            aria-label={`Go to threads — T3 Code: After Dark — ${APP_TAGLINE}`}
+            className={cn(
+              "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2",
+              onBackdrop ? "text-white" : "text-foreground",
+            )}
+            to="/"
+          >
+            <T3Wordmark />
+            <span
+              className={cn(
+                "ml-1 truncate text-sm font-medium tracking-tight",
+                onBackdrop ? "text-white/70" : "text-muted-foreground",
+              )}
+            >
+              Code
+            </span>
+            <span
+              className={cn(
+                "ml-1.5 text-[8px] font-medium tracking-[0.16em] whitespace-nowrap uppercase",
+                onBackdrop ? "text-white/45" : "text-muted-foreground/45",
+              )}
+            >
+              {APP_EDITION_LABEL}
+            </span>
+          </Link>
+        }
+      />
+      <TooltipPopup align="start" side="bottom" className="tracking-[0.04em]">
+        {APP_TAGLINE}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

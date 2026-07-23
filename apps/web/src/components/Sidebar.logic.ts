@@ -482,6 +482,76 @@ export function sortThreadsForSidebarV2<
   );
 }
 
+export interface SidebarV2RecentChatEntry<
+  T extends {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+    readonly latestUserMessageAt?: string | null;
+  },
+> {
+  readonly thread: T;
+  readonly threadKey: string;
+  /**
+   * Project-scoped normalized title. Separate stored threads with the same
+   * generated title collapse to the most recently active representative.
+   */
+  readonly duplicateGroupKey: string;
+  /** Standalone chats stay discoverable before their first user message. */
+  readonly includeWhenUnvisited: boolean;
+}
+
+/**
+ * Builds the fixed Chats shelf shown below Sidebar V2's project thread list.
+ * Project threads join the shelf once they have user activity, while
+ * standalone chats are always eligible. Navigation never changes the order:
+ * only a new user message (or a newly created chat) can move a row.
+ */
+export function resolveSidebarV2RecentChats<
+  T extends {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+    readonly latestUserMessageAt?: string | null;
+  },
+>(input: {
+  readonly entries: readonly SidebarV2RecentChatEntry<T>[];
+  readonly expanded: boolean;
+  readonly previewLimit: number;
+}): {
+  readonly ordered: readonly SidebarV2RecentChatEntry<T>[];
+  readonly visible: readonly SidebarV2RecentChatEntry<T>[];
+  readonly hiddenCount: number;
+} {
+  const sorted = input.entries
+    .filter((entry) => entry.includeWhenUnvisited || entry.thread.latestUserMessageAt != null)
+    .toSorted((left, right) => {
+      const rightRecency = firstValidTimestampMs(
+        right.thread.latestUserMessageAt,
+        right.thread.createdAt,
+      );
+      const leftRecency = firstValidTimestampMs(
+        left.thread.latestUserMessageAt,
+        left.thread.createdAt,
+      );
+      return rightRecency - leftRecency || left.thread.id.localeCompare(right.thread.id);
+    });
+  const seenDuplicateGroups = new Set<string>();
+  const ordered = sorted.filter((entry) => {
+    if (seenDuplicateGroups.has(entry.duplicateGroupKey)) return false;
+    seenDuplicateGroups.add(entry.duplicateGroupKey);
+    return true;
+  });
+  const previewLimit = Math.max(0, input.previewLimit);
+  const hiddenCount = Math.max(0, ordered.length - previewLimit);
+
+  return {
+    ordered,
+    visible: input.expanded ? ordered : ordered.slice(0, previewLimit),
+    hiddenCount,
+  };
+}
+
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {

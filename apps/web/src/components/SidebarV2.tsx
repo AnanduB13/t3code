@@ -14,6 +14,7 @@ import {
   CircleDashedIcon,
   CloudIcon,
   FolderPlusIcon,
+  LoaderIcon,
   MessageSquareIcon,
   PlusIcon,
   SearchIcon,
@@ -58,16 +59,25 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
+import {
+  excludeGeneralChatsProject,
+  findGeneralChatsProject,
+  GENERAL_CHAT_NEW_THREAD_OPTIONS,
+  GENERAL_CHATS_PROJECT_ID,
+  GENERAL_CHATS_PROJECT_TITLE,
+  GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
+} from "../generalChats";
 import { onOpenNewThreadPicker } from "../newThreadPickerBus";
 import { Dialog, DialogHeader, DialogPopup, DialogTitle } from "./ui/dialog";
 import {
   resolveThreadActionProjectRef,
-  startNewThreadFromContext,
   startNewThreadInProjectFromContext,
 } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useProjects, useThreadShells, waitForProject } from "../state/entities";
+import { projectEnvironment } from "../state/projects";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
@@ -82,13 +92,18 @@ import {
   hasUnseenCompletion,
   isTrailingDoubleClick,
   resolveAdjacentThreadId,
+  resolveSidebarV2RecentChats,
   resolveSidebarV2Status,
   sortThreadsForSidebarV2,
 } from "./Sidebar.logic";
 import { prStatusIndicator, resolveThreadPr } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
-import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
+import {
+  deriveProviderInstanceEntries,
+  resolveDefaultProviderModelSelection,
+  type ProviderInstanceEntry,
+} from "../providerInstances";
 import { primaryServerProvidersAtom } from "../state/server";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { CommandDialogTrigger } from "./ui/command";
@@ -103,12 +118,14 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
+const RECENT_CHATS_PREVIEW_COUNT = 5;
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -608,6 +625,140 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   );
 });
 
+const SidebarV2RecentChatRow = memo(function SidebarV2RecentChatRow(props: {
+  thread: SidebarThreadSummary;
+  isActive: boolean;
+  projectCwd: string | null;
+  projectTitle: string | null;
+  onActivate: (threadRef: ScopedThreadRef) => void;
+  onStartRename: (threadRef: ScopedThreadRef, title: string) => void;
+  onRenameTitleChange: (title: string) => void;
+  onCommitRename: (threadRef: ScopedThreadRef, title: string, originalTitle: string) => void;
+  onCancelRename: () => void;
+  isRenaming: boolean;
+  renamingTitle: string;
+  onContextMenu: (threadRef: ScopedThreadRef, position: { x: number; y: number }) => void;
+}) {
+  const threadRef = useMemo(
+    () => scopeThreadRef(props.thread.environmentId, props.thread.id),
+    [props.thread.environmentId, props.thread.id],
+  );
+  const renameCommittedRef = useRef(false);
+  useEffect(() => {
+    if (props.isRenaming) renameCommittedRef.current = false;
+  }, [props.isRenaming]);
+
+  const activate = useCallback(
+    (event: ReactMouseEvent) => {
+      if (isTrailingDoubleClick(event.detail)) return;
+      props.onActivate(threadRef);
+    },
+    [props, threadRef],
+  );
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      props.onActivate(threadRef);
+    },
+    [props, threadRef],
+  );
+  const handleDoubleClick = useCallback(
+    (event: ReactMouseEvent) => {
+      if (
+        props.isRenaming ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        (event.target as HTMLElement).closest("button, a, input")
+      ) {
+        return;
+      }
+      event.preventDefault();
+      props.onStartRename(threadRef, props.thread.title);
+    },
+    [props, threadRef],
+  );
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      props.onContextMenu(threadRef, { x: event.clientX, y: event.clientY });
+    },
+    [props, threadRef],
+  );
+  const handleRenameKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        renameCommittedRef.current = true;
+        props.onCommitRename(threadRef, props.renamingTitle, props.thread.title);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        renameCommittedRef.current = true;
+        props.onCancelRename();
+      }
+    },
+    [props, threadRef],
+  );
+  const handleRenameBlur = useCallback(() => {
+    if (!renameCommittedRef.current) {
+      props.onCommitRename(threadRef, props.renamingTitle, props.thread.title);
+    }
+  }, [props, threadRef]);
+
+  return (
+    <li className="list-none" data-thread-selection-safe>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-current={props.isActive ? "page" : undefined}
+        data-testid="sidebar-v2-chat-row"
+        title={
+          props.projectTitle ? `${props.projectTitle} · ${props.thread.title}` : props.thread.title
+        }
+        className={cn(
+          "group/recent-chat flex h-8 w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 text-left transition-colors",
+          props.isActive
+            ? "bg-foreground/[0.11] text-foreground dark:bg-white/[0.11]"
+            : "text-muted-foreground hover:bg-accent/65 hover:text-foreground",
+        )}
+        onClick={activate}
+        onDoubleClick={handleDoubleClick}
+        onKeyDown={handleKeyDown}
+        onContextMenu={handleContextMenu}
+      >
+        <ProjectFavicon
+          environmentId={props.thread.environmentId}
+          cwd={props.projectCwd ?? ""}
+          fallbackIcon={MessageSquareIcon}
+          className="size-3.5 shrink-0"
+        />
+        {props.isRenaming ? (
+          <input
+            autoFocus
+            value={props.renamingTitle}
+            aria-label="Chat title"
+            onChange={(event) => props.onRenameTitleChange(event.target.value)}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={handleRenameKeyDown}
+            onBlur={handleRenameBlur}
+            onClick={(event) => event.stopPropagation()}
+            className="min-w-0 flex-1 rounded-sm border border-border bg-background px-1 text-xs text-foreground outline-none focus:border-foreground"
+          />
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-xs">{props.thread.title}</span>
+        )}
+        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/45 transition-colors group-hover/recent-chat:text-muted-foreground/70">
+          {threadTimeLabel(props.thread)}
+        </span>
+      </div>
+    </li>
+  );
+});
+
 function latestTurnDiff(
   thread: SidebarThreadSummary,
 ): { insertions: number; deletions: number } | null {
@@ -619,6 +770,7 @@ function latestTurnDiff(
 
 export default function SidebarV2() {
   const projects = useProjects();
+  const regularProjects = useMemo(() => excludeGeneralChatsProject(projects), [projects]);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -633,6 +785,15 @@ export default function SidebarV2() {
   const openAddProjectCommandPalette = useOpenAddProjectCommandPalette();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const generalChatsProject = useMemo(
+    () => findGeneralChatsProject(projects, primaryEnvironmentId),
+    [primaryEnvironmentId, projects],
+  );
+  const createProject = useAtomCommand(projectEnvironment.create, {
+    reportFailure: false,
+  });
+  const [isCreatingGeneralChat, setIsCreatingGeneralChat] = useState(false);
+  const creatingGeneralChatRef = useRef(false);
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -643,6 +804,7 @@ export default function SidebarV2() {
     select: (params) => resolveThreadRouteRef(params),
   });
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const [showAllChats, setShowAllChats] = useState(false);
   // Post-settle navigation validates against the CURRENT route, not the one
   // captured when the settle started: if the user navigated elsewhere while
   // the command was in flight, completing it must not yank them away.
@@ -680,6 +842,29 @@ export default function SidebarV2() {
     () =>
       new Map(projects.map((project) => [`${project.environmentId}:${project.id}`, project.title])),
     [projects],
+  );
+  const recentChatLayout = useMemo(
+    () =>
+      resolveSidebarV2RecentChats({
+        entries: threads
+          .filter((thread) => thread.archivedAt === null)
+          .map((thread) => {
+            const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+            return {
+              thread,
+              threadKey,
+              duplicateGroupKey: [
+                thread.environmentId,
+                thread.projectId,
+                thread.title.trim().replace(/\s+/g, " ").toLowerCase(),
+              ].join(":"),
+              includeWhenUnvisited: thread.projectId === GENERAL_CHATS_PROJECT_ID,
+            };
+          }),
+        expanded: showAllChats,
+        previewLimit: RECENT_CHATS_PREVIEW_COUNT,
+      }),
+    [showAllChats, threads],
   );
 
   // now is quantized to the minute so effectiveSettled memoization doesn't
@@ -722,19 +907,21 @@ export default function SidebarV2() {
     () =>
       projectScopeKey === null
         ? null
-        : (projects.find(
+        : (regularProjects.find(
             (project) => `${project.environmentId}:${project.id}` === projectScopeKey,
           ) ?? null),
-    [projectScopeKey, projects],
+    [projectScopeKey, regularProjects],
   );
   useEffect(() => {
     if (
       projectScopeKey !== null &&
-      !projects.some((project) => `${project.environmentId}:${project.id}` === projectScopeKey)
+      !regularProjects.some(
+        (project) => `${project.environmentId}:${project.id}` === projectScopeKey,
+      )
     ) {
       setProjectScopeKey(null);
     }
-  }, [projectScopeKey, projects]);
+  }, [projectScopeKey, regularProjects]);
   // Scope flips drop the selection: rows selected under the old scope may be
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
@@ -751,6 +938,7 @@ export default function SidebarV2() {
     const visible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
+        thread.projectId !== GENERAL_CHATS_PROJECT_ID &&
         (scopedProject === null ||
           (thread.environmentId === scopedProject.environmentId &&
             thread.projectId === scopedProject.id)),
@@ -833,12 +1021,14 @@ export default function SidebarV2() {
   const threadByKey = useMemo(
     () =>
       new Map(
-        orderedThreads.map(
-          (thread) =>
-            [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
-        ),
+        threads
+          .filter((thread) => thread.archivedAt === null)
+          .map(
+            (thread) =>
+              [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
+          ),
       ),
-    [orderedThreads],
+    [threads],
   );
   // Handlers read these through refs: depending on per-update Map/Set
   // identities would give every row a fresh callback prop on each shell
@@ -1299,6 +1489,102 @@ export default function SidebarV2() {
     autoAnimate(node, { duration: 150, easing: "ease-out" });
   }, []);
 
+  const createGeneralChat = useCallback(() => {
+    if (creatingGeneralChatRef.current) return;
+    if (primaryEnvironmentId === null) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not create chat",
+          description: "The primary environment is not connected yet.",
+        }),
+      );
+      return;
+    }
+
+    creatingGeneralChatRef.current = true;
+    setIsCreatingGeneralChat(true);
+    void (async () => {
+      try {
+        const projectRef = scopeProjectRef(primaryEnvironmentId, GENERAL_CHATS_PROJECT_ID);
+        if (generalChatsProject === null) {
+          const createResult = await createProject({
+            environmentId: primaryEnvironmentId,
+            input: {
+              projectId: GENERAL_CHATS_PROJECT_ID,
+              title: GENERAL_CHATS_PROJECT_TITLE,
+              workspaceRoot: GENERAL_CHATS_WORKSPACE_ROOT,
+              createWorkspaceRootIfMissing: true,
+              defaultModelSelection: resolveDefaultProviderModelSelection(serverProviders, null),
+            },
+          });
+          if (createResult._tag === "Failure") {
+            if (isAtomCommandInterrupted(createResult)) return;
+            const error = squashAtomCommandFailure(createResult);
+            if (!isGeneralChatsProjectAlreadyExistsError(error)) {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Could not create chat",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+              return;
+            }
+          }
+
+          const provisionedProject = await waitForProject(projectRef);
+          if (provisionedProject === null) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Could not create chat",
+                description: "The chat workspace is still syncing. Try again in a moment.",
+              }),
+            );
+            return;
+          }
+        }
+
+        const navigationResult = await settlePromise(() =>
+          newThreadContext.handleNewThread(projectRef, GENERAL_CHAT_NEW_THREAD_OPTIONS),
+        );
+        if (navigationResult._tag === "Failure") {
+          const error = squashAtomCommandFailure(navigationResult);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not create chat",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+          return;
+        }
+
+        if (isMobile) setOpenMobile(false);
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not create chat",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      } finally {
+        creatingGeneralChatRef.current = false;
+        setIsCreatingGeneralChat(false);
+      }
+    })();
+  }, [
+    createProject,
+    generalChatsProject,
+    isMobile,
+    newThreadContext.handleNewThread,
+    primaryEnvironmentId,
+    serverProviders,
+    setOpenMobile,
+  ]);
+
   // New thread defaults to the project you're in (active thread's project,
   // falling back to the top project) — same resolution the command palette
   // uses. The chevron menu is the explicit project picker the flat list no
@@ -1308,24 +1594,29 @@ export default function SidebarV2() {
   // v2 with multiple projects it opens this picker via the event bus.
   useEffect(() => onOpenNewThreadPicker(() => setNewThreadPickerOpen(true)), []);
   const handleNewThreadClick = useCallback(() => {
+    if (regularProjects.length === 0) return;
     // One project: nothing to pick, create immediately.
-    if (projects.length <= 1) {
+    if (regularProjects.length === 1) {
       if (isMobile) setOpenMobile(false);
-      void startNewThreadFromContext({
-        activeDraftThread: newThreadContext.activeDraftThread,
-        activeThread: newThreadContext.activeThread ?? undefined,
-        defaultProjectRef: newThreadContext.defaultProjectRef,
-        handleNewThread: newThreadContext.handleNewThread,
-      });
+      const project = regularProjects[0]!;
+      void startNewThreadInProjectFromContext(
+        {
+          activeDraftThread: newThreadContext.activeDraftThread,
+          activeThread: newThreadContext.activeThread ?? undefined,
+          defaultProjectRef: newThreadContext.defaultProjectRef,
+          handleNewThread: newThreadContext.handleNewThread,
+        },
+        scopeProjectRef(project.environmentId, project.id),
+      );
       return;
     }
     setNewThreadPickerOpen(true);
-  }, [isMobile, newThreadContext, projects.length, setOpenMobile]);
+  }, [isMobile, newThreadContext, regularProjects, setOpenMobile]);
   const createThreadInProject = useCallback(
-    (environmentId: (typeof projects)[number]["environmentId"], projectId: string) => {
+    (environmentId: (typeof regularProjects)[number]["environmentId"], projectId: string) => {
       setNewThreadPickerOpen(false);
       if (isMobile) setOpenMobile(false);
-      const project = projects.find(
+      const project = regularProjects.find(
         (candidate) => candidate.environmentId === environmentId && candidate.id === projectId,
       );
       if (!project) return;
@@ -1339,7 +1630,7 @@ export default function SidebarV2() {
         scopeProjectRef(project.environmentId, project.id),
       );
     },
-    [isMobile, newThreadContext, projects, setOpenMobile],
+    [isMobile, newThreadContext, regularProjects, setOpenMobile],
   );
   const contextualProjectRef = resolveThreadActionProjectRef({
     activeDraftThread: newThreadContext.activeDraftThread,
@@ -1351,25 +1642,27 @@ export default function SidebarV2() {
     ? scopeProjectRef(scopedProject.environmentId, scopedProject.id)
     : contextualProjectRef;
   const newThreadTargetProject = newThreadTargetRef
-    ? (projects.find(
+    ? (regularProjects.find(
         (project) =>
           project.environmentId === newThreadTargetRef.environmentId &&
           project.id === newThreadTargetRef.projectId,
-      ) ?? null)
-    : null;
+      ) ??
+      regularProjects[0] ??
+      null)
+    : (regularProjects[0] ?? null);
   // Picker order: the contextual default first (preselected), everything else
   // after — the common case is Enter/click on the top row.
   const newThreadPickerProjects = useMemo(() => {
-    if (!newThreadTargetProject) return projects;
+    if (!newThreadTargetProject) return regularProjects;
     return [
       newThreadTargetProject,
-      ...projects.filter(
+      ...regularProjects.filter(
         (project) =>
           project.environmentId !== newThreadTargetProject.environmentId ||
           project.id !== newThreadTargetProject.id,
       ),
     ];
-  }, [newThreadTargetProject, projects]);
+  }, [newThreadTargetProject, regularProjects]);
 
   const commandPaletteShortcutLabel = shortcutLabelForCommand(keybindings, "commandPalette.toggle");
   // Same resolution as v1: prefer the local-thread binding, fall back to
@@ -1394,7 +1687,7 @@ export default function SidebarV2() {
     const resizeObserver = new ResizeObserver(updateProjectScrollFade);
     resizeObserver.observe(scroller);
     return () => resizeObserver.disconnect();
-  }, [projects, updateProjectScrollFade]);
+  }, [regularProjects, updateProjectScrollFade]);
 
   return (
     <>
@@ -1426,7 +1719,7 @@ export default function SidebarV2() {
                 size="sm"
                 className="size-7 justify-center border border-border bg-background/60 p-0 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
                 onClick={handleNewThreadClick}
-                disabled={projects.length === 0}
+                disabled={regularProjects.length === 0}
                 aria-label="New thread"
                 tooltip={{
                   children: newThreadShortcutLabel
@@ -1440,7 +1733,7 @@ export default function SidebarV2() {
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
-        {projects.length > 0 ? (
+        {regularProjects.length > 0 ? (
           <SidebarGroup className="px-2 pb-1 pt-1">
             <div className="relative">
               <div
@@ -1454,7 +1747,7 @@ export default function SidebarV2() {
                 role="tablist"
                 aria-label="Filter threads by project"
               >
-                {projects.length > 1 ? (
+                {regularProjects.length > 1 ? (
                   <button
                     type="button"
                     role="tab"
@@ -1470,7 +1763,7 @@ export default function SidebarV2() {
                     All
                   </button>
                 ) : null}
-                {projects.map((project) => {
+                {regularProjects.map((project) => {
                   const scopeKey = `${project.environmentId}:${project.id}`;
                   const isScoped = projectScopeKey === scopeKey;
                   return (
@@ -1616,7 +1909,7 @@ export default function SidebarV2() {
           </ul>
           {orderedThreads.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-              {projects.length === 0 ? (
+              {regularProjects.length === 0 ? (
                 <>
                   <span>No projects yet</span>
                   <button
@@ -1637,6 +1930,79 @@ export default function SidebarV2() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
+      <SidebarSeparator />
+      <SidebarGroup className="px-2 py-1" data-testid="sidebar-v2-chats-section">
+        <div className="mb-1 flex h-7 items-center justify-between px-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+            Chats
+          </span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Create new chat"
+                  data-testid="sidebar-v2-new-chat-trigger"
+                  disabled={isCreatingGeneralChat}
+                  onClick={createGeneralChat}
+                  className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              }
+            >
+              {isCreatingGeneralChat ? (
+                <LoaderIcon className="size-3.5 animate-spin" />
+              ) : (
+                <SquarePenIcon className="size-3.5" />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup side="right">New chat</TooltipPopup>
+          </Tooltip>
+        </div>
+        <ul
+          className={cn("flex flex-col gap-px", showAllChats && "max-h-64 overflow-y-auto")}
+          aria-label="Recent chats"
+        >
+          {recentChatLayout.visible.map(({ thread, threadKey }) => (
+            <SidebarV2RecentChatRow
+              key={threadKey}
+              thread={thread}
+              isActive={routeThreadKey === threadKey}
+              projectCwd={
+                projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
+              }
+              projectTitle={
+                projectTitleByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
+              }
+              onActivate={navigateToThread}
+              onStartRename={startThreadRename}
+              onRenameTitleChange={setRenamingTitle}
+              onCommitRename={commitThreadRename}
+              onCancelRename={cancelThreadRename}
+              isRenaming={renamingThreadKey === threadKey}
+              renamingTitle={renamingThreadKey === threadKey ? renamingTitle : ""}
+              onContextMenu={handleThreadContextMenu}
+            />
+          ))}
+          {recentChatLayout.ordered.length === 0 ? (
+            <li className="flex h-8 items-center px-2 text-[11px] text-muted-foreground/50">
+              No chats yet
+            </li>
+          ) : null}
+          {recentChatLayout.hiddenCount > 0 ? (
+            <li className="list-none px-1 pt-0.5">
+              <button
+                type="button"
+                onClick={() => setShowAllChats((expanded) => !expanded)}
+                className="flex h-7 w-full items-center justify-center rounded-md text-[11px] font-medium text-muted-foreground/65 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                {showAllChats ? "Show less" : `Show more (${recentChatLayout.hiddenCount})`}
+              </button>
+            </li>
+          ) : null}
+        </ul>
+      </SidebarGroup>
+      <SidebarSeparator />
+      <AgentsSidebarLink />
       <SidebarSeparator />
       <SidebarChromeFooter />
       <Dialog open={newThreadPickerOpen} onOpenChange={setNewThreadPickerOpen}>

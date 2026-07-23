@@ -6,6 +6,7 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 export const COMPUTER_USE_OPERATIONS = [
   "listApps",
   "getAppState",
+  "move",
   "click",
   "drag",
   "pressKey",
@@ -25,6 +26,7 @@ export const ComputerUseDevice = Schema.Struct({
   platform: Schema.Literals(["macos", "windows", "linux"]),
   architecture: TrimmedNonEmptyString.check(Schema.isMaxLength(32)),
   kind: Schema.Literals(["backend-device", "prompting-device", "remote-desktop"]),
+  sessionIsolation: Schema.Literals(["shared", "isolated"]),
   available: Schema.Boolean,
   unavailableReason: Schema.optional(Schema.String),
   supportedOperations: Schema.Array(ComputerUseOperation),
@@ -40,42 +42,56 @@ export type ComputerUseDeviceList = typeof ComputerUseDeviceList.Type;
 
 export const ComputerUseSelectDeviceInput = Schema.Struct({ deviceId: ComputerUseDeviceId });
 export const ComputerUseAppTargetInput = Schema.Struct({
+  windowId: Schema.optional(TrimmedNonEmptyString),
   app: Schema.optional(TrimmedNonEmptyString),
 });
+const ComputerUseObservedWindowInput = {
+  windowId: TrimmedNonEmptyString,
+  observationId: TrimmedNonEmptyString,
+};
 export const ComputerUseClickInput = Schema.Struct({
-  app: Schema.optional(TrimmedNonEmptyString),
-  x: Schema.Number,
-  y: Schema.Number,
+  ...ComputerUseObservedWindowInput,
+  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  x: Schema.optional(Schema.Number),
+  y: Schema.optional(Schema.Number),
   mouseButton: Schema.optional(Schema.Literals(["left", "right", "middle"])),
   clickCount: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3 }))),
 });
+export const ComputerUseMoveInput = Schema.Struct({
+  ...ComputerUseObservedWindowInput,
+  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  x: Schema.optional(Schema.Number),
+  y: Schema.optional(Schema.Number),
+});
 export const ComputerUseDragInput = Schema.Struct({
-  app: Schema.optional(TrimmedNonEmptyString),
+  ...ComputerUseObservedWindowInput,
   fromX: Schema.Number,
   fromY: Schema.Number,
   toX: Schema.Number,
   toY: Schema.Number,
 });
 export const ComputerUsePressKeyInput = Schema.Struct({
-  app: Schema.optional(TrimmedNonEmptyString),
+  ...ComputerUseObservedWindowInput,
   key: TrimmedNonEmptyString,
   modifiers: Schema.optional(Schema.Array(Schema.Literals(["Alt", "Control", "Meta", "Shift"]))),
 });
 export const ComputerUseScrollInput = Schema.Struct({
-  app: Schema.optional(TrimmedNonEmptyString),
+  ...ComputerUseObservedWindowInput,
   x: Schema.optional(Schema.Number),
   y: Schema.optional(Schema.Number),
   deltaX: Schema.optional(Schema.Number),
   deltaY: Schema.optional(Schema.Number),
 });
 export const ComputerUseTypeTextInput = Schema.Struct({
-  app: Schema.optional(TrimmedNonEmptyString),
+  ...ComputerUseObservedWindowInput,
   text: Schema.String,
 });
 
 export const ComputerUseApp = Schema.Struct({
+  windowId: TrimmedNonEmptyString,
   index: Schema.Int,
   title: Schema.String,
+  focused: Schema.Boolean,
   x: Schema.Number,
   y: Schema.Number,
   width: Schema.Number,
@@ -86,9 +102,16 @@ export type ComputerUseAppList = typeof ComputerUseAppList.Type;
 
 export const ComputerUseElement = Schema.Struct({
   index: Schema.Int,
+  depth: Schema.Int,
+  parentIndex: Schema.optional(Schema.Int),
   role: Schema.optional(Schema.String),
+  subRole: Schema.optional(Schema.String),
   label: Schema.optional(Schema.String),
   value: Schema.optional(Schema.String),
+  selectedText: Schema.optional(Schema.String),
+  focused: Schema.optional(Schema.Boolean),
+  enabled: Schema.optional(Schema.Boolean),
+  interactive: Schema.Boolean,
   x: Schema.optional(Schema.Number),
   y: Schema.optional(Schema.Number),
   width: Schema.optional(Schema.Number),
@@ -97,8 +120,25 @@ export const ComputerUseElement = Schema.Struct({
 export type ComputerUseElement = typeof ComputerUseElement.Type;
 export const ComputerUseAppState = Schema.Struct({
   app: Schema.String,
+  windowId: TrimmedNonEmptyString,
+  observationId: TrimmedNonEmptyString,
   text: Schema.String,
   elements: Schema.Array(ComputerUseElement),
+  navigation: Schema.Struct({
+    focusedElementIndex: Schema.NullOr(Schema.Int),
+    interactiveElementIndices: Schema.Array(Schema.Int),
+  }),
+  coordinateSpace: Schema.Struct({
+    kind: Schema.Literal("window-screenshot"),
+    screenX: Schema.Number,
+    screenY: Schema.Number,
+    logicalWidth: Schema.Number,
+    logicalHeight: Schema.Number,
+    screenshotWidth: Schema.Int,
+    screenshotHeight: Schema.Int,
+    scaleX: Schema.Number,
+    scaleY: Schema.Number,
+  }),
   screenshot: Schema.Struct({
     mimeType: Schema.Literal("image/png"),
     data: Schema.String,

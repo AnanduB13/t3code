@@ -8,6 +8,7 @@ import { openNewThreadPicker } from "../newThreadPickerBus";
 import { useProjects } from "../state/entities";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { excludeGeneralChatsProject } from "../generalChats";
 import {
   startNewLocalThreadFromContext,
   startNewThreadFromContext,
@@ -29,7 +30,7 @@ function ChatRouteGlobalShortcuts() {
     useHandleNewThread();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const sidebarV2Enabled = useClientSettings((settings) => settings.sidebarV2Enabled);
-  const projectCount = useProjects().length;
+  const projectCount = excludeGeneralChatsProject(useProjects()).length;
   const terminalOpen = useTerminalUiStateStore((state) =>
     routeThreadRef
       ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen

@@ -204,6 +204,7 @@ import {
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
@@ -1211,7 +1212,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const storedProjectExpanded = useUiStateStore((state) =>
     resolveProjectExpanded(state.projectExpandedById, projectPreferenceKeys),
   );
-  const projectExpanded = isChats || storedProjectExpanded;
+  const projectExpanded = storedProjectExpanded;
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
       projectThreads.map(
@@ -2651,7 +2652,6 @@ function ProjectSortMenu({
     },
     [onThreadPreviewCountChange, threadPreviewCount],
   );
-
   return (
     <Menu>
       <Tooltip>
@@ -2936,6 +2936,19 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     },
     [updateSettings],
   );
+  const chatsExpansionPreferenceKeys = useMemo(
+    () => (generalChatsProject ? projectExpansionPreferenceKeys(generalChatsProject) : []),
+    [generalChatsProject],
+  );
+  const chatsExpanded = useUiStateStore((state) =>
+    resolveProjectExpanded(state.projectExpandedById, chatsExpansionPreferenceKeys),
+  );
+  const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
+  const toggleChatsExpanded = useCallback(() => {
+    if (chatsExpansionPreferenceKeys.length > 0) {
+      setProjectExpanded(chatsExpansionPreferenceKeys, !chatsExpanded);
+    }
+  }, [chatsExpanded, chatsExpansionPreferenceKeys, setProjectExpanded]);
   const sidebarSectionOrder = useUiStateStore((state) => state.sidebarSectionOrder);
   const setSidebarSectionOrder = useUiStateStore((state) => state.setSidebarSectionOrder);
   const sectionDnDSensors = useSensors(
@@ -3017,15 +3030,32 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 {(sectionDragHandleProps) => (
                   <SidebarGroup className="px-2 pt-2 pb-1">
                     <div className="group/section-header mb-1 flex items-center justify-between pl-2 pr-1.5">
-                      <button
-                        type="button"
-                        aria-label="Drag Chats section"
-                        className="relative cursor-grab touch-none text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 active:cursor-grabbing"
-                        {...sectionDragHandleProps}
-                      >
-                        <GripVerticalIcon className="pointer-events-none absolute top-1/2 -left-4 size-3 -translate-y-1/2 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100" />
-                        <span>Chats</span>
-                      </button>
+                      <div className="relative flex items-center">
+                        <button
+                          type="button"
+                          aria-label="Drag Chats section"
+                          className="absolute top-1/2 -left-4 inline-flex size-3 -translate-y-1/2 cursor-grab touch-none items-center justify-center text-muted-foreground/60 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100 active:cursor-grabbing"
+                          {...sectionDragHandleProps}
+                        >
+                          <GripVerticalIcon className="pointer-events-none size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={chatsExpanded ? "Collapse Chats" : "Expand Chats"}
+                          aria-expanded={chatsExpanded}
+                          disabled={generalChatsProject === null}
+                          className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 disabled:cursor-default"
+                          onClick={toggleChatsExpanded}
+                        >
+                          <ChevronRightIcon
+                            className={cn(
+                              "size-3 transition-transform duration-150",
+                              chatsExpanded && "rotate-90",
+                            )}
+                          />
+                          <span>Chats</span>
+                        </button>
+                      </div>
                       <Tooltip>
                         <TooltipTrigger
                           render={
@@ -3089,15 +3119,19 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 {(sectionDragHandleProps) => (
                   <SidebarGroup className="px-2 py-2">
                     <div className="group/section-header mb-1 flex items-center justify-between pl-2 pr-1.5">
-                      <button
-                        type="button"
-                        aria-label="Drag Projects section"
-                        className="relative cursor-grab touch-none text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 active:cursor-grabbing"
-                        {...sectionDragHandleProps}
-                      >
-                        <GripVerticalIcon className="pointer-events-none absolute top-1/2 -left-4 size-3 -translate-y-1/2 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100" />
-                        <span>Projects</span>
-                      </button>
+                      <div className="relative flex items-center">
+                        <button
+                          type="button"
+                          aria-label="Drag Projects section"
+                          className="absolute top-1/2 -left-4 inline-flex size-3 -translate-y-1/2 cursor-grab touch-none items-center justify-center text-muted-foreground/60 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100 active:cursor-grabbing"
+                          {...sectionDragHandleProps}
+                        >
+                          <GripVerticalIcon className="pointer-events-none size-3" />
+                        </button>
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                          Projects
+                        </span>
+                      </div>
                       <div className="flex items-center gap-1">
                         <ProjectSortMenu
                           projectSortOrder={projectSortOrder}
@@ -4060,6 +4094,8 @@ export default function Sidebar() {
             projectsLength={projects.length}
           />
 
+          <SidebarSeparator />
+          <AgentsSidebarLink />
           <SidebarSeparator />
           <SidebarChromeFooter />
         </>

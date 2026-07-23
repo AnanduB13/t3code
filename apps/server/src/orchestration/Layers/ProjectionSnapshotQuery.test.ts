@@ -45,7 +45,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         VALUES
           ('usage-a-1', 'thread-a', NULL, 'info', 'context-window.updated', 'Usage', '{"totalProcessedTokens":1200}', 1, '2026-07-20T10:00:00.000Z'),
           ('usage-a-2', 'thread-a', NULL, 'info', 'context-window.updated', 'Usage', '{"totalProcessedTokens":2500}', 2, '2026-07-20T11:00:00.000Z'),
-          ('usage-b-1', 'thread-b', NULL, 'info', 'context-window.updated', 'Usage', '{"usedTokens":750}', 1, '2026-07-20T12:00:00.000Z')
+          ('usage-b-1', 'thread-b', NULL, 'info', 'context-window.updated', 'Usage', '{"usedTokens":750}', 1, '2026-07-21T12:00:00.000Z')
       `;
 
       const stats = yield* snapshotQuery.getTokenUsageStats!();
@@ -53,6 +53,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         lifetimeTokens: 3_250,
         peakThreadTokens: 2_500,
         trackedThreads: 2,
+        daily: [
+          { date: "2026-07-20", tokens: 2_500 },
+          { date: "2026-07-21", tokens: 750 },
+        ],
       });
       yield* sql`DELETE FROM projection_thread_activities`;
     }),
@@ -346,6 +350,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               updatedAt: "2026-02-24T00:00:05.000Z",
             },
           ],
+          queuedMessages: [],
+          pendingTurnStart: null,
           proposedPlans: [
             {
               id: "plan-1",

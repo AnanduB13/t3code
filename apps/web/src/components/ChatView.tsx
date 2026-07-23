@@ -208,7 +208,6 @@ import {
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
-import { QueuedPrompts } from "./chat/QueuedPrompts";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { appendPastedTextsToPrompt } from "./chat/composerPastedText";
@@ -222,6 +221,7 @@ import { resolveEffectiveEnvMode } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { QueuedMessageChips } from "./chat/QueuedMessageChips";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
@@ -449,53 +449,6 @@ interface TerminalLaunchContext {
   worktreePath: string | null;
 }
 
-type ComposerSendContext = ReturnType<ChatComposerHandle["getSendContext"]>;
-
-interface QueuedComposerSubmission {
-  readonly id: string;
-  readonly threadId: ThreadId;
-  readonly prompt: string;
-  readonly label: string;
-  readonly sendContext: ComposerSendContext;
-}
-
-function cloneComposerSendContext(context: ComposerSendContext): ComposerSendContext {
-  return {
-    ...context,
-    images: [...context.images],
-    pastedTexts: [...context.pastedTexts],
-    terminalContexts: [...context.terminalContexts],
-    elementContexts: [...context.elementContexts],
-    previewAnnotations: [...context.previewAnnotations],
-    reviewComments: [...context.reviewComments],
-    selectedProviderModels: [...context.selectedProviderModels],
-    selectedModelSelection: {
-      ...context.selectedModelSelection,
-      ...(context.selectedModelSelection.options
-        ? {
-            options: context.selectedModelSelection.options.map((option) => ({ ...option })),
-          }
-        : {}),
-    },
-  };
-}
-
-function queuedSubmissionLabel(prompt: string, context: ComposerSendContext): string {
-  const trimmed = prompt.trim();
-  if (trimmed) return trimmed.replace(/\s+/g, " ");
-  if (context.images.length > 0) {
-    return context.images.length === 1
-      ? `Image: ${context.images[0]?.name ?? "attachment"}`
-      : `${context.images.length} images`;
-  }
-  if (context.pastedTexts.length > 0) return "Pasted text";
-  if (context.terminalContexts.length > 0) return "Terminal context";
-  if (context.elementContexts.length > 0) return "Element context";
-  if (context.previewAnnotations.length > 0) return "Preview annotation";
-  if (context.reviewComments.length > 0) return "Review comments";
-  return "Queued message";
-}
-
 type PersistentTerminalLaunchContext = Pick<TerminalLaunchContext, "cwd" | "worktreePath">;
 
 function useLocalDispatchState(input: {
@@ -509,6 +462,20 @@ function useLocalDispatchState(input: {
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
   const latestUserMessageId =
     input.activeThread?.messages.findLast((message) => message.role === "user")?.id ?? null;
+  const activeThreadMessages = input.activeThread?.messages;
+  const activeThreadQueuedMessages = input.activeThread?.queuedMessages;
+  // Every server-projected id for this thread — timeline messages plus the
+  // held queue — so acknowledgment can match the exact dispatched message.
+  const projectedMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of activeThreadMessages ?? []) {
+      ids.add(message.id);
+    }
+    for (const queuedMessage of activeThreadQueuedMessages ?? []) {
+      ids.add(queuedMessage.messageId);
+    }
+    return ids;
+  }, [activeThreadMessages, activeThreadQueuedMessages]);
 
   const resetLocalDispatch = useCallback(() => {
     setLocalDispatch(null);
@@ -521,6 +488,7 @@ function useLocalDispatchState(input: {
         phase: input.phase,
         latestTurn: input.activeLatestTurn,
         latestUserMessageId,
+        projectedMessageIds,
         session: input.activeThread?.session ?? null,
         hasPendingApproval: input.activePendingApproval !== null,
         hasPendingUserInput: input.activePendingUserInput !== null,
@@ -534,12 +502,13 @@ function useLocalDispatchState(input: {
       input.phase,
       input.threadError,
       latestUserMessageId,
+      projectedMessageIds,
       localDispatch,
     ],
   );
   const activeLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
   const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
+    (options?: { preparingWorktree?: boolean; messageId?: MessageId }) => {
       const preparingWorktree = Boolean(options?.preparingWorktree);
       setLocalDispatch((current) => {
         const active = serverAcknowledgedLocalDispatch ? null : current;
@@ -1170,6 +1139,12 @@ function ChatViewContent(props: ChatViewProps) {
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
+  const steerQueuedThreadMessage = useAtomCommand(threadEnvironment.steerQueuedMessage, {
+    reportFailure: false,
+  });
+  const removeQueuedThreadMessage = useAtomCommand(threadEnvironment.removeQueuedMessage, {
+    reportFailure: false,
+  });
   const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
     reportFailure: false,
   });
@@ -1311,26 +1286,7 @@ function ChatViewContent(props: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
-  const queuedAutoDispatchRef = useRef(false);
-  const [queuedSubmissionsByThreadKey, setQueuedSubmissionsByThreadKey] = useState<
-    Record<string, QueuedComposerSubmission[]>
-  >({});
-  const queuedSubmissionsByThreadKeyRef = useRef(queuedSubmissionsByThreadKey);
-  queuedSubmissionsByThreadKeyRef.current = queuedSubmissionsByThreadKey;
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
-
-  useEffect(
-    () => () => {
-      for (const submissions of Object.values(queuedSubmissionsByThreadKeyRef.current)) {
-        for (const submission of submissions) {
-          for (const image of submission.sendContext.images) {
-            revokeBlobPreviewUrl(image.previewUrl);
-          }
-        }
-      }
-    },
-    [],
-  );
 
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
@@ -3780,10 +3736,16 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     if (!activeThread?.id) return;
-    if (activeThread.messages.length === 0) {
+    if (activeThread.messages.length === 0 && activeThread.queuedMessages.length === 0) {
       return;
     }
-    const serverIds = new Set(activeThread.messages.map((message) => message.id));
+    // A queued message is server-acknowledged too — it renders as a chip
+    // above the composer, so its optimistic timeline copy must go.
+    const persistedMessageIds = new Set(activeThread.messages.map((message) => message.id));
+    const serverIds = new Set([
+      ...persistedMessageIds,
+      ...activeThread.queuedMessages.map((message) => message.messageId),
+    ]);
     const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
     if (removedMessages.length === 0) {
       return;
@@ -3795,7 +3757,10 @@ function ChatViewContent(props: ChatViewProps) {
     }, 0);
     for (const removedMessage of removedMessages) {
       const previewUrls = collectUserMessageBlobPreviewUrls(removedMessage);
-      if (previewUrls.length > 0) {
+      // Handoff keeps blob previews alive only for messages entering the
+      // timeline; a queued-only acknowledgment renders as a text chip, so
+      // its previews would never be promoted — revoke them instead.
+      if (previewUrls.length > 0 && persistedMessageIds.has(removedMessage.id)) {
         handoffAttachmentPreviews(removedMessage.id, previewUrls);
         continue;
       }
@@ -3804,7 +3769,13 @@ function ChatViewContent(props: ChatViewProps) {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeThread?.id,
+    activeThread?.messages,
+    activeThread?.queuedMessages,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+  ]);
 
   useEffect(() => {
     setOptimisticUserMessages((existing) => {
@@ -4134,10 +4105,7 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onSend = async (
-    e?: { preventDefault: () => void },
-    queued?: { submission: QueuedComposerSubmission; mode: "dequeue" | "steer" },
-  ) => {
+  const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     if (
       !activeThread ||
@@ -4147,12 +4115,11 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    if (queued && queued.submission.threadId !== activeThread.id) return;
-    if (!queued && activePendingProgress) {
+    if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    const sendCtx = queued?.submission.sendContext ?? composerRef.current?.getSendContext();
+    const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) return;
     const {
       images: composerImages,
@@ -4167,7 +4134,7 @@ function ChatViewContent(props: ChatViewProps) {
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
-    const promptForSend = queued?.submission.prompt ?? promptRef.current;
+    const promptForSend = promptRef.current;
     const {
       trimmedPrompt: trimmed,
       sendableTerminalContexts: sendableComposerTerminalContexts,
@@ -4329,27 +4296,6 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
-    if (phase === "running" && !queued) {
-      const queueThreadKey = scopedThreadKey(
-        scopeThreadRef(activeThread.environmentId, threadIdForSend),
-      );
-      const submission: QueuedComposerSubmission = {
-        id: newMessageId(),
-        threadId: threadIdForSend,
-        prompt: promptForSend,
-        label: queuedSubmissionLabel(promptForSend, sendCtx),
-        sendContext: cloneComposerSendContext(sendCtx),
-      };
-      setQueuedSubmissionsByThreadKey((existing) => ({
-        ...existing,
-        [queueThreadKey]: [...(existing[queueThreadKey] ?? []), submission],
-      }));
-      promptRef.current = "";
-      clearComposerDraftContent(composerDraftTarget);
-      composerRef.current?.resetCursorState();
-      return;
-    }
-
     sendInFlightRef.current = true;
     if (isDraftHeroState && activeThreadKey) {
       let resolveDockStarted: (() => void) | undefined;
@@ -4366,7 +4312,11 @@ function ChatViewContent(props: ChatViewProps) {
       void dockTransition.catch(() => resolveDockStarted?.());
       await dockStarted;
     }
-    beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
+    const messageIdForSend = newMessageId();
+    beginLocalDispatch({
+      preparingWorktree: Boolean(baseBranchForWorktree),
+      messageId: messageIdForSend,
+    });
 
     const composerImagesSnapshot = [...composerImages];
     const composerPastedTextsSnapshot = [...composerPastedTexts];
@@ -4400,7 +4350,6 @@ function ChatViewContent(props: ChatViewProps) {
       ].join("\n");
       setThreadGoalPending(true);
     }
-    const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
@@ -4564,7 +4513,7 @@ function ChatViewContent(props: ChatViewProps) {
                 : {}),
             }
           : undefined;
-      beginLocalDispatch({ preparingWorktree: false });
+      beginLocalDispatch({ preparingWorktree: false, messageId: messageIdForSend });
       const startResult = await startThreadTurn({
         environmentId,
         input: {
@@ -4647,85 +4596,6 @@ function ChatViewContent(props: ChatViewProps) {
     }
   };
 
-  const activeQueuedSubmissions = activeThreadKey
-    ? (queuedSubmissionsByThreadKey[activeThreadKey] ?? [])
-    : [];
-
-  const removeQueuedSubmission = useCallback(
-    (submissionId: string, options?: { preserveImagePreviews?: boolean }) => {
-      if (!activeThreadKey) return null;
-      const removed = activeQueuedSubmissions.find((submission) => submission.id === submissionId);
-      if (!removed) return null;
-      setQueuedSubmissionsByThreadKey((existing) => {
-        const current = existing[activeThreadKey] ?? [];
-        const nextForThread = current.filter((submission) => submission.id !== submissionId);
-        if (nextForThread.length === current.length) return existing;
-        if (nextForThread.length > 0) {
-          return { ...existing, [activeThreadKey]: nextForThread };
-        }
-        const next = { ...existing };
-        delete next[activeThreadKey];
-        return next;
-      });
-      if (!options?.preserveImagePreviews) {
-        for (const image of removed.sendContext.images) {
-          revokeBlobPreviewUrl(image.previewUrl);
-        }
-      }
-      return removed;
-    },
-    [activeQueuedSubmissions, activeThreadKey],
-  );
-
-  const onRemoveQueuedSubmission = useCallback(
-    (submissionId: string) => {
-      removeQueuedSubmission(submissionId);
-    },
-    [removeQueuedSubmission],
-  );
-
-  const onSteerQueuedSubmission = useCallback(
-    (submissionId: string) => {
-      const submission = removeQueuedSubmission(submissionId, { preserveImagePreviews: true });
-      if (!submission) return;
-      void onSend(undefined, { submission, mode: "steer" });
-    },
-    [removeQueuedSubmission, onSend],
-  );
-
-  useEffect(() => {
-    if (
-      phase === "running" ||
-      isSendBusy ||
-      isConnecting ||
-      activeEnvironmentUnavailable ||
-      sendInFlightRef.current ||
-      queuedAutoDispatchRef.current
-    ) {
-      return;
-    }
-    const submission = activeQueuedSubmissions[0];
-    if (!submission) return;
-
-    queuedAutoDispatchRef.current = true;
-    const removed = removeQueuedSubmission(submission.id, { preserveImagePreviews: true });
-    if (!removed) {
-      queuedAutoDispatchRef.current = false;
-      return;
-    }
-    void onSend(undefined, { submission: removed, mode: "dequeue" }).finally(() => {
-      queuedAutoDispatchRef.current = false;
-    });
-  }, [
-    activeEnvironmentUnavailable,
-    activeQueuedSubmissions,
-    isConnecting,
-    isSendBusy,
-    onSend,
-    phase,
-    removeQueuedSubmission,
-  ]);
-
   const onInterrupt = async () => {
     if (!activeThread) return;
     const result = await interruptThreadTurn({
@@ -4737,6 +4607,36 @@ function ChatViewContent(props: ChatViewProps) {
       setThreadError(
         activeThread.id,
         error instanceof Error ? error.message : "Failed to interrupt the current turn.",
+      );
+    }
+  };
+
+  const onSteerQueuedMessage = async (messageId: MessageId) => {
+    if (!activeThread) return;
+    const result = await steerQueuedThreadMessage({
+      environmentId,
+      input: { threadId: activeThread.id, messageId },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Failed to steer the queued message.",
+      );
+    }
+  };
+
+  const onRemoveQueuedMessage = async (messageId: MessageId) => {
+    if (!activeThread) return;
+    const result = await removeQueuedThreadMessage({
+      environmentId,
+      input: { threadId: activeThread.id, messageId },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Failed to remove the queued message.",
       );
     }
   };
@@ -4950,7 +4850,7 @@ function ChatViewContent(props: ChatViewProps) {
       });
 
       sendInFlightRef.current = true;
-      beginLocalDispatch({ preparingWorktree: false });
+      beginLocalDispatch({ preparingWorktree: false, messageId: messageIdForSend });
       setThreadError(threadIdForSend, null);
 
       // Position this sent row once LegendList has measured the anchored tail.
@@ -5667,7 +5567,17 @@ function ChatViewContent(props: ChatViewProps) {
                       <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
                     </div>
                   ) : (
-                    <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
+                    <>
+                      {isServerThread && activeThread ? (
+                        <QueuedMessageChips
+                          queuedMessages={activeThread.queuedMessages}
+                          disabled={Boolean(activeEnvironmentUnavailableState)}
+                          onSteer={(messageId) => void onSteerQueuedMessage(messageId)}
+                          onRemove={(messageId) => void onRemoveQueuedMessage(messageId)}
+                        />
+                      ) : null}
+                      <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
+                    </>
                   )}
                   <div
                     className="relative"
@@ -5677,13 +5587,6 @@ function ChatViewContent(props: ChatViewProps) {
                         : undefined
                     }
                   >
-                    {!isDraftHeroState ? (
-                      <QueuedPrompts
-                        prompts={activeQueuedSubmissions}
-                        onSteer={onSteerQueuedSubmission}
-                        onRemove={onRemoveQueuedSubmission}
-                      />
-                    ) : null}
                     <div
                       ref={attachDraftHeroComposerAnchorRef}
                       className="relative z-10 mx-auto w-full max-w-3xl"
@@ -5775,38 +5678,36 @@ function ChatViewContent(props: ChatViewProps) {
                           "chat-composer-lower-chrome relative z-10",
                           isGitRepo
                             ? "pb-[calc(env(safe-area-inset-bottom)+0.25rem)]"
-                            : "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:pb-[calc(env(safe-area-inset-bottom)+1rem)]",
+                            : "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-[calc(env(safe-area-inset-bottom)+0.25rem)]",
                         )}
                       >
-                        {isGitRepo && (
-                          <div className="pointer-events-auto">
-                            <BranchToolbar
-                              environmentId={activeThread.environmentId}
-                              threadId={activeThread.id}
-                              {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                              onEnvModeChange={onEnvModeChange}
-                              startFromOrigin={startFromOrigin}
-                              onStartFromOriginChange={onStartFromOriginChange}
-                              {...(canOverrideServerThreadEnvMode
-                                ? { effectiveEnvModeOverride: envMode }
-                                : {})}
-                              {...(canOverrideServerThreadEnvMode
-                                ? {
-                                    activeThreadBranchOverride: activeThreadBranch,
-                                    onActiveThreadBranchOverrideChange:
-                                      setPendingServerThreadBranch,
-                                  }
-                                : {})}
-                              envLocked={envLocked}
-                              onComposerFocusRequest={scheduleComposerFocus}
-                              {...(canCheckoutPullRequestIntoThread
-                                ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                                : {})}
-                              {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
-                              availableEnvironments={logicalProjectEnvironments}
-                            />
-                          </div>
-                        )}
+                        <div className="pointer-events-auto">
+                          <BranchToolbar
+                            environmentId={activeThread.environmentId}
+                            threadId={activeThread.id}
+                            showRepositoryControls={isGitRepo}
+                            {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                            onEnvModeChange={onEnvModeChange}
+                            startFromOrigin={startFromOrigin}
+                            onStartFromOriginChange={onStartFromOriginChange}
+                            {...(canOverrideServerThreadEnvMode
+                              ? { effectiveEnvModeOverride: envMode }
+                              : {})}
+                            {...(canOverrideServerThreadEnvMode
+                              ? {
+                                  activeThreadBranchOverride: activeThreadBranch,
+                                  onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                                }
+                              : {})}
+                            envLocked={envLocked}
+                            onComposerFocusRequest={scheduleComposerFocus}
+                            {...(canCheckoutPullRequestIntoThread
+                              ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+                              : {})}
+                            {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
+                            availableEnvironments={logicalProjectEnvironments}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>

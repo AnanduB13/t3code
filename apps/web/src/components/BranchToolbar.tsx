@@ -11,6 +11,7 @@ import {
 import { memo, useMemo } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import { cn } from "../lib/utils";
 import { useProject, useThread } from "../state/entities";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import {
@@ -42,6 +43,7 @@ import { ComposerWeeklyUsage } from "./chat/ComposerWeeklyUsage";
 interface BranchToolbarProps {
   environmentId: EnvironmentId;
   threadId: ThreadId;
+  showRepositoryControls: boolean;
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   effectiveEnvModeOverride?: EnvMode;
@@ -197,6 +199,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
 export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
+  showRepositoryControls,
   draftId,
   onEnvModeChange,
   effectiveEnvModeOverride,
@@ -250,63 +253,74 @@ export const BranchToolbar = memo(function BranchToolbar({
   });
   const isMobile = useIsMobile();
 
-  if (!hasActiveThread || !activeProject) return null;
+  if (!hasActiveThread || (showRepositoryControls && !activeProject)) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-2.5 pb-3 pt-1 sm:px-3">
-      {isMobile ? (
-        <MobileRunContextSelector
-          envLocked={envLocked}
-          envModeLocked={envModeLocked}
-          environmentId={environmentId}
-          availableEnvironments={availableEnvironments}
-          showEnvironmentPicker={showEnvironmentPicker}
-          showEnvironmentIndicator={showEnvironmentIndicator}
-          onEnvironmentChange={onEnvironmentChange}
-          effectiveEnvMode={effectiveEnvMode}
-          activeWorktreePath={activeWorktreePath}
-          onEnvModeChange={onEnvModeChange}
-        />
-      ) : (
-        <div className="flex min-w-0 shrink-0 items-center gap-1">
-          {showEnvironmentIndicator && availableEnvironments && (
-            <>
-              <BranchToolbarEnvironmentSelector
-                envLocked={envLocked}
-                environmentId={environmentId}
-                availableEnvironments={availableEnvironments}
-                {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
-              />
-              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
-            </>
-          )}
-          <BranchToolbarEnvModeSelector
-            envLocked={envModeLocked}
+    <div
+      className={cn(
+        "mx-auto w-full max-w-3xl items-center gap-2 px-2.5 py-2 sm:px-3",
+        showRepositoryControls
+          ? "flex md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-3"
+          : "hidden md:flex md:justify-center",
+      )}
+    >
+      {showRepositoryControls ? (
+        isMobile ? (
+          <MobileRunContextSelector
+            envLocked={envLocked}
+            envModeLocked={envModeLocked}
+            environmentId={environmentId}
+            availableEnvironments={availableEnvironments}
+            showEnvironmentPicker={showEnvironmentPicker}
+            showEnvironmentIndicator={showEnvironmentIndicator}
+            onEnvironmentChange={onEnvironmentChange}
             effectiveEnvMode={effectiveEnvMode}
             activeWorktreePath={activeWorktreePath}
             onEnvModeChange={onEnvModeChange}
           />
-        </div>
-      )}
+        ) : (
+          <div className="flex min-w-0 shrink-0 items-center gap-1 md:justify-self-start">
+            {showEnvironmentIndicator && availableEnvironments && (
+              <>
+                <BranchToolbarEnvironmentSelector
+                  envLocked={envLocked}
+                  environmentId={environmentId}
+                  availableEnvironments={availableEnvironments}
+                  {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
+                />
+                <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+              </>
+            )}
+            <BranchToolbarEnvModeSelector
+              envLocked={envModeLocked}
+              effectiveEnvMode={effectiveEnvMode}
+              activeWorktreePath={activeWorktreePath}
+              onEnvModeChange={onEnvModeChange}
+            />
+          </div>
+        )
+      ) : null}
 
       {usageInstanceId ? (
         <ComposerWeeklyUsage environmentId={environmentId} instanceId={usageInstanceId} />
       ) : null}
 
-      <BranchToolbarBranchSelector
-        className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
-        environmentId={environmentId}
-        threadId={threadId}
-        {...(draftId ? { draftId } : {})}
-        envLocked={envLocked}
-        {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
-        {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
-        {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
-        startFromOrigin={startFromOrigin}
-        onStartFromOriginChange={onStartFromOriginChange}
-        {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
-        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
-      />
+      {showRepositoryControls ? (
+        <BranchToolbarBranchSelector
+          className="min-w-0 flex-1 justify-end md:w-full md:justify-self-end"
+          environmentId={environmentId}
+          threadId={threadId}
+          {...(draftId ? { draftId } : {})}
+          envLocked={envLocked}
+          {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
+          {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
+          {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+          startFromOrigin={startFromOrigin}
+          onStartFromOriginChange={onStartFromOriginChange}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      ) : null}
     </div>
   );
 });

@@ -159,6 +159,23 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  HermesAgentError,
+  HermesAgentStatus,
+  HermesCronJobList,
+  HermesCronRunList,
+  HermesCronRunListInput,
+  HermesCreateSessionInput,
+  HermesDeleteSessionResult,
+  HermesForkSessionInput,
+  HermesMessageList,
+  HermesSendMessageInput,
+  HermesSendMessageResult,
+  HermesSession,
+  HermesSessionIdInput,
+  HermesSessionList,
+  HermesUpdateSessionInput,
+} from "./agents.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -237,6 +254,18 @@ export const WS_METHODS = {
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
   serverSignalProcess: "server.signalProcess",
 
+  // External agents
+  agentsHermesStatus: "agents.hermes.status",
+  agentsHermesListSessions: "agents.hermes.sessions.list",
+  agentsHermesListCronJobs: "agents.hermes.cron.list",
+  agentsHermesListCronRuns: "agents.hermes.cron.runs.list",
+  agentsHermesGetMessages: "agents.hermes.messages.list",
+  agentsHermesCreateSession: "agents.hermes.sessions.create",
+  agentsHermesUpdateSession: "agents.hermes.sessions.update",
+  agentsHermesForkSession: "agents.hermes.sessions.fork",
+  agentsHermesDeleteSession: "agents.hermes.sessions.delete",
+  agentsHermesSendMessage: "agents.hermes.messages.send",
+
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -256,6 +285,59 @@ export const WS_METHODS = {
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
 } as const;
+
+const HermesRpcError = Schema.Union([HermesAgentError, EnvironmentAuthorizationError]);
+
+export const WsHermesStatusRpc = Rpc.make(WS_METHODS.agentsHermesStatus, {
+  payload: Schema.Struct({}),
+  success: HermesAgentStatus,
+  error: HermesRpcError,
+});
+export const WsHermesListSessionsRpc = Rpc.make(WS_METHODS.agentsHermesListSessions, {
+  payload: Schema.Struct({}),
+  success: HermesSessionList,
+  error: HermesRpcError,
+});
+export const WsHermesListCronJobsRpc = Rpc.make(WS_METHODS.agentsHermesListCronJobs, {
+  payload: Schema.Struct({}),
+  success: HermesCronJobList,
+  error: HermesRpcError,
+});
+export const WsHermesListCronRunsRpc = Rpc.make(WS_METHODS.agentsHermesListCronRuns, {
+  payload: HermesCronRunListInput,
+  success: HermesCronRunList,
+  error: HermesRpcError,
+});
+export const WsHermesGetMessagesRpc = Rpc.make(WS_METHODS.agentsHermesGetMessages, {
+  payload: HermesSessionIdInput,
+  success: HermesMessageList,
+  error: HermesRpcError,
+});
+export const WsHermesCreateSessionRpc = Rpc.make(WS_METHODS.agentsHermesCreateSession, {
+  payload: HermesCreateSessionInput,
+  success: HermesSession,
+  error: HermesRpcError,
+});
+export const WsHermesUpdateSessionRpc = Rpc.make(WS_METHODS.agentsHermesUpdateSession, {
+  payload: HermesUpdateSessionInput,
+  success: HermesSession,
+  error: HermesRpcError,
+});
+export const WsHermesForkSessionRpc = Rpc.make(WS_METHODS.agentsHermesForkSession, {
+  payload: HermesForkSessionInput,
+  success: HermesSession,
+  error: HermesRpcError,
+});
+export const WsHermesDeleteSessionRpc = Rpc.make(WS_METHODS.agentsHermesDeleteSession, {
+  payload: HermesSessionIdInput,
+  success: HermesDeleteSessionResult,
+  error: HermesRpcError,
+});
+export const WsHermesSendMessageRpc = Rpc.make(WS_METHODS.agentsHermesSendMessage, {
+  payload: HermesSendMessageInput,
+  success: HermesSendMessageResult,
+  error: HermesRpcError,
+});
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
   payload: ServerUpsertKeybindingInput,
@@ -747,6 +829,16 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsHermesStatusRpc,
+  WsHermesListSessionsRpc,
+  WsHermesListCronJobsRpc,
+  WsHermesListCronRunsRpc,
+  WsHermesGetMessagesRpc,
+  WsHermesCreateSessionRpc,
+  WsHermesUpdateSessionRpc,
+  WsHermesForkSessionRpc,
+  WsHermesDeleteSessionRpc,
+  WsHermesSendMessageRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
