@@ -16,15 +16,34 @@ T3 Code provides the `computer_*` tools through its authenticated, provider-scop
 5. Only after the user chooses, call `computer_select_device` with the exact device ID. Never infer or silently choose a machine from its name.
 6. The selection is sticky for the provider session. If the selected device disconnects, report that and list devices again; do not fail over silently.
 
+### Session isolation
+
+- `sessionIsolation: shared` means the host is attached to the user's current graphical login. macOS, Windows, and ordinary Linux desktops have one foreground keyboard focus and system pointer in that session. Coordinate clicks, typing, shortcuts, focus changes, and many accessibility actions can interrupt the user.
+- `sessionIsolation: isolated` means T3 Desktop is running inside a dedicated VM, remote desktop login, virtual display, or otherwise separate graphical session. Use an isolated device whenever the user asks to keep working on the same physical machine while automation runs.
+- Never claim that the virtual pointer shown in T3's Computer Use monitor is a second operating-system mouse. It visualizes the agent's target inside the captured window. Arbitrary native applications cannot be controlled concurrently and invisibly in a shared macOS login.
+- If uninterrupted concurrent use is required and only shared devices are connected, stop before acting and ask the user to connect an isolated Computer Use host. Do not silently disrupt their active session.
+- A host may advertise isolation with `T3CODE_COMPUTER_USE_ISOLATED_SESSION=1` only when the T3 Desktop process is actually running inside a separate GUI session. This flag declares an existing isolation boundary; it does not create a VM, virtual display, or second macOS login by itself.
+
 ## Operating loop
 
-1. Call `computer_list_apps` when the application/window is not already known.
-2. Call `computer_get_app_state` before acting. Use accessibility text and elements first, and the screenshot for unlabeled or spatial UI.
-3. Execute one meaningful action with `computer_click`, `computer_drag`, `computer_press_key`, `computer_scroll`, or `computer_type_text`.
+1. Call `computer_list_apps` when the window is not already known. Select the exact `windowId`; titles are descriptive labels, not identities. If multiple windows could satisfy the request, use their exact titles and focus state to disambiguate, and ask the user when intent is still ambiguous.
+2. Call `computer_get_app_state` with that `windowId` before acting. It focuses and captures only the selected window. Use accessibility text and elements first, and the screenshot for unlabeled or spatial UI.
+3. Execute one meaningful action with the same `windowId` and the fresh `observationId`. Prefer `elementIndex` for labeled controls. Otherwise use x/y pixels from the returned cropped screenshot, never coordinates from the full desktop or an older image. Use `computer_move` only when a hover is needed to reveal UI; clicks and positioned scrolling already move the cursor visibly.
 4. Observe again and verify the postcondition. Do not treat dispatching an input event as success.
 5. Repeat until the user-visible result is verified.
 
-Coordinates refer to the original screenshot and desktop coordinate system. Re-observe after navigation, dialogs, window movement, or layout changes; old coordinates and element indices become stale.
+Observations are deliberately single-use. Coordinates and element rectangles are relative to that observation's original-resolution, window-only screenshot. The host maps them to the correct logical desktop coordinates, including Retina/display scaling. Re-list windows after a new dialog or window appears. Re-observe after every action, navigation, window movement, resize, animation, or layout change; stale observations are rejected instead of risking input in the wrong place.
+
+## Navigating applications
+
+- Read the accessibility output as an indented tree. `depth` and `parentIndex` identify which toolbar, sidebar, group, sheet, or dialog owns a control. Do not select an element from its label alone when the same label appears in multiple groups.
+- Check `navigation.focusedElementIndex` before typing or pressing keys. Type only when the intended text field or editor is focused; otherwise click that enabled field, observe again, and then type.
+- Prefer controls marked `interactive: true` and `enabled: true`. Use `elementIndex` rather than estimating a coordinate when a semantic control is available.
+- Navigate from visible current state. If the destination is absent, use a visible sidebar, tab, toolbar, menu, disclosure control, or search field. Do not invent an application layout from memory.
+- Treat sheets, popovers, menus, and dialogs as state changes. Observe again immediately; if a separate window appeared, call `computer_list_apps` and select its new `windowId`.
+- Keyboard shortcuts may be used for standard navigation, but their result must be observed. Never assume a shortcut worked, focus stayed put, or a page finished loading.
+- The host moves the real pointer smoothly for clicks, drags, and positioned scrolling so the user can follow the action. Do not add decorative mouse movement or hover over unrelated sensitive content.
+- T3's Computer Use monitor displays every captured application image and a separate virtual agent pointer. Treat it as user-facing telemetry; it does not change the native operating system's focus or cursor limitations.
 
 ## Tool preference
 

@@ -16,11 +16,12 @@ import { SettingsPageContainer } from "./settingsLayout";
 import { deriveUsageStats } from "./usageStats";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { providerUsageQuery } from "../../state/providerUsage";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const EMPTY_USAGE_ATOM = Atom.make(
   AsyncResult.success({
     providers: [],
-    tokenUsage: { lifetimeTokens: 0, peakThreadTokens: 0, trackedThreads: 0 },
+    tokenUsage: { lifetimeTokens: 0, peakThreadTokens: 0, trackedThreads: 0, daily: [] },
   }),
 ).pipe(Atom.withLabel("provider-usage:empty"));
 
@@ -237,8 +238,15 @@ function formatDay(date: string) {
   }).format(new Date(`${date}T00:00:00Z`));
 }
 
-function ActivityGrid({ days }: { days: ReturnType<typeof deriveUsageStats>["days"] }) {
-  const max = Math.max(1, ...days.map((day) => day.count));
+function ActivityGrid({
+  days,
+  dailyTokens,
+}: {
+  days: ReturnType<typeof deriveUsageStats>["days"];
+  dailyTokens: ReadonlyMap<string, number>;
+}) {
+  const maxChats = Math.max(1, ...days.map((day) => day.count));
+  const maxTokens = Math.max(1, ...dailyTokens.values());
   const months = [...new Set(days.map((day) => day.date.slice(0, 7)))];
   return (
     <div className="overflow-x-auto pb-1">
@@ -247,22 +255,42 @@ function ActivityGrid({ days }: { days: ReturnType<typeof deriveUsageStats>["day
         aria-label="Conversation activity during the last year"
       >
         {days.map((day) => {
-          const level = day.count === 0 ? 0 : Math.max(1, Math.ceil((day.count / max) * 4));
-          const label = `${formatDay(day.date)}: ${day.count} ${day.count === 1 ? "chat" : "chats"}`;
+          const tokens = dailyTokens.get(day.date) ?? 0;
+          const activity = tokens > 0 ? tokens / maxTokens : day.count / maxChats;
+          const level = activity === 0 ? 0 : Math.max(1, Math.ceil(activity * 4));
+          const date = formatDay(day.date);
+          const chatLabel = `${day.count.toLocaleString()} ${day.count === 1 ? "chat" : "chats"}`;
+          const tokenLabel = `${tokens.toLocaleString()} ${tokens === 1 ? "token" : "tokens"}`;
           return (
-            <div
-              key={day.date}
-              title={label}
-              aria-label={label}
-              className={cn(
-                "aspect-square min-w-2.5 rounded-[3px]",
-                level === 0 && "bg-muted/70",
-                level === 1 && "bg-primary/25",
-                level === 2 && "bg-primary/45",
-                level === 3 && "bg-primary/70",
-                level === 4 && "bg-primary",
-              )}
-            />
+            <Tooltip key={day.date}>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
+                    className={cn(
+                      "aspect-square min-w-2.5 rounded-[3px] outline-none transition-[box-shadow,transform] hover:ring-2 hover:ring-primary/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card",
+                      level === 0 && "bg-muted/70",
+                      level === 1 && "bg-primary/25",
+                      level === 2 && "bg-primary/45",
+                      level === 3 && "bg-primary/70",
+                      level === 4 && "bg-primary",
+                    )}
+                  />
+                }
+              />
+              <TooltipPopup side="top" sideOffset={8} className="min-w-40 py-1">
+                <div className="font-medium text-foreground">{date}</div>
+                <div className="mt-1 flex items-center justify-between gap-5 tabular-nums">
+                  <span className="text-muted-foreground">Tokens processed</span>
+                  <span className="font-semibold">{formatTokens(tokens)}</span>
+                </div>
+                <div className="mt-0.5 flex items-center justify-between gap-5 tabular-nums">
+                  <span className="text-muted-foreground">Chats started</span>
+                  <span className="font-semibold">{day.count.toLocaleString()}</span>
+                </div>
+              </TooltipPopup>
+            </Tooltip>
           );
         })}
       </div>
@@ -276,6 +304,35 @@ function ActivityGrid({ days }: { days: ReturnType<typeof deriveUsageStats>["day
         ))}
       </div>
     </div>
+  );
+}
+
+function ActivitySection({ days }: { days: ReturnType<typeof deriveUsageStats>["days"] }) {
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const result = useAtomValue(
+    environmentId === null ? EMPTY_USAGE_ATOM : providerUsageQuery({ environmentId, input: {} }),
+  );
+  const dailyTokens = useMemo(
+    () =>
+      new Map(
+        AsyncResult.isSuccess(result)
+          ? result.value.tokenUsage.daily.map((day) => [day.date, day.tokens] as const)
+          : [],
+      ),
+    [result],
+  );
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold">Activity</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Daily chats and processed tokens during the last 52 weeks
+        </p>
+      </div>
+      <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
+        <ActivityGrid days={days} dailyTokens={dailyTokens} />
+      </div>
+    </section>
   );
 }
 
@@ -304,17 +361,7 @@ export function ProfileSettingsPanel() {
         ))}
       </div>
       <UsageLimits />
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">Activity</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Chats started during the last 52 weeks
-          </p>
-        </div>
-        <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
-          <ActivityGrid days={stats.days} />
-        </div>
-      </section>
+      <ActivitySection days={stats.days} />
       <div className="grid gap-6 md:grid-cols-2">
         <section className="space-y-3">
           <h2 className="text-sm font-semibold">Activity insights</h2>

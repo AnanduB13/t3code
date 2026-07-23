@@ -1,0 +1,13 @@
+{
+  "jobs": [
+    {
+      "id": "fixture123456",
+      "name": "Fixture task",
+      "prompt": "Do the fixture task",
+      "schedule_display": "every 60m",
+      "repeat": {
+        "completed": 7
+      }
+    }
+  ]
+}

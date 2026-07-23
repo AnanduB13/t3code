@@ -30,6 +30,7 @@ const device = (deviceId: string, label: string): ComputerUseDevice => ({
   platform: "linux",
   architecture: "x64",
   kind: "remote-desktop",
+  sessionIsolation: "isolated",
   available: true,
   supportedOperations: ["listApps", "getAppState"],
 });

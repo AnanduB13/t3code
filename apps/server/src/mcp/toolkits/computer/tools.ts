@@ -7,6 +7,7 @@ import {
   ComputerUseDeviceList,
   ComputerUseDragInput,
   ComputerUseError,
+  ComputerUseMoveInput,
   ComputerUsePressKeyInput,
   ComputerUseScrollInput,
   ComputerUseSelectDeviceInput,
@@ -37,11 +38,16 @@ const readonly = <T extends Tool.Any>(tool: T): T =>
     .annotate(Tool.Idempotent, true) as T;
 const action = <T extends Tool.Any>(tool: T): T =>
   tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, true) as T;
+const navigationAction = <T extends Tool.Any>(tool: T): T =>
+  tool
+    .annotate(Tool.OpenWorld, true)
+    .annotate(Tool.Destructive, false)
+    .annotate(Tool.Idempotent, true) as T;
 
 export const ComputerListDevicesTool = readonly(
   Tool.make("computer_list_devices", {
     description:
-      "List real computers currently connected to this T3 Code backend, with their human-readable machine names and permission status. Always call this before the first Computer Use action. If selectionRequired is true, ask the user which named device to use and then call computer_select_device.",
+      "List real computers currently connected to this T3 Code backend, with human-readable names, permission status, and sessionIsolation. A shared session uses that login's real focus and pointer; an isolated session is safe for concurrent user work. Always call this before the first Computer Use action. If selectionRequired is true, ask which named device to use.",
     parameters: ComputerUseRefreshInput,
     success: ComputerUseDeviceList,
     failure: ComputerUseError,
@@ -62,7 +68,8 @@ export const ComputerSelectDeviceTool = readonly(
 
 export const ComputerListAppsTool = readonly(
   Tool.make("computer_list_apps", {
-    description: "List visible application windows on the selected computer.",
+    description:
+      "List visible windows on the selected computer. Each result has an opaque stable windowId, exact title, focus state, and bounds. Select by windowId; never guess from a partial title when more than one window could match.",
     parameters: ComputerUseRefreshInput,
     success: ComputerUseAppList,
     failure: ComputerUseError,
@@ -73,7 +80,7 @@ export const ComputerListAppsTool = readonly(
 export const ComputerGetAppStateTool = readonly(
   Tool.make("computer_get_app_state", {
     description:
-      "Observe the selected computer before acting. Returns the selected application/window state, accessibility elements when available, and a PNG screenshot.",
+      "Observe one exact window before acting. Pass windowId from computer_list_apps. Returns a cropped PNG, a fresh observationId, a hierarchical accessibility tree with parent/depth, focus, enabled and interactive state, screenshot-relative rectangles, and explicit coordinate scaling. Use role + label + ancestry to understand navigation. The app title fallback is only for a unique exact match.",
     parameters: ComputerUseAppTargetInput,
     success: ComputerUseAppState,
     failure: ComputerUseError,
@@ -84,16 +91,27 @@ export const ComputerGetAppStateTool = readonly(
 export const ComputerClickTool = action(
   Tool.make("computer_click", {
     description:
-      "Click screen coordinates on the selected computer. Observe again after the action.",
+      "Click within the exact window from the latest observation. Pass its windowId and observationId, then either an enabled interactive accessibility elementIndex (preferred) or x/y pixels measured in that observation's cropped screenshot. The real OS cursor moves visibly to the target. The observation is single-use; observe again after the action.",
     parameters: ComputerUseClickInput,
     success: Schema.Null,
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "Click desktop"),
 );
+export const ComputerMoveTool = navigationAction(
+  Tool.make("computer_move", {
+    description:
+      "Move the real OS cursor visibly within the exact window from the latest observation without clicking. Pass windowId and observationId, then either elementIndex or x/y pixels from the cropped screenshot. Use only when hover is necessary to reveal a tooltip or control, then observe again.",
+    parameters: ComputerUseMoveInput,
+    success: Schema.Null,
+    failure: ComputerUseError,
+    dependencies,
+  }).annotate(Tool.Title, "Move desktop cursor"),
+);
 export const ComputerDragTool = action(
   Tool.make("computer_drag", {
-    description: "Drag between screen coordinates on the selected computer.",
+    description:
+      "Drag between screenshot-relative points in one exact, freshly observed window. Pass windowId and observationId; observe again afterward.",
     parameters: ComputerUseDragInput,
     success: Schema.Null,
     failure: ComputerUseError,
@@ -102,7 +120,8 @@ export const ComputerDragTool = action(
 );
 export const ComputerPressKeyTool = action(
   Tool.make("computer_press_key", {
-    description: "Press a key, optionally with modifiers, on the selected computer.",
+    description:
+      "Focus the exact window from a fresh observation and press a key, optionally with modifiers. Pass windowId and observationId; observe again afterward.",
     parameters: ComputerUsePressKeyInput,
     success: Schema.Null,
     failure: ComputerUseError,
@@ -111,7 +130,8 @@ export const ComputerPressKeyTool = action(
 );
 export const ComputerScrollTool = action(
   Tool.make("computer_scroll", {
-    description: "Scroll at an optional screen position on the selected computer.",
+    description:
+      "Scroll the exact window from a fresh observation, optionally at x/y pixels in its cropped screenshot. Pass windowId and observationId; observe again afterward.",
     parameters: ComputerUseScrollInput,
     success: Schema.Null,
     failure: ComputerUseError,
@@ -121,7 +141,7 @@ export const ComputerScrollTool = action(
 export const ComputerTypeTextTool = action(
   Tool.make("computer_type_text", {
     description:
-      "Type literal text into the focused control on the selected computer. Never type passwords, authentication secrets, or payment details; hand those steps to the user.",
+      "Focus the exact window from a fresh observation and type literal text into its focused control. Pass windowId and observationId and observe again afterward. Never type passwords, authentication secrets, or payment details; hand those steps to the user.",
     parameters: ComputerUseTypeTextInput,
     success: Schema.Null,
     failure: ComputerUseError,
@@ -134,6 +154,7 @@ export const ComputerUseToolkit = Toolkit.make(
   ComputerSelectDeviceTool,
   ComputerListAppsTool,
   ComputerGetAppStateTool,
+  ComputerMoveTool,
   ComputerClickTool,
   ComputerDragTool,
   ComputerPressKeyTool,
@@ -145,6 +166,7 @@ export const ComputerUseStandardToolkit = Toolkit.make(
   ComputerListDevicesTool,
   ComputerSelectDeviceTool,
   ComputerListAppsTool,
+  ComputerMoveTool,
   ComputerClickTool,
   ComputerDragTool,
   ComputerPressKeyTool,

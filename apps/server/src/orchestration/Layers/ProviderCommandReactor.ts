@@ -1114,9 +1114,31 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* providerService
-      .sendTurn(sendTurnRequest.value)
-      .pipe(Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
+    yield* providerService.sendTurn(sendTurnRequest.value).pipe(
+      Effect.tap((result) =>
+        Effect.gen(function* () {
+          // Native provider steering (notably Codex `turn/steer`) can append
+          // input to the current turn without emitting another turn.started.
+          // Acknowledge the accepted send here so the pending-start marker
+          // cannot block the rest of the queue when that turn completes.
+          const latestThread = yield* resolveThread(event.payload.threadId);
+          if (latestThread?.session?.status !== "running") {
+            return;
+          }
+          yield* setThreadSession({
+            threadId: event.payload.threadId,
+            session: {
+              ...latestThread.session,
+              activeTurnId: result.turnId,
+              updatedAt: event.payload.createdAt,
+            },
+            createdAt: event.payload.createdAt,
+          });
+        }),
+      ),
+      Effect.catchCause(recoverTurnStartFailure),
+      Effect.forkScoped,
+    );
   });
 
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (

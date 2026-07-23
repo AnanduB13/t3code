@@ -30,6 +30,7 @@ const handlers = {
     context().pipe(Effect.flatMap(({ scope, broker }) => broker.selectDevice(scope, deviceId))),
   computer_list_apps: () => invoke<ComputerUseAppList>("listApps", {}),
   computer_get_app_state: (input) => invoke<ComputerUseAppState>("getAppState", input),
+  computer_move: (input) => invoke<void>("move", input).pipe(Effect.as(null)),
   computer_click: (input) => invoke<void>("click", input).pipe(Effect.as(null)),
   computer_drag: (input) => invoke<void>("drag", input).pipe(Effect.as(null)),
   computer_press_key: (input) => invoke<void>("pressKey", input).pipe(Effect.as(null)),

@@ -73,7 +73,7 @@ export function ComposerWeeklyUsage(props: {
 
   return (
     <div
-      className="hidden min-w-0 max-w-52 flex-1 md:block"
+      className="hidden min-w-0 md:block md:justify-self-center"
       data-chat-composer-weekly-usage="true"
       title={`${provider.displayName} weekly usage: ${remaining}% remaining${resetLabel ? `, ${resetLabel}` : ""}`}
     >
@@ -83,7 +83,7 @@ export function ComposerWeeklyUsage(props: {
           <span className="max-w-16 truncate">{provider.displayName}</span>
         </div>
         <div
-          className="h-1 min-w-10 flex-1 overflow-hidden rounded-full bg-muted/80"
+          className="h-1 w-[clamp(3.5rem,10vw,7.5rem)] shrink-0 overflow-hidden rounded-full bg-muted/80"
           role="progressbar"
           aria-label={`${provider.displayName} weekly usage remaining`}
           aria-valuemin={0}
