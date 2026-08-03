@@ -503,6 +503,14 @@ function useLocalDispatchState(input: {
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
   const latestUserMessageId =
     input.activeThread?.messages.findLast((message) => message.role === "user")?.id ?? null;
+  const activeThreadMessages = input.activeThread?.messages;
+  const activeThreadQueuedMessages = input.activeThread?.queuedMessages;
+  const projectedMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of activeThreadMessages ?? []) ids.add(message.id);
+    for (const message of activeThreadQueuedMessages ?? []) ids.add(message.messageId);
+    return ids;
+  }, [activeThreadMessages, activeThreadQueuedMessages]);
 
   const resetLocalDispatch = useCallback(() => {
     setLocalDispatch(null);
@@ -515,6 +523,7 @@ function useLocalDispatchState(input: {
         phase: input.phase,
         latestTurn: input.activeLatestTurn,
         latestUserMessageId,
+        projectedMessageIds,
         session: input.activeThread?.session ?? null,
         hasPendingApproval: input.activePendingApproval !== null,
         hasPendingUserInput: input.activePendingUserInput !== null,
@@ -528,6 +537,7 @@ function useLocalDispatchState(input: {
       input.phase,
       input.threadError,
       latestUserMessageId,
+      projectedMessageIds,
       localDispatch,
     ],
   );
@@ -5946,6 +5956,8 @@ function ChatViewContent(props: ChatViewProps) {
                             planSidebarOpen={planSidebarOpen}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
+                            goal={null}
+                            goalPending={false}
                             lockedProvider={lockedProvider}
                             providerStatuses={providerStatuses as ServerProvider[]}
                             activeProjectDefaultModelSelection={

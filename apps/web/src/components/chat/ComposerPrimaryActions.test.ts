@@ -107,6 +107,7 @@ describe("ComposerPrimaryActions while running", () => {
         isConnecting: false,
         isEnvironmentUnavailable: false,
         isPreparingWorktree: false,
+        sendDisabledReason: null,
         hasSendableContent,
         onPreviousPendingQuestion: () => undefined,
         onInterrupt: () => undefined,

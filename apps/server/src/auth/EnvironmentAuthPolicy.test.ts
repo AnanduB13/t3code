@@ -100,6 +100,26 @@ it.layer(NodeServices.layer)("EnvironmentAuthPolicy.layer", (it) => {
     ),
   );
 
+  it.effect("uses remote-reachable policy for loopback web hosts behind Tailscale Serve", () =>
+    Effect.gen(function* () {
+      const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+      const descriptor = yield* policy.getDescriptor();
+
+      expect(descriptor.policy).toBe("remote-reachable");
+      expect(descriptor.bootstrapMethods).toEqual(["one-time-token"]);
+      expect(descriptor.sessionCookieName).toMatch(/^t3_session_3773_[a-f0-9]{12}$/);
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthPolicyLayer({
+          mode: "web",
+          host: "127.0.0.1",
+          port: 3773,
+          tailscaleServeEnabled: true,
+        }),
+      ),
+    ),
+  );
+
   it.effect("uses remote-reachable policy for wildcard web hosts", () =>
     Effect.gen(function* () {
       const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;

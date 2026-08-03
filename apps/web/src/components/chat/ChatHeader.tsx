@@ -2,6 +2,7 @@ import {
   type EnvironmentId,
   type EditorId,
   type ProjectScript,
+  type ProjectId,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -19,6 +20,11 @@ import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { cn } from "~/lib/utils";
+import { GENERAL_CHATS_PROJECT_ID } from "../../generalChats";
+
+export function shouldShowProjectHeaderActions(projectId: ProjectId | undefined): boolean {
+  return projectId === undefined || projectId !== GENERAL_CHATS_PROJECT_ID;
+}
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
