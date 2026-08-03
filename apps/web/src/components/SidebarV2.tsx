@@ -27,6 +27,7 @@ import {
   FolderPlusIcon,
   GitBranchIcon,
   EllipsisIcon,
+  LoaderIcon,
   MessageSquareIcon,
   PlusIcon,
   SearchIcon,
@@ -91,7 +92,7 @@ import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useProjects, useThreadShells, waitForProject } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
@@ -141,6 +142,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
+import { resolveDefaultProviderModelSelection } from "../providerInstances";
 import { primaryServerProvidersAtom } from "../state/server";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -157,11 +159,26 @@ import {
 import { Input } from "./ui/input";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
-import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarMenuButton,
+  SidebarSeparator,
+  useSidebar,
+} from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { useComposerDraftStore } from "../composerDraftStore";
+import {
+  findGeneralChatsProject,
+  GENERAL_CHAT_NEW_THREAD_OPTIONS,
+  GENERAL_CHATS_PROJECT_ID,
+  GENERAL_CHATS_PROJECT_TITLE,
+  GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
+} from "../generalChats";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -1189,6 +1206,9 @@ export default function SidebarV2() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const createProject = useAtomCommand(projectEnvironment.create, {
+    reportFailure: false,
+  });
   const deleteProject = useAtomCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
@@ -1244,6 +1264,12 @@ export default function SidebarV2() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const generalChatsProject = useMemo(
+    () => findGeneralChatsProject(projects, primaryEnvironmentId),
+    [primaryEnvironmentId, projects],
+  );
+  const [isCreatingGeneralChat, setIsCreatingGeneralChat] = useState(false);
+  const creatingGeneralChatRef = useRef(false);
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1311,6 +1337,66 @@ export default function SidebarV2() {
     [sidebarProjectSortOrder, threads, unsortedProjectGroups],
   );
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
+  const createGeneralChat = useCallback(() => {
+    if (creatingGeneralChatRef.current) return;
+    if (primaryEnvironmentId === null) {
+      toastManager.add({ type: "error", title: "Connect an environment before starting a chat." });
+      return;
+    }
+
+    creatingGeneralChatRef.current = true;
+    setIsCreatingGeneralChat(true);
+    void (async () => {
+      const projectRef = scopeProjectRef(primaryEnvironmentId, GENERAL_CHATS_PROJECT_ID);
+      try {
+        if (generalChatsProject === null) {
+          const result = await createProject({
+            environmentId: primaryEnvironmentId,
+            input: {
+              projectId: GENERAL_CHATS_PROJECT_ID,
+              title: GENERAL_CHATS_PROJECT_TITLE,
+              workspaceRoot: GENERAL_CHATS_WORKSPACE_ROOT,
+              createWorkspaceRootIfMissing: true,
+              defaultModelSelection: resolveDefaultProviderModelSelection(serverProviders, null),
+            },
+          });
+          if (result._tag === "Failure") {
+            if (isAtomCommandInterrupted(result)) return;
+            const error = squashAtomCommandFailure(result);
+            if (!isGeneralChatsProjectAlreadyExistsError(error)) throw error;
+          }
+          if ((await waitForProject(projectRef)) === null) {
+            throw new Error("The chat workspace is still syncing. Try again in a moment.");
+          }
+        }
+
+        const result = await settlePromise(() =>
+          newThreadContext.handleNewThread(projectRef, GENERAL_CHAT_NEW_THREAD_OPTIONS),
+        );
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        if (isMobile) setOpenMobile(false);
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not create chat",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      } finally {
+        creatingGeneralChatRef.current = false;
+        setIsCreatingGeneralChat(false);
+      }
+    })();
+  }, [
+    createProject,
+    generalChatsProject,
+    isMobile,
+    newThreadContext.handleNewThread,
+    primaryEnvironmentId,
+    serverProviders,
+    setOpenMobile,
+  ]);
   const providerEntryByInstanceId = useMemo(
     () =>
       new Map(
@@ -3211,6 +3297,25 @@ export default function SidebarV2() {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+      <SidebarSeparator />
+      <SidebarGroup className="px-2 py-1">
+        <SidebarMenuButton
+          type="button"
+          onClick={createGeneralChat}
+          disabled={isCreatingGeneralChat}
+          tooltip="New chat"
+          className="gap-2 px-2 text-muted-foreground hover:text-foreground"
+        >
+          {isCreatingGeneralChat ? (
+            <LoaderIcon className="size-4 animate-spin" />
+          ) : (
+            <MessageSquareIcon className="size-4" />
+          )}
+          <span>Chats</span>
+        </SidebarMenuButton>
+      </SidebarGroup>
+      <AgentsSidebarLink />
+      <SidebarSeparator />
       <SidebarChromeFooter />
     </>
   );
