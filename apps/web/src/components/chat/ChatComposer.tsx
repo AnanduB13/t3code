@@ -94,6 +94,7 @@ import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommand
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { ComposerWeeklyUsage } from "./ComposerWeeklyUsage";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -3302,6 +3303,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   </>
                 )}
               </div>
+
+              {/* Account limits belong beside the active model, so the number
+               * always reflects the provider instance this next turn will use. */}
+              {noProviderAvailable ? null : (
+                <ComposerWeeklyUsage
+                  environmentId={environmentId}
+                  instanceId={selectedInstanceId}
+                />
+              )}
 
               {/* Right side: send / stop button */}
               <div
