@@ -92,7 +92,7 @@ import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells, waitForProject } from "../state/entities";
+import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
@@ -1364,9 +1364,6 @@ export default function SidebarV2() {
             if (isAtomCommandInterrupted(result)) return;
             const error = squashAtomCommandFailure(result);
             if (!isGeneralChatsProjectAlreadyExistsError(error)) throw error;
-          }
-          if ((await waitForProject(projectRef)) === null) {
-            throw new Error("The chat workspace is still syncing. Try again in a moment.");
           }
         }
 

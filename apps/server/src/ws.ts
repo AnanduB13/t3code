@@ -18,6 +18,7 @@ import {
   CommandId,
   type DiscoveredLocalServerList,
   EventId,
+  HermesAgentError,
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -120,7 +121,9 @@ import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import { hermesClient } from "./agents/HermesClient.ts";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isHermesAgentError = Schema.is(HermesAgentError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -480,6 +483,17 @@ const makeWsRpcLayer = (
       const serverEventId = randomUUID.pipe(Effect.map(EventId.make));
       const serverCommandId = (tag: string) =>
         randomUUID.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
+      const hermesEffect = <A>(operation: string, execute: () => Promise<A>) =>
+        Effect.tryPromise({
+          try: execute,
+          catch: (cause) =>
+            isHermesAgentError(cause)
+              ? cause
+              : new HermesAgentError({
+                  operation,
+                  message: cause instanceof Error ? cause.message : "The Hermes request failed.",
+                }),
+        });
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
@@ -1376,6 +1390,66 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.agentsHermesStatus]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesStatus,
+            hermesEffect("status", () => hermesClient.status()),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesListSessions]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesListSessions,
+            hermesEffect("list sessions", () => hermesClient.listSessions()),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesListCronJobs]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesListCronJobs,
+            hermesEffect("list cron jobs", () => hermesClient.listCronJobs()),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesListCronRuns]: ({ jobId, limit }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesListCronRuns,
+            hermesEffect("list cron runs", () => hermesClient.listCronRuns(jobId, limit)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesGetMessages]: ({ sessionId }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesGetMessages,
+            hermesEffect("get messages", () => hermesClient.messages(sessionId)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesCreateSession]: ({ title }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesCreateSession,
+            hermesEffect("create session", () => hermesClient.createSession(title)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesUpdateSession]: ({ sessionId, title }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesUpdateSession,
+            hermesEffect("update session", () => hermesClient.updateSession(sessionId, title)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesForkSession]: ({ sessionId, title }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesForkSession,
+            hermesEffect("fork session", () => hermesClient.forkSession(sessionId, title)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesDeleteSession]: ({ sessionId }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesDeleteSession,
+            hermesEffect("delete session", () => hermesClient.deleteSession(sessionId)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesSendMessage]: ({ sessionId, message }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesSendMessage,
+            hermesEffect("send message", () => hermesClient.sendMessage(sessionId, message)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
         [WS_METHODS.serverGetConfig]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
             "rpc.aggregate": "server",
