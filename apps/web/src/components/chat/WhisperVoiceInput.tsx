@@ -23,11 +23,6 @@ const MAX_RECORDING_MS = 120_000;
 const WHISPER_OPERATION_TIMEOUT_MS = 120_000;
 const VISUALIZER_BARS = 32;
 
-function browserSpeechLanguage(): string | undefined {
-  const language = navigator.language.split("-")[0]?.toLowerCase();
-  return language && /^[a-z]{2,3}$/.test(language) ? language : undefined;
-}
-
 async function decodeWhisperAudio(blob: Blob): Promise<Float32Array> {
   const decodingContext = new AudioContext();
   let decoded: AudioBuffer;
@@ -207,8 +202,7 @@ export function WhisperVoiceInput(props: {
   }, []);
 
   const preloadWhisper = useCallback(() => {
-    const language = browserSpeechLanguage();
-    getWhisperWorker().postMessage({ type: "load", ...(language ? { language } : {}) }, []);
+    getWhisperWorker().postMessage({ type: "load" }, []);
   }, [getWhisperWorker]);
 
   const stopStream = useCallback(() => {
@@ -316,13 +310,11 @@ export function WhisperVoiceInput(props: {
             "Loading or transcription timed out. Please check your connection and retry.",
           );
         }, WHISPER_OPERATION_TIMEOUT_MS);
-        const browserLanguage = browserSpeechLanguage();
         worker.postMessage(
           {
             type: "transcribe",
             id: requestId,
             audio,
-            ...(browserLanguage ? { language: browserLanguage } : {}),
           },
           [audio.buffer],
         );
@@ -345,7 +337,13 @@ export function WhisperVoiceInput(props: {
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: { ideal: WHISPER_SAMPLE_RATE },
+        },
       });
       streamRef.current = stream;
       // Start downloading/initializing the model while the user is speaking.

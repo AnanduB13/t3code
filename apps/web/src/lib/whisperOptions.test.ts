@@ -2,17 +2,12 @@ import { describe, expect, it } from "vite-plus/test";
 import { whisperTranscriberOptions } from "./whisperOptions";
 
 describe("whisperTranscriberOptions", () => {
-  it("omits task and language for an English-only checkpoint", () => {
-    const options = whisperTranscriberOptions("en");
-    expect(options).not.toHaveProperty("task");
+  it("lets multilingual Whisper detect the spoken language", () => {
+    const options = whisperTranscriberOptions();
     expect(options).not.toHaveProperty("language");
-  });
-
-  it("provides transcription and language hints for multilingual checkpoints", () => {
-    expect(whisperTranscriberOptions("es")).toMatchObject({
+    expect(options).toMatchObject({
       task: "transcribe",
-      language: "es",
+      condition_on_prev_tokens: true,
     });
-    expect(whisperTranscriberOptions()).toMatchObject({ task: "transcribe" });
   });
 });
