@@ -1,13 +1,10 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
   scopedProjectKey,
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import {
-  DEFAULT_RUNTIME_MODE,
-  DEFAULT_SERVER_SETTINGS,
-  type ScopedProjectRef,
-} from "@t3tools/contracts";
+import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -31,6 +28,7 @@ import {
   useThread,
 } from "../state/entities";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
+import { primaryServerSettingsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
@@ -59,12 +57,14 @@ export function useNewThreadHandler() {
     ): Promise<void> => {
       const resolvedOptions = resolveGeneralChatNewThreadOptions(projectRef.projectId, options);
       const {
+        getComposerDraft,
         getDraftSessionByLogicalProjectKey,
         getDraftSession,
         getDraftThread,
         applyStickyState,
         setDraftThreadContext,
         setLogicalProjectDraftThreadId,
+        setModelSelection,
       } = useComposerDraftStore.getState();
       const currentRouteTarget = getCurrentRouteTarget();
       const project = readProject(projectRef);
@@ -96,12 +96,42 @@ export function useNewThreadHandler() {
         : null;
       if (!forceNewDraft && reusableStoredDraftThread) {
         return (async () => {
-          if (
+          const isDraftAlreadyOpen =
+            currentRouteTarget?.kind === "draft" &&
+            currentRouteTarget.draftId === reusableStoredDraftThread.draftId;
+          const hasExplicitWorkspaceOption =
             hasBranchOption ||
             hasWorktreePathOption ||
             hasEnvModeOption ||
-            hasStartFromOriginOption
-          ) {
+            hasStartFromOriginOption;
+          // Resurrecting a stored draft must not resurrect its stale context:
+          // explicit workspace options win outright; otherwise the env context
+          // resets to the configured defaults so drafts seeded before a
+          // defaults change (or by the old carry-over behavior) stop landing
+          // on "current checkout" branches forever. Composer text is
+          // preserved. When the draft is already open and no options were
+          // passed, leave it alone entirely — the user may have just picked a
+          // branch in the composer.
+          const defaultEnvMode = primaryServerSettings.defaultThreadEnvMode;
+          const workspaceContext = hasExplicitWorkspaceOption
+            ? {
+                ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
+                ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+                ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+                ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
+              }
+            : isDraftAlreadyOpen
+              ? null
+              : {
+                  branch: null,
+                  worktreePath: null,
+                  envMode: defaultEnvMode,
+                  startFromOrigin: resolveNewDraftStartFromOrigin({
+                    envMode: defaultEnvMode,
+                    newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
+                  }),
+                };
+          if (workspaceContext) {
             setDraftThreadContext(reusableStoredDraftThread.draftId, {
               ...(hasBranchOption ? { branch: resolvedOptions?.branch ?? null } : {}),
               ...(hasWorktreePathOption
@@ -112,13 +142,29 @@ export function useNewThreadHandler() {
                 ? { startFromOrigin: resolvedOptions?.startFromOrigin }
                 : {}),
             });
+            if (carryModelSelection) {
+              // The carried selection is a complete snapshot of the viewed
+              // thread's model state: absent options mean "no options", not
+              // "keep the stale draft's options".
+              setModelSelection(reusableStoredDraftThread.draftId, carryModelSelection, {
+                replaceOptions: true,
+              });
+            }
           }
+          // The workspace context must also ride along here: when projectRef
+          // targets a different physical member of the logical project,
+          // createDraftThreadState treats the remap as a project change and
+          // would otherwise wipe branch/worktree and force "local" mode,
+          // undoing the write above.
           setLogicalProjectDraftThreadId(
             logicalProjectKey,
             projectRef,
             reusableStoredDraftThread.draftId,
             {
               threadId: reusableStoredDraftThread.threadId,
+              ...(workspaceContext ?? {}),
+              ...(carryRuntimeMode ? { runtimeMode: carryRuntimeMode } : {}),
+              ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
             },
           );
           if (
@@ -189,11 +235,20 @@ export function useNewThreadHandler() {
             resolvedOptions?.startFromOrigin ??
             resolveNewDraftStartFromOrigin({
               envMode: initialEnvMode,
-              newWorktreesStartFromOrigin: environmentSettings.newWorktreesStartFromOrigin,
+              newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
             }),
-          runtimeMode: DEFAULT_RUNTIME_MODE,
+          runtimeMode: carryRuntimeMode ?? DEFAULT_RUNTIME_MODE,
+          ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
         });
         applyStickyState(draftId);
+        if (carryModelSelection) {
+          // After sticky state so the viewed thread's exact selection
+          // (model + options like effort and context window) wins over the
+          // globally sticky one. replaceOptions: the carried selection is a
+          // complete snapshot — absent options mean "no options", not "keep
+          // whatever sticky state just wrote".
+          setModelSelection(draftId, carryModelSelection, { replaceOptions: true });
+        }
 
         await router.navigate({
           to: "/draft/$draftId",

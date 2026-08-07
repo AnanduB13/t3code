@@ -755,6 +755,7 @@ describe("resolveSidebarV2RecentChats", () => {
       entry({
         id: `thread-${index + 1}`,
         latestUserMessageAt: `2026-03-09T${String(index + 10).padStart(2, "0")}:00:00.000Z`,
+        standalone: true,
       }),
     );
 
@@ -779,11 +780,13 @@ describe("resolveSidebarV2RecentChats", () => {
         id: "newer-message",
         latestUserMessageAt: "2026-03-09T12:00:00.000Z",
         updatedAt: "2026-03-09T12:00:00.000Z",
+        standalone: true,
       }),
       entry({
         id: "older-message",
         latestUserMessageAt: "2026-03-09T09:00:00.000Z",
         updatedAt: "2026-03-09T13:00:00.000Z",
+        standalone: true,
       }),
     ];
 
@@ -796,8 +799,8 @@ describe("resolveSidebarV2RecentChats", () => {
 
   it("moves a chat only after a newer user message", () => {
     const entries = [
-      entry({ id: "newer", latestUserMessageAt: "2026-03-09T12:00:00.000Z" }),
-      entry({ id: "older", latestUserMessageAt: "2026-03-09T09:00:00.000Z" }),
+      entry({ id: "newer", latestUserMessageAt: "2026-03-09T12:00:00.000Z", standalone: true }),
+      entry({ id: "older", latestUserMessageAt: "2026-03-09T09:00:00.000Z", standalone: true }),
     ];
     const afterPrompt = entries.map((candidate) =>
       candidate.thread.id === "older"
@@ -820,7 +823,7 @@ describe("resolveSidebarV2RecentChats", () => {
     ).toEqual(["older", "newer"]);
   });
 
-  it("keeps standalone chats discoverable but excludes project threads without prompts", () => {
+  it("keeps standalone chats discoverable and excludes project threads entirely", () => {
     const result = resolveSidebarV2RecentChats({
       entries: [
         entry({ id: "standalone", standalone: true }),
@@ -834,10 +837,7 @@ describe("resolveSidebarV2RecentChats", () => {
       previewLimit: 5,
     });
 
-    expect(result.visible.map(({ thread }) => thread.id)).toEqual([
-      "project-with-prompt",
-      "standalone",
-    ]);
+    expect(result.visible.map(({ thread }) => thread.id)).toEqual(["standalone"]);
   });
 
   it("collapses case-only title duplicates within one project without hiding other projects", () => {

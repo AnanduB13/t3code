@@ -497,14 +497,13 @@ export interface SidebarV2RecentChatEntry<
    * generated title collapse to the most recently active representative.
    */
   readonly duplicateGroupKey: string;
-  /** Standalone chats stay discoverable before their first user message. */
+  /** True only for threads that should appear in the standalone Chats shelf. */
   readonly includeWhenUnvisited: boolean;
 }
 
 /**
  * Builds the fixed Chats shelf shown below Sidebar V2's project thread list.
- * Project threads join the shelf once they have user activity, while
- * standalone chats are always eligible. Navigation never changes the order:
+ * Only standalone chats are eligible. Navigation never changes the order:
  * only a new user message (or a newly created chat) can move a row.
  */
 export function resolveSidebarV2RecentChats<
@@ -524,7 +523,7 @@ export function resolveSidebarV2RecentChats<
   readonly hiddenCount: number;
 } {
   const sorted = input.entries
-    .filter((entry) => entry.includeWhenUnvisited || entry.thread.latestUserMessageAt != null)
+    .filter((entry) => entry.includeWhenUnvisited)
     .toSorted((left, right) => {
       const rightRecency = firstValidTimestampMs(
         right.thread.latestUserMessageAt,

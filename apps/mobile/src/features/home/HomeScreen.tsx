@@ -49,7 +49,12 @@ import {
   type HomeGroupDisplayState,
   type HomeListItem,
 } from "./homeListItems";
-import { buildHomeThreadGroups, type HomeProjectSortOrder } from "./homeThreadList";
+import {
+  buildHomeProjectScopes,
+  buildHomeThreadGroups,
+  sortHomeProjectScopes,
+  type HomeProjectSortOrder,
+} from "./homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
 import { WorkspaceConnectionStatus } from "./WorkspaceConnectionStatus";
 import { shouldShowWorkspaceConnectionStatus } from "./workspace-connection-status";
@@ -65,14 +70,15 @@ interface HomeScreenProps {
   readonly environments: ReadonlyArray<HomeListFilterMenuEnvironment>;
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
+  readonly selectedProjectKey: string | null;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
+  readonly onProjectChange: (projectKey: string | null) => void;
   readonly onProjectSortOrderChange: (sortOrder: HomeProjectSortOrder) => void;
   readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
-  readonly onProjectGroupingModeChange: (mode: SidebarProjectGroupingMode) => void;
   readonly onAddConnection: () => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
@@ -314,12 +320,77 @@ export function HomeScreen(props: HomeScreenProps) {
     onScrollBeginDrag: handleScrollBeginDrag,
   });
 
+  const projectScopes = useMemo(
+    () =>
+      buildHomeProjectScopes({
+        projects: props.projects,
+        environmentId: props.selectedEnvironmentId,
+        projectGroupingMode: props.projectGroupingMode,
+      }),
+    [props.projectGroupingMode, props.projects, props.selectedEnvironmentId],
+  );
+  const selectedProjectScope = useMemo(
+    () =>
+      props.selectedProjectKey === null
+        ? null
+        : (projectScopes.find(
+            (scope) =>
+              scope.key === props.selectedProjectKey ||
+              scope.projectRefs.some(
+                (projectRef) =>
+                  scopedProjectKey(projectRef.environmentId, projectRef.projectId) ===
+                  props.selectedProjectKey,
+              ),
+          ) ?? null),
+    [projectScopes, props.selectedProjectKey],
+  );
+  const selectedProjectRefKeys = useMemo(
+    () =>
+      selectedProjectScope === null
+        ? null
+        : new Set(
+            selectedProjectScope.projectRefs.map((projectRef) =>
+              scopedProjectKey(projectRef.environmentId, projectRef.projectId),
+            ),
+          ),
+    [selectedProjectScope],
+  );
+  const scopedProjects = useMemo(
+    () =>
+      selectedProjectRefKeys === null
+        ? props.projects
+        : props.projects.filter((project) =>
+            selectedProjectRefKeys.has(scopedProjectKey(project.environmentId, project.id)),
+          ),
+    [props.projects, selectedProjectRefKeys],
+  );
+  const scopedThreads = useMemo(
+    () =>
+      selectedProjectRefKeys === null
+        ? props.threads
+        : props.threads.filter((thread) =>
+            selectedProjectRefKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+          ),
+    [props.threads, selectedProjectRefKeys],
+  );
+  const scopedPendingTasks = useMemo(
+    () =>
+      selectedProjectRefKeys === null
+        ? props.pendingTasks
+        : props.pendingTasks.filter((pendingTask) =>
+            selectedProjectRefKeys.has(
+              scopedProjectKey(pendingTask.message.environmentId, pendingTask.creation.projectId),
+            ),
+          ),
+    [props.pendingTasks, selectedProjectRefKeys],
+  );
+
   const projectGroups = useMemo(
     () =>
       buildHomeThreadGroups({
-        projects: props.projects,
-        threads: props.threads,
-        pendingTasks: props.pendingTasks,
+        projects: scopedProjects,
+        threads: scopedThreads,
+        pendingTasks: scopedPendingTasks,
         environmentId: props.selectedEnvironmentId,
         searchQuery: props.searchQuery,
         projectSortOrder: props.projectSortOrder,
@@ -327,14 +398,14 @@ export function HomeScreen(props: HomeScreenProps) {
         projectGroupingMode: props.projectGroupingMode,
       }),
     [
-      props.pendingTasks,
       props.projectGroupingMode,
-      props.projects,
       props.projectSortOrder,
       props.searchQuery,
       props.selectedEnvironmentId,
       props.threadSortOrder,
-      props.threads,
+      scopedPendingTasks,
+      scopedProjects,
+      scopedThreads,
     ],
   );
 
@@ -758,6 +829,11 @@ export function HomeScreen(props: HomeScreenProps) {
   const listEmpty = !hasResults ? (
     hasSearchQuery ? (
       <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
+    ) : selectedProjectScope !== null ? (
+      <EmptyState
+        title={`No threads in ${selectedProjectScope.title}`}
+        detail="Choose another project or create a new task."
+      />
     ) : selectedEnvironmentLabel ? (
       <EmptyState
         title={`No threads in ${selectedEnvironmentLabel}`}

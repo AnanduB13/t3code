@@ -127,6 +127,13 @@ function isThreadTurnActive(thread: OrchestrationThread): boolean {
   return status === "running" || status === "starting";
 }
 
+function getQueuedMessages(thread: OrchestrationThread): ReadonlyArray<OrchestrationQueuedMessage> {
+  // A long-lived server may still hold threads decoded before the queue fields
+  // were introduced. Schema defaults cover fresh snapshots, while this keeps
+  // commands dispatched during a hot upgrade compatible with that read model.
+  return thread.queuedMessages ?? [];
+}
+
 /**
  * Settle-guard heuristic: the latest user message is newer than any turn
  * activity, i.e. a turn start that no session has picked up yet. Message
@@ -812,9 +819,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // not open a second concurrent turn ahead of already-queued chips.
       if (
         command.bootstrap === undefined &&
-        (isThreadTurnActive(targetThread) || targetThread.pendingTurnStart !== null)
+        (isThreadTurnActive(targetThread) || (targetThread.pendingTurnStart ?? null) !== null)
       ) {
-        if (targetThread.queuedMessages.length >= MAX_THREAD_QUEUED_MESSAGES) {
+        if (getQueuedMessages(targetThread).length >= MAX_THREAD_QUEUED_MESSAGES) {
           return yield* new OrchestrationCommandInvariantError({
             commandType: command.type,
             detail: `Thread '${command.threadId}' already has ${MAX_THREAD_QUEUED_MESSAGES} queued messages.`,
@@ -865,7 +872,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const queuedMessage = thread.queuedMessages.find(
+      const queuedMessage = getQueuedMessages(thread).find(
         (entry) => entry.messageId === command.messageId,
       );
       if (!queuedMessage) {
@@ -908,7 +915,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const queuedMessage = thread.queuedMessages.find(
+      const queuedMessage = getQueuedMessages(thread).find(
         (entry) => entry.messageId === command.messageId,
       );
       if (!queuedMessage) {
@@ -940,7 +947,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const queuedMessage = thread.queuedMessages.at(0);
+      const queuedMessage = getQueuedMessages(thread).at(0);
       if (!queuedMessage) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -951,7 +958,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // this drain; keep the queue intact and let the next completion retry.
       // The pending-start check also stops a duplicate drain from double-
       // dispatching while the first drained turn's session is still unset.
-      if (isThreadTurnActive(thread) || thread.pendingTurnStart !== null) {
+      if (isThreadTurnActive(thread) || (thread.pendingTurnStart ?? null) !== null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Thread '${command.threadId}' is busy; queued messages drain on turn completion.`,

@@ -10,6 +10,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationReadModel,
   type OrchestrationSessionStatus,
+  type OrchestrationThread,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -142,12 +143,41 @@ const applyPlanned = (
     return nextReadModel;
   });
 
+type MutableLegacyThread = {
+  -readonly [Key in keyof OrchestrationThread]?: OrchestrationThread[Key];
+};
+
+const withLegacyQueueShape = (readModel: OrchestrationReadModel): OrchestrationReadModel => ({
+  ...readModel,
+  threads: readModel.threads.map((thread) => {
+    const legacyThread: MutableLegacyThread = { ...thread };
+    delete legacyThread.queuedMessages;
+    delete legacyThread.pendingTurnStart;
+    return legacyThread as OrchestrationThread;
+  }),
+});
+
 it.layer(NodeServices.layer)("decider queue flows", (it) => {
   it.effect("starts a turn immediately when the thread is idle", () =>
     Effect.gen(function* () {
       const readModel = yield* seedReadModel;
       const planned = yield* decideOrchestrationCommand({
         command: turnStartCommand("idle"),
+        readModel,
+      });
+      const events = Array.isArray(planned) ? planned : [planned];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.message-sent",
+        "thread.turn-start-requested",
+      ]);
+    }),
+  );
+
+  it.effect("starts an idle legacy thread without queue fields immediately", () =>
+    Effect.gen(function* () {
+      const readModel = withLegacyQueueShape(yield* seedReadModel);
+      const planned = yield* decideOrchestrationCommand({
+        command: turnStartCommand("legacy-idle"),
         readModel,
       });
       const events = Array.isArray(planned) ? planned : [planned];
@@ -172,6 +202,24 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
       const thread = projected.threads.find((entry) => entry.id === THREAD_ID);
       expect(thread?.queuedMessages.map((entry) => entry.messageId)).toEqual([
         asMessageId("message-busy"),
+      ]);
+    }),
+  );
+
+  it.effect("queues and projects a follow-up for a running legacy thread", () =>
+    Effect.gen(function* () {
+      const readModel = withLegacyQueueShape(
+        yield* withSessionStatus(yield* seedReadModel, "running", 3),
+      );
+      const planned = yield* decideOrchestrationCommand({
+        command: turnStartCommand("legacy-busy"),
+        readModel,
+      });
+      const projected = yield* applyPlanned(readModel, planned);
+      const thread = projected.threads.find((entry) => entry.id === THREAD_ID);
+
+      expect(thread?.queuedMessages.map((entry) => entry.messageId)).toEqual([
+        asMessageId("message-legacy-busy"),
       ]);
     }),
   );

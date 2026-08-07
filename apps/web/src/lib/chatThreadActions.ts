@@ -5,13 +5,6 @@ import type { DraftThreadEnvMode } from "../composerDraftStore";
 interface ThreadContextLike {
   environmentId: EnvironmentId;
   projectId: ProjectId;
-  branch: string | null;
-  worktreePath: string | null;
-}
-
-interface DraftThreadContextLike extends ThreadContextLike {
-  envMode: DraftThreadEnvMode;
-  startFromOrigin: boolean;
 }
 
 interface NewThreadHandler {
@@ -26,10 +19,8 @@ interface NewThreadHandler {
   ): Promise<void>;
 }
 
-type NewThreadOptions = NonNullable<Parameters<NewThreadHandler>[1]>;
-
 export interface ChatThreadActionContext {
-  readonly activeDraftThread: DraftThreadContextLike | null;
+  readonly activeDraftThread: ThreadContextLike | null;
   readonly activeThread: ThreadContextLike | undefined;
   readonly defaultProjectRef: ScopedProjectRef | null;
   readonly handleNewThread: NewThreadHandler;
@@ -87,18 +78,6 @@ export async function startNewThreadInProjectFromContext(
 }
 
 export async function startNewThreadFromContext(
-  context: ChatThreadActionContext,
-): Promise<boolean> {
-  const projectRef = resolveThreadActionProjectRef(context);
-  if (!projectRef) {
-    return false;
-  }
-
-  await startNewThreadInProjectFromContext(context, projectRef);
-  return true;
-}
-
-export async function startNewLocalThreadFromContext(
   context: ChatThreadActionContext,
 ): Promise<boolean> {
   const projectRef = resolveThreadActionProjectRef(context);

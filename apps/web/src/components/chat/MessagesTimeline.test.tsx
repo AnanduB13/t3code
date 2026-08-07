@@ -130,7 +130,9 @@ function matchMedia() {
   };
 }
 
-beforeAll(() => {
+let MessagesTimeline: typeof import("./MessagesTimeline").MessagesTimeline;
+
+beforeAll(async () => {
   const classList = {
     add: () => {},
     remove: () => {},
@@ -161,7 +163,9 @@ beforeAll(() => {
       offsetHeight: 0,
     },
   });
-});
+
+  ({ MessagesTimeline } = await import("./MessagesTimeline"));
+}, 30_000);
 
 const ACTIVE_THREAD_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";
@@ -254,6 +258,12 @@ describe("MessagesTimeline", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
+        latestTurn={{
+          turnId,
+          state: "completed",
+          startedAt: MESSAGE_CREATED_AT,
+          completedAt: MESSAGE_CREATED_AT,
+        }}
         timelineEntries={[
           {
             id: "entry-assistant-with-files",
@@ -289,7 +299,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('class="sticky top-2 z-10');
+    expect(markup).toContain("sticky top-2 z-10");
     expect(markup).not.toContain("self-start");
     expect(markup).toContain("whitespace-nowrap");
     expect(markup).toContain("!size-[22px]");
@@ -360,8 +370,7 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineMinimapInteractiveWidth(40, true)).toBe("22rem");
   });
 
-  it("anchors a sent attachment message using its measured height", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("anchors a sent attachment message using its measured height", () => {
     const onAnchorReady = vi.fn();
     const onAnchorSizeChanged = vi.fn();
     const firstEntry = buildUserTimelineEntry("First prompt.");
@@ -409,8 +418,7 @@ describe("MessagesTimeline", () => {
     expect(onAnchorSizeChanged).toHaveBeenCalledWith(secondEntry.message.id, 240);
   });
 
-  it("renders collapse controls for long user messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("renders collapse controls for long user messages", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -429,8 +437,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-user-message-footer="true"');
   });
 
-  it("does not render collapse controls for short user messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("does not render collapse controls for short user messages", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -440,10 +447,10 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
+    expect(markup).toContain("rounded-2xl bg-accent p-3");
   });
 
-  it("renders inline terminal labels with the composer chip UI", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("renders inline terminal labels with the composer chip UI", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -470,8 +477,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Show full message");
   }, 20_000);
 
-  it("renders chips for standalone element-pick context messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("renders chips for standalone element-pick context messages", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -497,8 +503,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("<element_context");
   });
 
-  it("keeps the copy button for collapsed long user messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("keeps the copy button for collapsed long user messages", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -511,8 +516,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-user-message-footer="true"');
   });
 
-  it("renders context compaction entries in the normal work log", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("renders context compaction entries in the normal work log", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -536,8 +540,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Work Log");
   });
 
-  it("formats changed file paths from the workspace root", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("formats changed file paths from the workspace root", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -563,8 +566,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 
-  it("renders review comment contexts as structured cards instead of raw tags", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("renders review comment contexts as structured cards instead of raw tags", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -604,8 +606,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("&lt;/review_comment&gt;");
   });
 
-  it("renders file review comments as source code instead of diffs", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("renders file review comments as source code instead of diffs", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -642,8 +643,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-testid="file-diff"');
   });
 
-  it("renders a failure marker for failed tool lifecycle entries", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+  it("renders a failure marker for failed tool lifecycle entries", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}

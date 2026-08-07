@@ -490,7 +490,9 @@ export function projectEvent(
           // past its queue limit, so replaying the event stream stays in
           // lockstep with the persisted projection.
           const queuedMessages = [
-            ...thread.queuedMessages.filter((entry) => entry.messageId !== payload.messageId),
+            ...(thread.queuedMessages ?? []).filter(
+              (entry) => entry.messageId !== payload.messageId,
+            ),
             {
               messageId: payload.messageId,
               text: payload.text,
@@ -531,7 +533,7 @@ export function projectEvent(
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
-              queuedMessages: thread.queuedMessages.filter(
+              queuedMessages: (thread.queuedMessages ?? []).filter(
                 (entry) => entry.messageId !== payload.messageId,
               ),
               updatedAt: event.occurredAt,

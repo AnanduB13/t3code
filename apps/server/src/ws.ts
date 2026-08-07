@@ -47,7 +47,6 @@ import {
   ProviderUsageError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
-  OrchestrationReplayEventsError,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
@@ -63,7 +62,6 @@ import {
   WsRpcGroup,
   HermesAgentError,
 } from "@t3tools/contracts";
-import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
@@ -71,6 +69,10 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import {
+  projectActivityEvent,
+  projectThreadDetailSnapshot,
+} from "./orchestration/ActivityPayloadProjection.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -81,6 +83,7 @@ import {
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
+import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -98,7 +101,6 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
-import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
@@ -124,6 +126,15 @@ const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchComma
 const isHermesAgentError = Schema.is(HermesAgentError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
+
+export const resolveAvailableEditorsForConfig = <A, E, R>(
+  discovery: Effect.Effect<ReadonlyArray<A>, E, R>,
+) =>
+  discovery.pipe(
+    Effect.timeoutOption(EDITOR_DISCOVERY_TIMEOUT),
+    Effect.map(Option.getOrElse(() => [])),
+  );
 
 function unexpectedCompatibilityError(error: never): never {
   throw new Error(`Unhandled compatibility error: ${String(error)}`);
@@ -298,7 +309,6 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [ORCHESTRATION_WS_METHODS.dispatchCommand, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.getTurnDiff, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.getFullThreadDiff, AuthOrchestrationReadScope],
-  [ORCHESTRATION_WS_METHODS.replayEvents, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.subscribeShell, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.subscribeThread, AuthOrchestrationReadScope],
@@ -306,6 +316,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverGetConfig, AuthOrchestrationReadScope],
   [WS_METHODS.serverRefreshProviders, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpdateProvider, AuthOrchestrationOperateScope],
+  [WS_METHODS.serverUpdateServer, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpsertKeybinding, AuthOrchestrationOperateScope],
   [WS_METHODS.serverRemoveKeybinding, AuthOrchestrationOperateScope],
   [WS_METHODS.serverGetSettings, AuthOrchestrationReadScope],
@@ -445,6 +456,7 @@ const makeWsRpcLayer = (
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
+      const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -452,8 +464,6 @@ const makeWsRpcLayer = (
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
-      const repositoryIdentityResolver =
-        yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
@@ -613,53 +623,6 @@ const makeWsRpcLayer = (
               cause,
             });
       };
-
-      const enrichProjectEvent = (
-        event: OrchestrationEvent,
-      ): Effect.Effect<OrchestrationEvent, never, never> => {
-        switch (event.type) {
-          case "project.created":
-            return repositoryIdentityResolver.resolve(event.payload.workspaceRoot).pipe(
-              Effect.map((repositoryIdentity) => ({
-                ...event,
-                payload: {
-                  ...event.payload,
-                  repositoryIdentity,
-                },
-              })),
-            );
-          case "project.meta-updated":
-            return Effect.gen(function* () {
-              const workspaceRoot =
-                event.payload.workspaceRoot ??
-                Option.match(
-                  yield* projectionSnapshotQuery.getProjectShellById(event.payload.projectId),
-                  {
-                    onNone: () => null,
-                    onSome: (project) => project.workspaceRoot,
-                  },
-                ) ??
-                null;
-              if (workspaceRoot === null) {
-                return event;
-              }
-
-              const repositoryIdentity = yield* repositoryIdentityResolver.resolve(workspaceRoot);
-              return {
-                ...event,
-                payload: {
-                  ...event.payload,
-                  repositoryIdentity,
-                },
-              } satisfies OrchestrationEvent;
-            }).pipe(Effect.orElseSucceed(() => event));
-          default:
-            return Effect.succeed(event);
-        }
-      };
-
-      const enrichOrchestrationEvents = (events: ReadonlyArray<OrchestrationEvent>) =>
-        Effect.forEach(events, enrichProjectEvent, { concurrency: 4 });
 
       const toShellStreamEvent = (
         event: OrchestrationEvent,
@@ -1118,7 +1081,9 @@ const makeWsRpcLayer = (
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
           providers,
-          availableEditors: yield* externalLauncher.resolveAvailableEditors(),
+          availableEditors: yield* resolveAvailableEditorsForConfig(
+            externalLauncher.resolveAvailableEditors(),
+          ),
           observability: {
             logsDirectoryPath: config.logsDir,
             localTracingEnabled: true,
@@ -1252,29 +1217,6 @@ const makeWsRpcLayer = (
                 (cause) =>
                   new OrchestrationGetFullThreadDiffError({
                     message: "Failed to load full thread diff",
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "orchestration" },
-          ),
-        [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
-          observeRpcEffect(
-            ORCHESTRATION_WS_METHODS.replayEvents,
-            Stream.runCollect(
-              orchestrationEngine.readEvents(
-                clamp(input.fromSequenceExclusive, {
-                  maximum: Number.MAX_SAFE_INTEGER,
-                  minimum: 0,
-                }),
-              ),
-            ).pipe(
-              Effect.map((events) => Array.from(events)),
-              Effect.flatMap(enrichOrchestrationEvents),
-              Effect.mapError(
-                (cause) =>
-                  new OrchestrationReplayEventsError({
-                    message: "Failed to replay orchestration events",
                     cause,
                   }),
               ),
@@ -1418,7 +1360,7 @@ const makeWsRpcLayer = (
                 Stream.filter(isThisThreadDetailEvent),
                 Stream.map((event) => ({
                   kind: "event" as const,
-                  event,
+                  event: projectActivityEvent(event),
                 })),
               );
 
@@ -1453,7 +1395,10 @@ const makeWsRpcLayer = (
                   .readEvents(afterSequence, Number.MAX_SAFE_INTEGER)
                   .pipe(
                     Stream.filter(isThisThreadDetailEvent),
-                    Stream.map((event) => ({ kind: "event" as const, event })),
+                    Stream.map((event) => ({
+                      kind: "event" as const,
+                      event: projectActivityEvent(event),
+                    })),
                     Stream.mapError(
                       (cause) =>
                         new OrchestrationGetSnapshotError({
@@ -1505,7 +1450,7 @@ const makeWsRpcLayer = (
               return Stream.concat(
                 Stream.make({
                   kind: "snapshot" as const,
-                  snapshot: snapshot.value,
+                  snapshot: projectThreadDetailSnapshot(snapshot.value),
                 }),
                 afterSnapshot,
               );
@@ -1597,6 +1542,10 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverUpdateServer]: (input) =>
+          observeRpcEffect(WS_METHODS.serverUpdateServer, serverSelfUpdate.update(input), {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverUpsertKeybinding]: (rule) =>
           observeRpcEffect(
             WS_METHODS.serverUpsertKeybinding,
@@ -2275,6 +2224,11 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
         const session = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(
+          Effect.tapErrorCause((cause) =>
+            Effect.logError("Authenticated WebSocket ticket validation failed.").pipe(
+              Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+            ),
+          ),
           Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
             failEnvironmentAuthInvalid(EnvironmentAuth.serverAuthCredentialReason(error)),
           ),
@@ -2289,6 +2243,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             makeWsRpcLayer(session, previewAutomationBroker, computerUseBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(ProviderMaintenanceRunner.layer),
+              Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(
@@ -2312,11 +2267,22 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               ),
             ),
           ),
+          Effect.tapErrorCause((cause) =>
+            Effect.logError("Failed to initialize authenticated WebSocket RPC.").pipe(
+              Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+            ),
+          ),
         );
         return yield* Effect.acquireUseRelease(
           sessions.markConnected(session.sessionId),
           () => rpcWebSocketHttpEffect,
           () => sessions.markDisconnected(session.sessionId),
+        ).pipe(
+          Effect.tapErrorCause((cause) =>
+            Effect.logError("Authenticated WebSocket RPC failed.").pipe(
+              Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+            ),
+          ),
         );
       }).pipe(
         Effect.catchTags({

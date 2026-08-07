@@ -6,7 +6,11 @@ import { GENERAL_CHATS_PROJECT_ID } from "@t3tools/client-runtime/general-chats"
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildHomeThreadGroups } from "./homeThreadList";
+import {
+  buildHomeProjectScopes,
+  buildHomeThreadGroups,
+  sortHomeProjectScopes,
+} from "./homeThreadList";
 
 function makeProject(
   input: Partial<EnvironmentProject> & Pick<EnvironmentProject, "environmentId" | "id" | "title">,
