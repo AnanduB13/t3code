@@ -1,0 +1,200 @@
+import { Link } from "@tanstack/react-router";
+import {
+  BotIcon,
+  FolderIcon,
+  ListTodoIcon,
+  LoaderCircleIcon,
+  MessageSquareIcon,
+  RefreshCwIcon,
+} from "lucide-react";
+import { useMemo } from "react";
+
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { hermesAgentEnvironment } from "../../state/hermesAgents";
+import { useEnvironmentQuery } from "../../state/query";
+import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { cn } from "../../lib/utils";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarSeparator,
+} from "../ui/sidebar";
+import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
+import { isElectron } from "../../env";
+import { resolveHermesConnectionState } from "./Agents.logic";
+import { groupHermesTasks } from "./Agents.tasks";
+import { useAgentsSidebarStore } from "./agentsSidebarStore";
+
+function sessionTitle(session: { readonly title: string | null }): string {
+  return session.title?.trim() || "Untitled Hermes chat";
+}
+
+export function AgentsSidebar() {
+  const environmentId = usePrimaryEnvironmentId();
+  const section = useAgentsSidebarStore((state) => state.section);
+  const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
+  const selectedSessionId = useAgentsSidebarStore((state) => state.selectedSessionId);
+  const setSection = useAgentsSidebarStore((state) => state.setSection);
+  const setSelectedTaskId = useAgentsSidebarStore((state) => state.setSelectedTaskId);
+  const setSelectedSessionId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
+  const status = useEnvironmentQuery(
+    environmentId ? hermesAgentEnvironment.status({ environmentId, input: {} }) : null,
+  );
+  const connectionState = resolveHermesConnectionState({
+    status: status.data,
+    isPending: status.isPending,
+    error: status.error,
+  });
+  const connected = connectionState === "connected";
+  const sessions = useEnvironmentQuery(
+    environmentId && connected
+      ? hermesAgentEnvironment.sessions({ environmentId, input: {} })
+      : null,
+  );
+  const cronJobs = useEnvironmentQuery(
+    environmentId && connected
+      ? hermesAgentEnvironment.cronJobs({ environmentId, input: {} })
+      : null,
+  );
+  const grouped = useMemo(
+    () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
+    [cronJobs.data?.jobs, sessions.data?.sessions],
+  );
+  const refresh = () => {
+    sessions.refresh();
+    cronJobs.refresh();
+  };
+
+  return (
+    <>
+      <SidebarChromeHeader isElectron={isElectron} />
+      <SidebarContent
+        className="gap-0"
+        fixedHeader={
+          <SidebarGroup className="gap-1 p-[var(--sidebar-content-inset)]">
+            <div className="flex h-8 items-center gap-2 px-2 text-sm font-semibold text-sidebar-foreground">
+              <BotIcon className="size-4" />
+              <span>Agents</span>
+              {connected ? <span className="size-1.5 rounded-full bg-success" /> : null}
+            </div>
+            <div className="grid grid-cols-2 gap-1">
+              <SidebarMenuButton
+                type="button"
+                isActive={section === "tasks"}
+                onClick={() => setSection("tasks")}
+                className="justify-center gap-1.5"
+              >
+                <ListTodoIcon className="size-3.5" />
+                Tasks
+                {grouped.tasks.length ? (
+                  <span className="text-[10px]">{grouped.tasks.length}</span>
+                ) : null}
+              </SidebarMenuButton>
+              <SidebarMenuButton
+                type="button"
+                isActive={section === "chats"}
+                onClick={() => setSection("chats")}
+                className="justify-center gap-1.5"
+              >
+                <MessageSquareIcon className="size-3.5" />
+                Chats
+                {grouped.chats.length ? (
+                  <span className="text-[10px]">{grouped.chats.length}</span>
+                ) : null}
+              </SidebarMenuButton>
+            </div>
+          </SidebarGroup>
+        }
+      >
+        <SidebarGroup className="px-2 pb-3 pt-1">
+          <div className="flex items-center justify-between px-2 py-2 text-xs font-medium text-sidebar-muted-foreground">
+            <span>{section === "tasks" ? "Scheduled tasks" : "Hermes chats"}</span>
+            <button
+              type="button"
+              aria-label={`Refresh ${section}`}
+              onClick={refresh}
+              className="rounded p-1 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+            >
+              <RefreshCwIcon className="size-3.5" />
+            </button>
+          </div>
+          {connectionState === "connecting" ? (
+            <div className="flex justify-center py-8 text-sidebar-muted-foreground">
+              <LoaderCircleIcon className="size-4 animate-spin" />
+            </div>
+          ) : !connected ? (
+            <p className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
+              Hermes isn’t reachable
+            </p>
+          ) : section === "tasks" ? (
+            grouped.tasks.map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                onClick={() => setSelectedTaskId(task.id)}
+                className={cn(
+                  "mb-1 w-full rounded-md px-2.5 py-2 text-left hover:bg-sidebar-row-hover",
+                  selectedTaskId === task.id && "bg-sidebar-row-hover",
+                )}
+              >
+                <span className="block truncate text-sm font-medium">{task.name}</span>
+                <span className="mt-1 block text-[11px] text-sidebar-muted-foreground">
+                  {task.job?.scheduleDisplay ?? "Past task"} · {task.runs.length} runs
+                </span>
+              </button>
+            ))
+          ) : (
+            grouped.chats.map((session) => (
+              <button
+                key={session.id}
+                type="button"
+                onClick={() => setSelectedSessionId(session.id)}
+                className={cn(
+                  "mb-1 w-full rounded-md px-2.5 py-2 text-left hover:bg-sidebar-row-hover",
+                  selectedSessionId === session.id && "bg-sidebar-row-hover",
+                )}
+              >
+                <span className="block truncate text-sm font-medium">{sessionTitle(session)}</span>
+                <span className="mt-1 block text-[11px] text-sidebar-muted-foreground">
+                  {session.messageCount} messages
+                  {session.lastActive ? ` · ${formatRelativeTimeLabel(session.lastActive)}` : ""}
+                </span>
+              </button>
+            ))
+          )}
+          {connected &&
+          (section === "tasks" ? grouped.tasks.length === 0 : grouped.chats.length === 0) ? (
+            <p className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
+              {section === "tasks" ? "No scheduled tasks yet" : "No Hermes chats yet"}
+            </p>
+          ) : null}
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarSeparator />
+      <SidebarGroup className="px-2 py-1">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              render={<Link to="/" />}
+              className="gap-2 px-2 text-muted-foreground"
+            >
+              <FolderIcon className="size-4" />
+              <span>Projects</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton isActive className="gap-2 px-2 text-foreground">
+              <BotIcon className="size-4" />
+              <span>Agents</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
+      <SidebarSeparator />
+      <SidebarChromeFooter />
+    </>
+  );
+}

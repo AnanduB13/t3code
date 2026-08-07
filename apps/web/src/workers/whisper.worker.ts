@@ -11,9 +11,8 @@ type TranscribeRequest = {
   type: "transcribe";
   id: string;
   audio: Float32Array;
-  language?: string;
 };
-type WorkerRequest = { type: "load"; language?: string } | TranscribeRequest;
+type WorkerRequest = { type: "load" } | TranscribeRequest;
 
 let transcriberPromise: Promise<Transcriber> | null = null;
 
@@ -25,14 +24,15 @@ function loadingProgress(progress: unknown): number | undefined {
     : undefined;
 }
 
-function getTranscriber(language?: string): Promise<Transcriber> {
-  const isEnglish = language === "en";
-  const model = isEnglish ? "onnx-community/whisper-tiny.en" : "onnx-community/whisper-tiny";
-  transcriberPromise ??= pipeline("automatic-speech-recognition", model, {
-    // Tiny cuts both download and inference latency substantially. Keeping its encoder at q8
-    // preserves much more speech detail than the original all-q4 implementation.
-    device: "wasm",
-    dtype: { encoder_model: "q8", decoder_model_merged: "q4" },
+function loadTranscriber(device: "webgpu" | "wasm"): Promise<Transcriber> {
+  return pipeline("automatic-speech-recognition", "onnx-community/whisper-base", {
+    device,
+    // Whisper's encoder is especially sensitive to quantization. Preserve it at q8 on CPU
+    // and fp32 on GPU while keeping the autoregressive decoder compact.
+    dtype:
+      device === "webgpu"
+        ? { encoder_model: "fp32", decoder_model_merged: "q4" }
+        : { encoder_model: "q8", decoder_model_merged: "q4" },
     progress_callback: (progress) => {
       const detail =
         typeof progress === "object" && progress && "status" in progress
@@ -45,17 +45,24 @@ function getTranscriber(language?: string): Promise<Transcriber> {
       });
     },
   }) as unknown as Promise<Transcriber>;
+}
+
+function getTranscriber(): Promise<Transcriber> {
+  transcriberPromise ??=
+    "gpu" in navigator
+      ? loadTranscriber("webgpu").catch(() => loadTranscriber("wasm"))
+      : loadTranscriber("wasm");
   return transcriberPromise;
 }
 
 function runTranscription(transcriber: Transcriber, request: TranscribeRequest) {
-  return transcriber(request.audio, whisperTranscriberOptions(request.language));
+  return transcriber(request.audio, whisperTranscriberOptions());
 }
 
 self.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => {
   if (event.data.type === "load") {
     try {
-      await getTranscriber(event.data.language);
+      await getTranscriber();
       self.postMessage({ type: "ready" });
     } catch (error) {
       self.postMessage({
@@ -67,7 +74,7 @@ self.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => {
   }
 
   try {
-    const transcriber = await getTranscriber(event.data.language);
+    const transcriber = await getTranscriber();
     const result = await runTranscription(transcriber, event.data);
     self.postMessage({ type: "result", id: event.data.id, text: result.text });
   } catch (error) {

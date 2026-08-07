@@ -175,7 +175,12 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
-  | { kind: "working"; id: string; createdAt: string | null };
+  | {
+      kind: "working";
+      id: string;
+      createdAt: string | null;
+      phase: "starting" | "working";
+    };
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
@@ -564,10 +569,17 @@ export function deriveMessagesTimelineRows(input: {
   }
 
   if (input.isWorking) {
+    const hasActiveTurnOutput = input.timelineEntries.some((entry) => {
+      if (entry.kind === "message") {
+        return entry.message.role === "assistant" && entry.message.turnId === unsettledTurnId;
+      }
+      return entry.kind === "work" && entry.entry.turnId === unsettledTurnId;
+    });
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
       createdAt: input.activeTurnStartedAt,
+      phase: hasActiveTurnOutput ? "working" : "starting",
     });
   }
 

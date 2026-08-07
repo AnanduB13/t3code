@@ -176,6 +176,27 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
     }),
   );
 
+  it.effect("treats a legacy thread without queuedMessages as having an empty queue", () =>
+    Effect.gen(function* () {
+      const currentReadModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      const readModel = {
+        ...currentReadModel,
+        threads: currentReadModel.threads.map((thread) => {
+          const { queuedMessages: _queuedMessages, ...legacyThread } = thread;
+          return legacyThread;
+        }),
+      } as unknown as OrchestrationReadModel;
+
+      const planned = yield* decideOrchestrationCommand({
+        command: turnStartCommand("legacy-queue"),
+        readModel,
+      });
+
+      const events = Array.isArray(planned) ? planned : [planned];
+      expect(events.map((event) => event.type)).toEqual(["thread.message-queued"]);
+    }),
+  );
+
   it.effect("queues a follow-up racing in behind a just-dispatched turn start", () =>
     Effect.gen(function* () {
       // First send on an idle thread: dispatches message-sent +

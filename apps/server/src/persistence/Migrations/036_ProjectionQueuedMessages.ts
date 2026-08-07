@@ -17,8 +17,6 @@ export default Effect.gen(function* () {
     )
   `;
 
-  // Drain order is rowid (insertion) order; the index only serves the
-  // per-thread filter.
   yield* sql`
     CREATE INDEX IF NOT EXISTS idx_projection_queued_messages_thread
     ON projection_queued_messages(thread_id)

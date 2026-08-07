@@ -66,6 +66,7 @@ type ProjectFaviconImageProps = {
 
 type ImageElement = ReactElement<{
   readonly src: string;
+  readonly className?: string;
   readonly onLoad?: () => void;
   readonly onError?: () => void;
 }>;
@@ -124,5 +125,13 @@ describe("ProjectFavicon", () => {
     const afterDisplayedError = renderImage(Component, refreshedProps).props.children;
     expect(afterDisplayedError[0]).not.toBeNull();
     expect(afterDisplayedError[1]).toBeNull();
+  });
+
+  it("keeps the favicon preload rendered so browsers start its request", () => {
+    const { Component, props } = resolveImageComponent();
+    const preloadImage = renderImage(Component, props).props.children[2];
+
+    expect(preloadImage?.props.className).toContain("invisible");
+    expect(preloadImage?.props.className).not.toContain("hidden");
   });
 });

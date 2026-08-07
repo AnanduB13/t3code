@@ -48,6 +48,7 @@ import { formatRelativeTimeLabel } from "../timestampFormat";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 import { resolveHermesConnectionState } from "../components/agents/Agents.logic";
 import { chronologicalCronRuns, groupHermesTasks } from "../components/agents/Agents.tasks";
+import { useAgentsSidebarStore } from "../components/agents/agentsSidebarStore";
 
 function sessionTitle(session: HermesSession): string {
   return session.title?.trim() || "Untitled Hermes chat";
@@ -155,8 +156,10 @@ function HermesMessageView({ message }: { readonly message: HermesMessage }) {
 
 function AgentsRouteView() {
   const environmentId = usePrimaryEnvironmentId();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const selectedId = useAgentsSidebarStore((state) => state.selectedSessionId);
+  const setSelectedId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
+  const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
+  const setSelectedTaskId = useAgentsSidebarStore((state) => state.setSelectedTaskId);
   const [taskRunLimit, setTaskRunLimit] = useState(20);
   const [taskRunSnapshot, setTaskRunSnapshot] = useState<{
     readonly jobId: string;
@@ -164,7 +167,8 @@ function AgentsRouteView() {
     readonly total: number;
     readonly hasMore: boolean;
   } | null>(null);
-  const [section, setSection] = useState<"tasks" | "chats">("tasks");
+  const section = useAgentsSidebarStore((state) => state.section);
+  const setSection = useAgentsSidebarStore((state) => state.setSection);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -413,28 +417,8 @@ function AgentsRouteView() {
               {status.data.model}
             </span>
           ) : null}
-          {connected ? (
-            <div className="ml-auto flex items-center gap-1 md:hidden">
-              <Button
-                size="icon-xs"
-                variant={section === "tasks" ? "secondary" : "ghost"}
-                aria-label="Scheduled tasks"
-                onClick={() => setSection("tasks")}
-              >
-                <ListTodoIcon />
-              </Button>
-              <Button
-                size="icon-xs"
-                variant={section === "chats" ? "secondary" : "ghost"}
-                aria-label="Hermes chats"
-                onClick={() => setSection("chats")}
-              >
-                <MessageSquareIcon />
-              </Button>
-            </div>
-          ) : null}
           <Button
-            className="md:ml-auto"
+            className="ml-auto"
             size="xs"
             variant="outline"
             disabled={!connected}
@@ -477,8 +461,8 @@ function AgentsRouteView() {
             </div>
           </div>
         ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)]">
-            <aside className="hidden min-h-0 border-r border-border bg-muted/10 md:flex md:flex-col">
+          <div className="flex min-h-0 flex-1">
+            <aside className="hidden min-h-0 border-r border-border bg-muted/10">
               <div className="grid grid-cols-2 gap-1 border-b border-border p-2">
                 <Button
                   size="sm"
@@ -570,7 +554,7 @@ function AgentsRouteView() {
               </div>
             </aside>
 
-            <main className="flex min-h-0 min-w-0 flex-col">
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col">
               {section === "tasks" && selectedTask ? (
                 <>
                   <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 sm:px-5">

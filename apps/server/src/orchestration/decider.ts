@@ -2,7 +2,9 @@ import {
   EventId,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationQueuedMessage,
   type OrchestrationReadModel,
+  type OrchestrationThread,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
@@ -177,6 +179,184 @@ type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
   | ReadonlyArray<PlannedOrchestrationEvent>;
+
+function isThreadTurnActive(thread: OrchestrationThread): boolean {
+  const status = thread.session?.status;
+  return status === "running" || status === "starting";
+}
+
+// Threads replayed from projections created before queued prompts existed can
+// lack this field at runtime. Treat those records as having an empty queue so
+// a new prompt still reaches the provider instead of crashing the command.
+function queuedMessagesForThread(
+  thread: OrchestrationThread,
+): ReadonlyArray<OrchestrationQueuedMessage> {
+  const queuedMessages = (thread as { readonly queuedMessages?: unknown }).queuedMessages;
+  return Array.isArray(queuedMessages) ? (queuedMessages as OrchestrationQueuedMessage[]) : [];
+}
+
+const MAX_THREAD_QUEUED_MESSAGES = 50;
+
+interface TurnStartMessageInput {
+  readonly messageId: OrchestrationQueuedMessage["messageId"];
+  readonly text: string;
+  readonly attachments: OrchestrationQueuedMessage["attachments"];
+  readonly modelSelection?: OrchestrationQueuedMessage["modelSelection"];
+  readonly titleSeed?: string;
+  readonly sourceProposedPlan?: OrchestrationQueuedMessage["sourceProposedPlan"];
+}
+
+const planTurnStartEvents = Effect.fn("planTurnStartEvents")(function* ({
+  commandId,
+  thread,
+  message,
+  occurredAt,
+}: {
+  readonly commandId: OrchestrationCommand["commandId"];
+  readonly thread: OrchestrationThread;
+  readonly message: TurnStartMessageInput;
+  readonly occurredAt: string;
+}): Effect.fn.Return<
+  ReadonlyArray<PlannedOrchestrationEvent>,
+  PlatformError.PlatformError,
+  Crypto.Crypto
+> {
+  const userMessageEvent: PlannedOrchestrationEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: thread.id,
+      occurredAt,
+      commandId,
+    })),
+    type: "thread.message-sent",
+    payload: {
+      threadId: thread.id,
+      messageId: message.messageId,
+      role: "user",
+      text: message.text,
+      attachments: message.attachments,
+      turnId: null,
+      streaming: false,
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+    },
+  };
+  const turnStartRequestedEvent: PlannedOrchestrationEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: thread.id,
+      occurredAt,
+      commandId,
+    })),
+    causationEventId: userMessageEvent.eventId,
+    type: "thread.turn-start-requested",
+    payload: {
+      threadId: thread.id,
+      messageId: message.messageId,
+      ...(message.modelSelection !== undefined ? { modelSelection: message.modelSelection } : {}),
+      ...(message.titleSeed !== undefined ? { titleSeed: message.titleSeed } : {}),
+      runtimeMode: thread.runtimeMode,
+      interactionMode: thread.interactionMode,
+      ...(message.sourceProposedPlan !== undefined
+        ? { sourceProposedPlan: message.sourceProposedPlan }
+        : {}),
+      createdAt: occurredAt,
+    },
+  };
+  const lifecycleResetEvents: PlannedOrchestrationEvent[] = [];
+  if (thread.settledOverride !== null) {
+    lifecycleResetEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        occurredAt,
+        commandId,
+      })),
+      type: "thread.unsettled",
+      payload: {
+        threadId: thread.id,
+        reason: "activity",
+        updatedAt: occurredAt,
+      },
+    });
+  }
+  if (thread.snoozedUntil !== null) {
+    lifecycleResetEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        occurredAt,
+        commandId,
+      })),
+      type: "thread.unsnoozed",
+      payload: {
+        threadId: thread.id,
+        reason: "activity",
+        updatedAt: occurredAt,
+      },
+    });
+  }
+  return [...lifecycleResetEvents, userMessageEvent, turnStartRequestedEvent];
+});
+
+const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(function* ({
+  commandId,
+  readModel,
+  thread,
+  queuedMessage,
+  occurredAt,
+}: {
+  readonly commandId: OrchestrationCommand["commandId"];
+  readonly readModel: OrchestrationReadModel;
+  readonly thread: OrchestrationThread;
+  readonly queuedMessage: OrchestrationQueuedMessage;
+  readonly occurredAt: string;
+}): Effect.fn.Return<
+  ReadonlyArray<PlannedOrchestrationEvent>,
+  PlatformError.PlatformError,
+  Crypto.Crypto
+> {
+  const sourceProposedPlan = queuedMessage.sourceProposedPlan;
+  const sourceThread = sourceProposedPlan
+    ? readModel.threads.find((entry) => entry.id === sourceProposedPlan.threadId)
+    : undefined;
+  const sourcePlanStillValid =
+    sourceProposedPlan !== undefined &&
+    sourceThread !== undefined &&
+    sourceThread.projectId === thread.projectId &&
+    sourceThread.proposedPlans.some((entry) => entry.id === sourceProposedPlan.planId);
+
+  const removedEvent: PlannedOrchestrationEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: thread.id,
+      occurredAt,
+      commandId,
+    })),
+    type: "thread.queued-message-removed",
+    payload: {
+      threadId: thread.id,
+      messageId: queuedMessage.messageId,
+      reason: "dispatched",
+      removedAt: occurredAt,
+    },
+  };
+  const turnStartEvents = yield* planTurnStartEvents({
+    commandId,
+    thread,
+    message: {
+      messageId: queuedMessage.messageId,
+      text: queuedMessage.text,
+      attachments: queuedMessage.attachments,
+      ...(queuedMessage.modelSelection !== undefined
+        ? { modelSelection: queuedMessage.modelSelection }
+        : {}),
+      ...(sourcePlanStillValid ? { sourceProposedPlan } : {}),
+    },
+    occurredAt,
+  });
+  return [removedEvent, ...turnStartEvents];
+});
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
@@ -778,87 +958,146 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
         });
       }
-      const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.message-sent",
-        payload: {
-          threadId: command.threadId,
+      if (
+        command.bootstrap === undefined &&
+        (isThreadTurnActive(targetThread) || targetThread.pendingTurnStart !== null)
+      ) {
+        if (queuedMessagesForThread(targetThread).length >= MAX_THREAD_QUEUED_MESSAGES) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${command.threadId}' already has ${MAX_THREAD_QUEUED_MESSAGES} queued messages.`,
+          });
+        }
+        return {
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.message-queued",
+          payload: {
+            threadId: command.threadId,
+            messageId: command.message.messageId,
+            text: command.message.text,
+            attachments: command.message.attachments,
+            ...(command.modelSelection !== undefined
+              ? { modelSelection: command.modelSelection }
+              : {}),
+            ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
+            queuedAt: command.createdAt,
+          },
+        };
+      }
+
+      return yield* planTurnStartEvents({
+        commandId: command.commandId,
+        thread: targetThread,
+        message: {
           messageId: command.message.messageId,
-          role: "user",
           text: command.message.text,
           attachments: command.message.attachments,
-          turnId: null,
-          streaming: false,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-      const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        causationEventId: userMessageEvent.eventId,
-        type: "thread.turn-start-requested",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.message.messageId,
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
           ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
-          runtimeMode: targetThread.runtimeMode,
-          interactionMode: targetThread.interactionMode,
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
-          createdAt: command.createdAt,
+        },
+        occurredAt: command.createdAt,
+      });
+    }
+
+    case "thread.queue.steer": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queuedMessage = queuedMessagesForThread(thread).find(
+        (entry) => entry.messageId === command.messageId,
+      );
+      if (!queuedMessage) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      const steerRacesPendingStart =
+        (thread.session?.status === "starting" && thread.session.activeTurnId === null) ||
+        (thread.session?.status !== "running" && thread.pendingTurnStart !== null);
+      if (steerRacesPendingStart) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is still starting a turn; steer once it is running.`,
+        });
+      }
+      return yield* planQueuedMessageDispatch({
+        commandId: command.commandId,
+        readModel,
+        thread,
+        queuedMessage,
+        occurredAt: command.createdAt,
+      });
+    }
+
+    case "thread.queue.remove": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queuedMessage = queuedMessagesForThread(thread).find(
+        (entry) => entry.messageId === command.messageId,
+      );
+      if (!queuedMessage) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.queued-message-removed",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          reason: "user",
+          removedAt: command.createdAt,
         },
       };
-      // Real activity resets ANY override: it wakes an explicitly settled
-      // thread, and it clears a keep-active pin back to neutral so the
-      // thread can auto-settle again after this burst of work goes stale.
-      // A snooze clears the same way — sending a message to a snoozed
-      // thread is the user re-engaging, so the return ticket is spent.
-      const lifecycleResetEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      if (targetThread.settledOverride !== null) {
-        lifecycleResetEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.unsettled",
-          payload: {
-            threadId: command.threadId,
-            reason: "activity",
-            updatedAt: command.createdAt,
-          },
+    }
+
+    case "thread.queue.drain": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queuedMessage = queuedMessagesForThread(thread).at(0);
+      if (!queuedMessage) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' has no queued messages to drain.`,
         });
       }
-      if (targetThread.snoozedUntil != null) {
-        lifecycleResetEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.unsnoozed",
-          payload: {
-            threadId: command.threadId,
-            reason: "activity",
-            updatedAt: command.createdAt,
-          },
+      if (isThreadTurnActive(thread) || thread.pendingTurnStart !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is busy; queued messages drain on turn completion.`,
         });
       }
-      return [...lifecycleResetEvents, userMessageEvent, turnStartRequestedEvent];
+      return yield* planQueuedMessageDispatch({
+        commandId: command.commandId,
+        readModel,
+        thread,
+        queuedMessage,
+        occurredAt: command.createdAt,
+      });
     }
 
     case "thread.turn.interrupt": {

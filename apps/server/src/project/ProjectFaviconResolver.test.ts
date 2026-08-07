@@ -133,6 +133,19 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
       }),
     );
 
+    it.effect("uses a project logo asset when no favicon is present", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "src/assets/logo.webp", "brand");
+
+        const resolved = yield* resolver.resolvePath(cwd);
+
+        expect(resolved).not.toBeNull();
+        expect(resolved).toContain("src/assets/logo.webp");
+      }),
+    );
+
     it.effect("returns null when no icon is present", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;

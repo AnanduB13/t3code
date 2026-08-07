@@ -1103,8 +1103,11 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         <span>
           {row.createdAt ? (
             <>
-              Working for <WorkingTimer createdAt={row.createdAt} />
+              {row.phase === "starting" ? "Starting agent" : "Working"} for{" "}
+              <WorkingTimer createdAt={row.createdAt} />
             </>
+          ) : row.phase === "starting" ? (
+            "Starting agent..."
           ) : (
             "Working..."
           )}

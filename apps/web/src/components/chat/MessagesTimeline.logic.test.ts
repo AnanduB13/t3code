@@ -261,6 +261,25 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("deriveMessagesTimelineRows", () => {
+  it("labels a turn as starting until the provider emits an activity or assistant message", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [],
+      latestTurn: null,
+      runningTurnId: null,
+      isWorking: true,
+      activeTurnStartedAt: "2026-08-04T12:51:45.865Z",
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows).toContainEqual({
+      kind: "working",
+      id: "working-indicator-row",
+      createdAt: "2026-08-04T12:51:45.865Z",
+      phase: "starting",
+    });
+  });
+
   it("only enables assistant copy for the terminal assistant message in a turn", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [

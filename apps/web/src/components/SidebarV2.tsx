@@ -49,7 +49,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { useParams, useRouter } from "@tanstack/react-router";
+import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -168,6 +168,7 @@ import {
 } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
+import { AgentsSidebar } from "./agents/AgentsSidebar";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -189,6 +190,7 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
   repository_path: "Group by repository path",
   separate: "Keep separate",
 };
+type SidebarMode = "projects" | "chats";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -1195,6 +1197,9 @@ export default function SidebarV2() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
+  const isAgentsRoute = useLocation({
+    select: (location) => location.pathname.startsWith("/agents"),
+  });
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
@@ -1270,6 +1275,7 @@ export default function SidebarV2() {
   );
   const [isCreatingGeneralChat, setIsCreatingGeneralChat] = useState(false);
   const creatingGeneralChatRef = useRef(false);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("projects");
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1302,10 +1308,14 @@ export default function SidebarV2() {
       ),
     [environments],
   );
-  const orderedProjects = useMemo(
+  const projectModeProjects = useMemo(
+    () => projects.filter((project) => project.id !== GENERAL_CHATS_PROJECT_ID),
+    [projects],
+  );
+  const orderedProjectModeProjects = useMemo(
     () =>
       orderItemsByPreferredIds({
-        items: projects,
+        items: projectModeProjects,
         preferredIds: projectOrder,
         getId: getProjectOrderKey,
         getPreferenceIds: (project) => [
@@ -1313,22 +1323,23 @@ export default function SidebarV2() {
           legacyProjectCwdPreferenceKey(project.workspaceRoot),
         ],
       }),
-    [projectOrder, projects],
+    [projectModeProjects, projectOrder],
   );
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
+        projects:
+          sidebarProjectSortOrder === "manual" ? orderedProjectModeProjects : projectModeProjects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
       environmentLabelById,
-      orderedProjects,
+      orderedProjectModeProjects,
       primaryEnvironmentId,
+      projectModeProjects,
       projectGroupingSettings,
-      projects,
       sidebarProjectSortOrder,
     ],
   );
@@ -1415,14 +1426,20 @@ export default function SidebarV2() {
   );
   const projectDisplayNameByKey = useMemo(
     () =>
-      new Map(
-        projectGroups.flatMap((group) =>
+      new Map([
+        ...projectGroups.flatMap((group) =>
           group.memberProjects.map(
             (project) => [`${project.environmentId}:${project.id}`, group.displayName] as const,
           ),
         ),
-      ),
-    [projectGroups],
+        ...projects
+          .filter((project) => project.id === GENERAL_CHATS_PROJECT_ID)
+          .map(
+            (project) =>
+              [`${project.environmentId}:${project.id}`, GENERAL_CHATS_PROJECT_TITLE] as const,
+          ),
+      ]),
+    [projectGroups, projects],
   );
 
   // now is quantized to the minute so effectiveSettled memoization doesn't
@@ -1486,7 +1503,7 @@ export default function SidebarV2() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [clearSelection, projectScopeKey, sidebarMode]);
 
   const handleRemoveProjectMembers = useCallback(
     async (projectGroup: SidebarProjectSnapshot, members: readonly SidebarProjectGroupMember[]) => {
@@ -1656,7 +1673,11 @@ export default function SidebarV2() {
     const visible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
+        (sidebarMode === "chats"
+          ? thread.projectId === GENERAL_CHATS_PROJECT_ID
+          : thread.projectId !== GENERAL_CHATS_PROJECT_ID) &&
+        (sidebarMode === "chats" ||
+          scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
     );
     const active: EnvironmentThreadShell[] = [];
@@ -1704,6 +1725,7 @@ export default function SidebarV2() {
     nowMinute,
     scopedProjectKeys,
     serverConfigs,
+    sidebarMode,
     snoozeWakeTick,
     threads,
   ]);
@@ -2648,6 +2670,10 @@ export default function SidebarV2() {
   // uses. The command palette already offers a "New thread in..." submenu
   // for multi-project setups.
   const handleNewThreadClick = useCallback(() => {
+    if (sidebarMode === "chats") {
+      createGeneralChat();
+      return;
+    }
     // One project: nothing to pick, create immediately.
     if (projectGroups.length <= 1) {
       if (isMobile) setOpenMobile(false);
@@ -2661,13 +2687,24 @@ export default function SidebarV2() {
     }
     if (isMobile) setOpenMobile(false);
     openCommandPalette({ open: "new-thread-in" });
-  }, [isMobile, newThreadContext, projectGroups.length, setOpenMobile]);
+  }, [
+    createGeneralChat,
+    isMobile,
+    newThreadContext,
+    projectGroups.length,
+    setOpenMobile,
+    sidebarMode,
+  ]);
 
   // Same resolution as v1: prefer the local-thread binding, fall back to
   // chat.new, no platform gating — web users have working shortcuts too.
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.newLocal") ??
     shortcutLabelForCommand(keybindings, "chat.new");
+  if (isAgentsRoute) {
+    return <AgentsSidebar />;
+  }
+
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
@@ -2731,26 +2768,41 @@ export default function SidebarV2() {
                         type="button"
                         className="relative focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                         onClick={handleNewThreadClick}
-                        disabled={projects.length === 0}
-                        aria-label="New thread"
+                        disabled={
+                          sidebarMode === "chats"
+                            ? primaryEnvironmentId === null
+                            : projectModeProjects.length === 0
+                        }
+                        aria-label={sidebarMode === "chats" ? "New chat" : "New thread"}
                       />
                     }
                   >
-                    <SquarePenIcon />
+                    {sidebarMode === "chats" && isCreatingGeneralChat ? (
+                      <LoaderIcon className="animate-spin" />
+                    ) : (
+                      <SquarePenIcon />
+                    )}
                     <span
                       className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
                       aria-hidden="true"
                     />
                   </TooltipTrigger>
                   <TooltipPopup side="right">
-                    {newThreadShortcutLabel
-                      ? `New thread (${newThreadShortcutLabel})`
-                      : "New thread"}
+                    {sidebarMode === "chats"
+                      ? "New chat"
+                      : newThreadShortcutLabel
+                        ? `New thread (${newThreadShortcutLabel})`
+                        : "New thread"}
                   </TooltipPopup>
                 </Tooltip>
               </div>
             </div>
-            {projectGroups.length > 0 ? (
+            {sidebarMode === "chats" ? (
+              <div className="flex h-8 items-center gap-2 px-2 text-sm font-medium text-sidebar-foreground">
+                <MessageSquareIcon className="size-4 shrink-0" />
+                <span>Chats</span>
+              </div>
+            ) : projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">
                 <Menu open={projectScopeMenuOpen} onOpenChange={setProjectScopeMenuOpen}>
                   <MenuTrigger
@@ -3089,7 +3141,20 @@ export default function SidebarV2() {
           {!isSearchingThreads &&
           activeThreads.length + snoozedThreads.length + settledThreads.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-              {projects.length === 0 ? (
+              {sidebarMode === "chats" ? (
+                <>
+                  <span>No chats yet</span>
+                  <button
+                    type="button"
+                    onClick={createGeneralChat}
+                    disabled={isCreatingGeneralChat}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <PlusIcon className="-mx-0.5 size-3" />
+                    New chat
+                  </button>
+                </>
+              ) : projectModeProjects.length === 0 ? (
                 <>
                   <span>No projects yet</span>
                   <button
@@ -3298,17 +3363,19 @@ export default function SidebarV2() {
       <SidebarGroup className="px-2 py-1">
         <SidebarMenuButton
           type="button"
-          onClick={createGeneralChat}
-          disabled={isCreatingGeneralChat}
-          tooltip="New chat"
+          onClick={() => {
+            setProjectScopeKey(null);
+            setSidebarMode((mode) => (mode === "chats" ? "projects" : "chats"));
+          }}
+          tooltip={sidebarMode === "chats" ? "Show projects" : "Show chats"}
           className="gap-2 px-2 text-muted-foreground hover:text-foreground"
         >
-          {isCreatingGeneralChat ? (
-            <LoaderIcon className="size-4 animate-spin" />
+          {sidebarMode === "chats" ? (
+            <FolderIcon className="size-4" />
           ) : (
             <MessageSquareIcon className="size-4" />
           )}
-          <span>Chats</span>
+          <span>{sidebarMode === "chats" ? "Projects" : "Chats"}</span>
         </SidebarMenuButton>
       </SidebarGroup>
       <AgentsSidebarLink />

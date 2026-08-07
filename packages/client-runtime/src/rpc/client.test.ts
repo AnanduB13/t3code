@@ -231,6 +231,60 @@ describe("environment RPC", () => {
     }),
   );
 
+  it.effect("retries a transport-closed subscription on the current session when configured", () =>
+    Effect.gen(function* () {
+      const subscriptions = yield* Ref.make(0);
+      const observedFailures = yield* Ref.make(0);
+      const transportError = new RpcClientError.RpcClientError({
+        reason: new RpcClientError.RpcClientDefect({
+          message: "stream closed",
+          cause: new Error("stream closed"),
+        }),
+      });
+      const client = {
+        [WS_METHODS.subscribeTerminalEvents]: () =>
+          Stream.unwrap(
+            Ref.getAndUpdate(subscriptions, (count) => count + 1).pipe(
+              Effect.map((count) => (count === 0 ? Stream.fail(transportError) : Stream.never)),
+            ),
+          ),
+      } as unknown as WsRpcProtocolClient;
+      const { activeSession, supervisor } = yield* makeHarness();
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+
+      const subscriptionFiber = yield* subscribe(
+        WS_METHODS.subscribeTerminalEvents,
+        {},
+        {
+          onExpectedFailure: () => Ref.update(observedFailures, (count) => count + 1),
+          retryExpectedFailureAfter: "100 millis",
+        },
+      ).pipe(
+        Stream.runDrain,
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      for (
+        let attempt = 0;
+        attempt < 100 && (yield* Ref.get(observedFailures)) === 0;
+        attempt += 1
+      ) {
+        yield* Effect.yieldNow;
+      }
+
+      expect(yield* Ref.get(subscriptions)).toBe(1);
+      expect(yield* Ref.get(observedFailures)).toBe(1);
+
+      yield* TestClock.adjust("100 millis");
+      for (let attempt = 0; attempt < 100 && (yield* Ref.get(subscriptions)) < 2; attempt += 1) {
+        yield* Effect.yieldNow;
+      }
+      yield* Fiber.interrupt(subscriptionFiber);
+
+      expect(yield* Ref.get(subscriptions)).toBe(2);
+    }),
+  );
+
   it.effect("surfaces domain subscription failures without reconnecting", () =>
     Effect.gen(function* () {
       const domainError = new Error("terminal subscription rejected");

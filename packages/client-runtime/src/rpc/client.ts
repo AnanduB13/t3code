@@ -235,16 +235,40 @@ export function subscribeDynamic<TTag extends EnvironmentSubscriptionRpcTag>(
                               (reason) => reason._tag === "Fail" && isRpcClientError(reason.error),
                             );
                           if (isTransportFailure) {
-                            return Stream.fromEffect(
-                              Effect.logWarning(
-                                "Durable RPC subscription lost its transport; waiting for the next session.",
-                                {
-                                  cause: Cause.pretty(cause),
-                                  method: tag,
-                                  environmentId: supervisor.target.environmentId,
-                                },
-                              ),
+                            const disconnected = Stream.fromEffect(
+                              Effect.logWarning("Durable RPC subscription lost its transport.", {
+                                cause: Cause.pretty(cause),
+                                method: tag,
+                                environmentId: supervisor.target.environmentId,
+                              }),
                             ).pipe(Stream.drain);
+                            // A single RPC stream can close while its parent
+                            // WebSocket session remains usable. Previously we
+                            // waited only for a replacement session here,
+                            // leaving thread state stale until the page was
+                            // reloaded. Durable consumers opt into a retry, so
+                            // resubscribe with their event cursor on this same
+                            // session before relying on a future reconnect.
+                            if (options?.retryExpectedFailureAfter === undefined) {
+                              return disconnected;
+                            }
+                            const handled =
+                              options.onExpectedFailure === undefined
+                                ? disconnected
+                                : Stream.concat(
+                                    disconnected,
+                                    Stream.fromEffect(options.onExpectedFailure(cause)).pipe(
+                                      Stream.drain,
+                                    ),
+                                  );
+                            return handled.pipe(
+                              Stream.concat(
+                                Stream.fromEffect(
+                                  Effect.sleep(options.retryExpectedFailureAfter),
+                                ).pipe(Stream.drain),
+                              ),
+                              Stream.concat(subscribeToSession()),
+                            );
                           }
                           if (hasOnlyExpectedFailures && options?.onExpectedFailure !== undefined) {
                             const handled = Stream.fromEffect(

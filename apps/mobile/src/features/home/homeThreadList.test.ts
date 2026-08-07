@@ -2,6 +2,7 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
+import { GENERAL_CHATS_PROJECT_ID } from "@t3tools/client-runtime/general-chats";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -72,6 +73,30 @@ function buildGroups(
 }
 
 describe("buildHomeThreadGroups", () => {
+  it("keeps standalone chats out of the normal mobile project groups", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const chatsProject = makeProject({
+      environmentId,
+      id: GENERAL_CHATS_PROJECT_ID,
+      title: "Chats",
+    });
+    const chatsThread = makeThread({
+      environmentId,
+      id: ThreadId.make("chat-thread"),
+      projectId: GENERAL_CHATS_PROJECT_ID,
+      title: "Ad hoc chat",
+    });
+
+    expect(
+      buildHomeProjectScopes({
+        projects: [chatsProject],
+        environmentId: null,
+        projectGroupingMode: "repository",
+      }),
+    ).toEqual([]);
+    expect(buildGroups([chatsProject], [chatsThread])).toEqual([]);
+  });
+
   it("builds one v2 scope for the same repository across environments", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");

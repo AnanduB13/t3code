@@ -3,6 +3,10 @@ import {
   derivePhysicalProjectKey,
   deriveProjectGroupLabel,
 } from "@t3tools/client-runtime/state/project-grouping";
+import {
+  excludeGeneralChatsProject,
+  isGeneralChatsProjectId,
+} from "@t3tools/client-runtime/general-chats";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -57,7 +61,7 @@ export function buildHomeProjectScopes(input: {
   readonly environmentId: EnvironmentId | null;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
 }): ReadonlyArray<HomeProjectScope> {
-  const projects = input.projects.filter(
+  const projects = excludeGeneralChatsProject(input.projects).filter(
     (project) => input.environmentId === null || project.environmentId === input.environmentId,
   );
   const projectsByPhysicalKey = new Map<string, EnvironmentProject[]>();
@@ -282,6 +286,9 @@ export function buildHomeThreadGroups(input: {
   }
 
   for (const pendingTask of input.pendingTasks ?? []) {
+    if (isGeneralChatsProjectId(pendingTask.creation.projectId)) {
+      continue;
+    }
     if (input.environmentId !== null && pendingTask.message.environmentId !== input.environmentId) {
       continue;
     }

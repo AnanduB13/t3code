@@ -5,25 +5,18 @@ export type WhisperTranscriberOptions = {
   condition_on_prev_tokens: boolean;
   temperature: number;
   no_speech_threshold: number;
-  task?: "transcribe";
-  language?: string;
+  task: "transcribe";
 };
 
-export function whisperTranscriberOptions(language?: string): WhisperTranscriberOptions {
-  const common = {
+export function whisperTranscriberOptions(): WhisperTranscriberOptions {
+  return {
     chunk_length_s: 30,
     stride_length_s: 5,
     return_timestamps: false,
-    condition_on_prev_tokens: false,
+    // Carry context across chunks so names and technical terms stay consistent in long prompts.
+    condition_on_prev_tokens: true,
     temperature: 0,
     no_speech_threshold: 0.6,
-  } as const;
-
-  // English-only Whisper checkpoints reject both task and language generation options.
-  if (language === "en") return common;
-  return {
-    ...common,
     task: "transcribe",
-    ...(language ? { language } : {}),
   };
 }

@@ -7,6 +7,7 @@ import {
   type ThreadId as ThreadIdType,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -48,6 +49,20 @@ function shouldPersistThread(thread: OrchestrationThread): boolean {
   return status !== "starting" && status !== "running";
 }
 
+const ACTIVE_THREAD_RECONCILIATION_INTERVAL_MS = 3_000;
+
+function shouldReconcileActiveThread(thread: OrchestrationThread): boolean {
+  // A dropped `thread.session-set` can leave the UI with only the optimistic
+  // turn-start marker. That is precisely the visible "Starting agent" state,
+  // so it must be treated as active even before a session is available.
+  return (
+    thread.pendingTurnStart !== null ||
+    thread.latestTurn?.state === "running" ||
+    thread.session?.status === "starting" ||
+    thread.session?.status === "running"
+  );
+}
+
 export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make")(function* (
   threadId: ThreadIdType,
 ) {
@@ -79,6 +94,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const lastSequence = yield* SubscriptionRef.make(
     Option.match(cached, { onNone: () => 0, onSome: (snapshot) => snapshot.snapshotSequence }),
   );
+  const lastLiveUpdateAt = yield* Ref.make(yield* Clock.currentTimeMillis);
   const awaitingCompletion = yield* Ref.make(false);
   const persistence = yield* Queue.sliding<OrchestrationThreadDetailSnapshot>(1);
 
@@ -194,6 +210,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
 
     if (item.kind === "snapshot") {
       yield* SubscriptionRef.set(lastSequence, item.snapshot.snapshotSequence);
+      yield* Ref.set(lastLiveUpdateAt, yield* Clock.currentTimeMillis);
       yield* setThread(item.snapshot.thread);
       return;
     }
@@ -203,6 +220,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       return;
     }
     yield* SubscriptionRef.set(lastSequence, item.event.sequence);
+    yield* Ref.set(lastLiveUpdateAt, yield* Clock.currentTimeMillis);
 
     const current = yield* SubscriptionRef.get(state);
     if (Option.isNone(current.data)) {
@@ -218,6 +236,40 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       yield* setDeleted();
     }
   });
+
+  const reconcileActiveThread = Effect.fn("EnvironmentThreadState.reconcileActiveThread")(
+    function* () {
+      const current = yield* SubscriptionRef.get(state);
+      if (Option.isNone(current.data) || !shouldReconcileActiveThread(current.data.value)) {
+        return;
+      }
+      const now = yield* Clock.currentTimeMillis;
+      const lastUpdate = yield* Ref.get(lastLiveUpdateAt);
+      if (now - lastUpdate < ACTIVE_THREAD_RECONCILIATION_INTERVAL_MS) {
+        return;
+      }
+      // A response may be persisted while an otherwise-open RPC subscription
+      // silently stops yielding. Reconcile only active threads and only after
+      // a quiet interval, which keeps the recovery path bounded without
+      // polling settled thread histories.
+      yield* Ref.set(lastLiveUpdateAt, now);
+      const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+      if (Option.isNone(prepared)) {
+        return;
+      }
+      const snapshot = yield* snapshotLoader.load(prepared.value, threadId);
+      if (Option.isNone(snapshot)) {
+        return;
+      }
+      const sequence = yield* SubscriptionRef.get(lastSequence);
+      // Equal sequences are still useful: this is an authoritative replacement
+      // for a client reducer that missed or could not project an event.
+      if (snapshot.value.snapshotSequence < sequence) {
+        return;
+      }
+      yield* applyItem({ kind: "snapshot", snapshot: snapshot.value });
+    },
+  );
 
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
@@ -240,6 +292,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   });
 
   yield* setSynchronizing;
+  yield* Stream.tick("1 second").pipe(Stream.runForEach(reconcileActiveThread), Effect.forkScoped);
   yield* Effect.forkScoped(
     subscribeDynamic(
       ORCHESTRATION_WS_METHODS.subscribeThread,

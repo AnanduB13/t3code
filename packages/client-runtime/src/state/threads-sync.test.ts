@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   EventId,
+  MessageId,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ProviderInstanceId,
@@ -98,6 +99,13 @@ const ACTIVE_THREAD: OrchestrationThread = {
     activeTurnId: TurnId.make("turn-1"),
     lastError: null,
     updatedAt: "2026-04-01T00:01:00.000Z",
+  },
+};
+const STARTING_THREAD: OrchestrationThread = {
+  ...BASE_THREAD,
+  pendingTurnStart: {
+    messageId: MessageId.make("message-1"),
+    requestedAt: "2026-04-01T00:01:00.000Z",
   },
 };
 
@@ -393,6 +401,34 @@ describe("EnvironmentThreads", () => {
       );
 
       expect(yield* Ref.get(savedThreads)).toEqual([]);
+    }),
+  );
+
+  it.effect("reconciles a silently stale starting thread from an authoritative snapshot", () =>
+    Effect.gen(function* () {
+      const recoveredThread = { ...ACTIVE_THREAD, title: "Recovered response" };
+      const harness = yield* makeHarness({
+        // The optimistic marker is enough to render "Starting agent", even
+        // when the following session/message stream items never arrive.
+        cached: STARTING_THREAD,
+        httpSnapshot: Option.some({
+          snapshotSequence: CACHED_SNAPSHOT_SEQUENCE + 1,
+          thread: recoveredThread,
+        }),
+      });
+      yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.isSome(value.data) && value.data.value.pendingTurnStart !== null,
+      );
+
+      yield* TestClock.adjust("3 seconds");
+      const reconciled = yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.isSome(value.data) && value.data.value.title === "Recovered response",
+      );
+
+      expect(Option.getOrThrow(reconciled.data).title).toBe("Recovered response");
+      expect(yield* Ref.get(harness.loaderCalls)).toBeGreaterThanOrEqual(1);
     }),
   );
 

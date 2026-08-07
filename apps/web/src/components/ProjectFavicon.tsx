@@ -22,9 +22,17 @@ export function ProjectFavicon(input: {
     cwd: input.cwd,
   });
   const FallbackIcon = input.fallbackIcon ?? FolderIcon;
+  const fallbackLabel = projectAvatarLabel(input.cwd);
 
   if (!src || isProjectFaviconFallbackUrl(src)) {
-    return <ProjectFaviconFallback className={input.className} icon={FallbackIcon} />;
+    return (
+      <ProjectFaviconFallback
+        className={input.className}
+        icon={FallbackIcon}
+        label={fallbackLabel}
+        preferIcon={input.fallbackIcon !== undefined}
+      />
+    );
   }
 
   const cacheKey = getProjectFaviconCacheKey(input.environmentId, input.cwd, src);
@@ -36,6 +44,8 @@ export function ProjectFavicon(input: {
       src={src}
       className={input.className}
       fallbackIcon={FallbackIcon}
+      fallbackLabel={fallbackLabel}
+      preferFallbackIcon={input.fallbackIcon !== undefined}
     />
   );
 }
@@ -43,11 +53,47 @@ export function ProjectFavicon(input: {
 function ProjectFaviconFallback({
   className,
   icon: Icon,
+  label,
+  preferIcon,
 }: {
   readonly className?: string | undefined;
   readonly icon: ComponentType<{ className?: string }>;
+  readonly label: string;
+  readonly preferIcon: boolean;
 }) {
+  if (!preferIcon) {
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm text-[8px] font-bold leading-none text-white",
+          className,
+        )}
+        style={{ backgroundColor: projectAvatarColor(label) }}
+      >
+        {label}
+      </span>
+    );
+  }
   return <Icon className={cn("size-3.5 shrink-0 text-muted-foreground/50", className)} />;
+}
+
+function projectAvatarLabel(cwd: string): string {
+  const directory =
+    cwd
+      .replace(/[/\\]+$/, "")
+      .split(/[/\\]/)
+      .at(-1) ?? "";
+  const letter = directory.match(/[a-z0-9]/i)?.[0];
+  return (letter ?? "?").toLocaleUpperCase();
+}
+
+function projectAvatarColor(label: string): string {
+  const hue = [...label].reduce(
+    (hash, character) => (hash * 31 + character.charCodeAt(0)) % 360,
+    0,
+  );
+  return `hsl(${hue} 54% 42%)`;
 }
 
 function ProjectFaviconImage({
@@ -55,11 +101,15 @@ function ProjectFaviconImage({
   src,
   className,
   fallbackIcon: FallbackIcon,
+  fallbackLabel,
+  preferFallbackIcon,
 }: {
   readonly cacheKey: string;
   readonly src: string;
   readonly className?: string | undefined;
   readonly fallbackIcon: ComponentType<{ className?: string }>;
+  readonly fallbackLabel: string;
+  readonly preferFallbackIcon: boolean;
 }) {
   const [displayedSrc, setDisplayedSrc] = useState<string | null>(
     () => loadedProjectFaviconSrcs.get(cacheKey) ?? null,
@@ -75,7 +125,12 @@ function ProjectFaviconImage({
   return (
     <>
       {displayedSrc === null ? (
-        <ProjectFaviconFallback className={className} icon={FallbackIcon} />
+        <ProjectFaviconFallback
+          className={className}
+          icon={FallbackIcon}
+          label={fallbackLabel}
+          preferIcon={preferFallbackIcon}
+        />
       ) : null}
       {displayedSrc ? (
         <img
@@ -89,7 +144,10 @@ function ProjectFaviconImage({
         <img
           src={src}
           alt=""
-          className="hidden"
+          // `display: none` lets browsers defer this request indefinitely in
+          // an off-screen sidebar. Keep it visually absent without removing
+          // it from layout so every project favicon is actually preloaded.
+          className="pointer-events-none absolute size-px invisible"
           onLoad={() => {
             loadedProjectFaviconSrcs.set(cacheKey, src);
             setDisplayedSrc(src);
