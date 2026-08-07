@@ -50,11 +50,11 @@ Treat the overall testing or implementation loop—not an assistant turn or one 
 4. Wait for the pairing exchange and redirect to finish before navigating elsewhere.
 5. Continue in the same browser context so its stored bearer session remains available.
 
-Treat pairing URLs as secrets. Do not copy them into final responses, screenshots, committed files, or durable logs. A pairing token is short-lived and single-use; opening the URL in another browser or opening it twice can consume it.
+Keep pairing URLs out of screenshots, committed files, and durable logs. When the user asked for a shared environment, the deliverable IS the full pairing URL — paste it in your reply, token and all; a bare origin is useless to them. A pairing token is short-lived and single-use; opening the URL in another browser or opening it twice can consume it, so never open a URL you handed to the user.
 
 ## Recover a consumed or expired pairing token
 
-Create another token against the same database and web URL as the running dev server:
+Run `node apps/server/src/bin.ts pair` from the repository root. It discovers the running dev server (worktree `.t3` first, same precedence as the dev runner) and prints a fresh `Pair URL` against the server's current web origin, including a `--share` tailnet origin. Pass `--base-dir <base-dir>` only when the server was started with `--home-dir`, using the identical path.
 
 ```bash
 T3CODE_PORT=<server-port> node apps/server/src/bin.ts auth pairing create \

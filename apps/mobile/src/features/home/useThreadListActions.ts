@@ -195,6 +195,11 @@ export function useThreadListActions(): {
   readonly unsettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
 } {
   const executeAction = useThreadActionExecutor();
+  const snoozeMutation = useAtomCommand(threadEnvironment.snooze, { reportFailure: false });
+  const unsnoozeMutation = useAtomCommand(threadEnvironment.unsnooze, { reportFailure: false });
+  const pinMutation = useAtomCommand(threadEnvironment.pin, { reportFailure: false });
+  const unpinMutation = useAtomCommand(threadEnvironment.unpin, { reportFailure: false });
+  const snoozeInFlightThreadKeys = useRef(new Set<string>());
 
   const archiveThread = useCallback(
     (thread: EnvironmentThreadShell) => {

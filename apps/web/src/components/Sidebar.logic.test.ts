@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   archiveSelectedThreadEntries,
+  buildBulkTitleRegenerationContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
@@ -14,13 +15,15 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
-  resolveSidebarNewThreadSeedContext,
-  resolveSidebarNewThreadEnvMode,
   resolveSidebarStageBadgeLabel,
   resolveSidebarV2RecentChats,
   resolveThreadRowClassName,
   resolveSidebarV2Status,
   resolveThreadStatusPill,
+  resolveWorkingStartedAt,
+  searchSidebarThreadsByTitle,
+  formatWorkingDurationLabel,
+  shouldNavigateAfterProjectRemoval,
   shouldClearThreadSelectionOnMouseDown,
   sortThreadsForSidebarV2,
   sortProjectsForSidebar,
@@ -34,6 +37,7 @@ import {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
+
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -42,6 +46,56 @@ import {
 } from "../types";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("shouldNavigateAfterProjectRemoval", () => {
+  const projectThreads = [{ environmentId: "environment-local", id: "thread-1" }];
+
+  it("navigates away from a draft route owned by the removed project", () => {
+    expect(
+      shouldNavigateAfterProjectRemoval({
+        routeTarget: { kind: "draft", draftId: "draft-1" as never },
+        projectThreads,
+        projectDraftId: "draft-1",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not navigate away from a different draft route", () => {
+    expect(
+      shouldNavigateAfterProjectRemoval({
+        routeTarget: { kind: "draft", draftId: "draft-2" as never },
+        projectThreads,
+        projectDraftId: "draft-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("navigates away from a server thread owned by the removed project", () => {
+    expect(
+      shouldNavigateAfterProjectRemoval({
+        routeTarget: {
+          kind: "server",
+          threadRef: {
+            environmentId: EnvironmentId.make("environment-local"),
+            threadId: ThreadId.make("thread-1"),
+          },
+        },
+        projectThreads,
+        projectDraftId: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not navigate from an unrelated route", () => {
+    expect(
+      shouldNavigateAfterProjectRemoval({
+        routeTarget: null,
+        projectThreads,
+        projectDraftId: null,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("archiveSelectedThreadEntries", () => {
   const entries = [{ threadKey: "one" }, { threadKey: "two" }, { threadKey: "three" }] as const;
@@ -93,6 +147,42 @@ describe("archiveSelectedThreadEntries", () => {
       mutationFailure: null,
       followupFailures: [failure],
     });
+  });
+});
+
+describe("buildBulkTitleRegenerationContextMenuItem", () => {
+  it("counts only threads that can start a new regeneration", () => {
+    expect(
+      buildBulkTitleRegenerationContextMenuItem({
+        supportedCount: 4,
+        actionableCount: 3,
+      }),
+    ).toEqual({
+      id: "regenerate-title",
+      label: "Regenerate titles (3)",
+    });
+  });
+
+  it("shows a disabled progress item when every supported thread is pending", () => {
+    expect(
+      buildBulkTitleRegenerationContextMenuItem({
+        supportedCount: 2,
+        actionableCount: 0,
+      }),
+    ).toEqual({
+      id: "regenerate-title",
+      label: "Regenerating… (2)",
+      disabled: true,
+    });
+  });
+
+  it("omits the action when no selected environment supports it", () => {
+    expect(
+      buildBulkTitleRegenerationContextMenuItem({
+        supportedCount: 0,
+        actionableCount: 0,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -157,8 +247,10 @@ function makeLatestTurn(overrides?: {
     state: "completed",
     assistantMessageId: null,
     requestedAt: "2026-03-09T10:00:00.000Z",
-    startedAt: overrides?.startedAt ?? "2026-03-09T10:00:00.000Z",
-    completedAt: overrides?.completedAt ?? "2026-03-09T10:05:00.000Z",
+    startedAt:
+      overrides?.startedAt !== undefined ? overrides.startedAt : "2026-03-09T10:00:00.000Z",
+    completedAt:
+      overrides?.completedAt !== undefined ? overrides.completedAt : "2026-03-09T10:05:00.000Z",
   };
 }
 
@@ -311,112 +403,6 @@ describe("isTrailingDoubleClick", () => {
 
   it("ignores further clicks of a triple-click", () => {
     expect(isTrailingDoubleClick(3)).toBe(true);
-  });
-});
-
-describe("resolveSidebarNewThreadEnvMode", () => {
-  it("uses the app default when the caller does not request a specific mode", () => {
-    expect(
-      resolveSidebarNewThreadEnvMode({
-        defaultEnvMode: "worktree",
-      }),
-    ).toBe("worktree");
-  });
-
-  it("preserves an explicit requested mode over the app default", () => {
-    expect(
-      resolveSidebarNewThreadEnvMode({
-        requestedEnvMode: "local",
-        defaultEnvMode: "worktree",
-      }),
-    ).toBe("local");
-  });
-});
-
-describe("resolveSidebarNewThreadSeedContext", () => {
-  it("prefers the default worktree mode over active thread context", () => {
-    expect(
-      resolveSidebarNewThreadSeedContext({
-        projectId: "project-1",
-        defaultEnvMode: "worktree",
-        activeThread: {
-          projectId: "project-1",
-          branch: "feature/existing",
-          worktreePath: "/repo/.t3/worktrees/existing",
-        },
-        activeDraftThread: {
-          projectId: "project-1",
-          branch: "feature/draft",
-          worktreePath: "/repo/.t3/worktrees/draft",
-          envMode: "worktree",
-          startFromOrigin: true,
-        },
-      }),
-    ).toEqual({
-      envMode: "worktree",
-    });
-  });
-
-  it("inherits the active server thread context when creating a new thread in the same project", () => {
-    expect(
-      resolveSidebarNewThreadSeedContext({
-        projectId: "project-1",
-        defaultEnvMode: "local",
-        activeThread: {
-          projectId: "project-1",
-          branch: "effect-atom",
-          worktreePath: null,
-        },
-        activeDraftThread: null,
-      }),
-    ).toEqual({
-      branch: "effect-atom",
-      worktreePath: null,
-      envMode: "local",
-    });
-  });
-
-  it("prefers the active draft thread context when it matches the target project", () => {
-    expect(
-      resolveSidebarNewThreadSeedContext({
-        projectId: "project-1",
-        defaultEnvMode: "local",
-        activeThread: {
-          projectId: "project-1",
-          branch: "effect-atom",
-          worktreePath: null,
-        },
-        activeDraftThread: {
-          projectId: "project-1",
-          branch: "feature/new-draft",
-          worktreePath: "/repo/worktree",
-          envMode: "worktree",
-          startFromOrigin: true,
-        },
-      }),
-    ).toEqual({
-      branch: "feature/new-draft",
-      worktreePath: "/repo/worktree",
-      envMode: "worktree",
-      startFromOrigin: true,
-    });
-  });
-
-  it("falls back to the default env mode when there is no matching active thread context", () => {
-    expect(
-      resolveSidebarNewThreadSeedContext({
-        projectId: "project-2",
-        defaultEnvMode: "worktree",
-        activeThread: {
-          projectId: "project-1",
-          branch: "effect-atom",
-          worktreePath: null,
-        },
-        activeDraftThread: null,
-      }),
-    ).toEqual({
-      envMode: "worktree",
-    });
   });
 });
 
@@ -983,26 +969,24 @@ describe("resolveThreadStatusPill", () => {
 });
 
 describe("resolveThreadRowClassName", () => {
-  it("uses the darker selected palette when a thread is both selected and active", () => {
+  it("uses the active sidebar surface when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
-    expect(className).toContain("bg-primary/22");
-    expect(className).toContain("hover:bg-primary/26");
-    expect(className).toContain("dark:bg-primary/30");
-    expect(className).not.toContain("bg-accent/85");
+    expect(className).toContain("bg-sidebar-row-active");
+    expect(className).toContain("text-sidebar-foreground");
+    expect(className).not.toContain("bg-primary");
   });
 
   it("uses selected hover colors for selected threads", () => {
     const className = resolveThreadRowClassName({ isActive: false, isSelected: true });
-    expect(className).toContain("bg-primary/15");
-    expect(className).toContain("hover:bg-primary/19");
-    expect(className).toContain("dark:bg-primary/22");
-    expect(className).not.toContain("hover:bg-accent");
+    expect(className).toContain("bg-sidebar-row-selected");
+    expect(className).toContain("hover:bg-sidebar-row-active");
+    expect(className).not.toContain("bg-primary");
   });
 
-  it("keeps the accent palette for active-only threads", () => {
+  it("uses the active sidebar surface for active-only threads", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
-    expect(className).toContain("bg-accent/85");
-    expect(className).toContain("hover:bg-accent");
+    expect(className).toContain("bg-sidebar-row-active");
+    expect(className).toContain("hover:bg-sidebar-row-active");
   });
 });
 
@@ -1460,5 +1444,42 @@ describe("sortScopedProjectsForSidebar", () => {
       "Visible project",
       "Archived-only project",
     ]);
+  });
+});
+
+describe("sortLogicalProjectsForSidebar", () => {
+  it("uses saved order only in manual mode and activity order otherwise", () => {
+    const olderProjectId = ProjectId.make("project-older");
+    const newerProjectId = ProjectId.make("project-newer");
+    const projects = [
+      {
+        ...makeProject({ id: olderProjectId, title: "Older project" }),
+        projectKey: "logical-older",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: olderProjectId }],
+      },
+      {
+        ...makeProject({ id: newerProjectId, title: "Newer project" }),
+        projectKey: "logical-newer",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: newerProjectId }],
+      },
+    ];
+    const threads = [
+      makeThread({
+        projectId: olderProjectId,
+        updatedAt: "2026-03-09T10:01:00.000Z",
+      }),
+      makeThread({
+        id: ThreadId.make("thread-newer"),
+        projectId: newerProjectId,
+        updatedAt: "2026-03-09T10:05:00.000Z",
+      }),
+    ];
+
+    expect(sortLogicalProjectsForSidebar(projects, threads, "manual")).toEqual(projects);
+    expect(
+      sortLogicalProjectsForSidebar(projects, threads, "updated_at").map(
+        (project) => project.projectKey,
+      ),
+    ).toEqual(["logical-newer", "logical-older"]);
   });
 });

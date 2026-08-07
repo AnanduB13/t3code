@@ -134,8 +134,6 @@ function getSelectedTraits(
       : getDescriptorStringValue(primarySelectDescriptor)) ?? null;
   const thinkingEnabled =
     typeof thinkingDescriptor?.currentValue === "boolean" ? thinkingDescriptor.currentValue : null;
-  const fastModeEnabled =
-    typeof fastModeDescriptor?.currentValue === "boolean" ? fastModeDescriptor.currentValue : false;
   const contextWindow = getDescriptorStringValue(contextWindowDescriptor);
   const selectedAgent = getDescriptorStringValue(agentDescriptor);
   const selectedAgentLabel = agentDescriptor
@@ -154,7 +152,6 @@ function getSelectedTraits(
     thinkingDescriptor,
     effort,
     thinkingEnabled,
-    fastModeEnabled,
     contextWindow,
     ultrathinkPromptControlled,
     ultrathinkInBodyText,

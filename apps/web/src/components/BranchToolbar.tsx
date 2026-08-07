@@ -216,6 +216,98 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   );
 });
 
+/**
+ * Collapse the strip's labels to icons only when the text no longer fits.
+ *
+ * Hidden labels stay measurable (they collapse to invisible absolute boxes,
+ * which keep their natural width), so the required width can be recomputed in
+ * either state on every pass - no remembered widths that could go stale or
+ * latch the strip compact. A small hysteresis keeps the boundary from
+ * flapping between states.
+ */
+const COMPACT_EXPAND_HYSTERESIS_PX = 16;
+
+function useLabelsOverflow(element: HTMLDivElement | null): boolean {
+  const [overflows, setOverflows] = useState(false);
+  // A render-synced mirror instead of useEffectEvent: the compiler memoizes
+  // the event callback, which left observers reading the first render's null
+  // element forever.
+  const stateRef = useRef({ element, overflows });
+  stateRef.current = { element, overflows };
+
+  const measure = useCallback(() => {
+    const { element: current, overflows: compact } = stateRef.current;
+    if (!current) return;
+    const available = current.clientWidth;
+    if (available === 0) return;
+    // flex-1 stretches the groups to fill the strip, so their own boxes always
+    // measure "full". Sum the laid-out content instead, skipping hidden form
+    // artifacts and absolutely-positioned nodes (the compact-hidden labels).
+    const contentWidth = (parent: Element): number => {
+      const gap = Number.parseFloat(getComputedStyle(parent).columnGap) || 0;
+      let width = 0;
+      let counted = 0;
+      for (const child of parent.children) {
+        if (!(child instanceof HTMLElement)) continue;
+        if (child.offsetWidth <= 1) continue;
+        const position = getComputedStyle(child).position;
+        if (position === "absolute" || position === "fixed") continue;
+        width += child.offsetWidth;
+        counted += 1;
+      }
+      return width + gap * Math.max(0, counted - 1);
+    };
+    const stripGap = Number.parseFloat(getComputedStyle(current).columnGap) || 0;
+    let needed = 0;
+    let groups = 0;
+    for (const child of current.children) {
+      if (!(child instanceof HTMLElement) || child.offsetWidth <= 1) continue;
+      needed += contentWidth(child);
+      groups += 1;
+    }
+    needed += stripGap * Math.max(0, groups - 1);
+    for (const label of current.querySelectorAll<HTMLElement>("[data-composer-label]")) {
+      // The clipping can happen below the marker (SelectValue truncates
+      // internally), where the outer span's scrollWidth matches its clipped
+      // box. The text's real width is the largest scrollWidth in the subtree.
+      let textWidth = label.scrollWidth;
+      for (const inner of label.querySelectorAll<HTMLElement>("*")) {
+        textWidth = Math.max(textWidth, inner.scrollWidth);
+      }
+      if (compact) {
+        // Compact: the label is squeezed to zero width but keeps reporting
+        // the full width it would need when expanded.
+        needed += textWidth;
+      } else {
+        // Expanded: the label is in flow; only the clipped remainder is
+        // missing from the content sum.
+        needed += Math.max(0, textWidth - label.clientWidth);
+      }
+    }
+    setOverflows(compact ? needed > available - COMPACT_EXPAND_HYSTERESIS_PX : needed > available);
+  }, []);
+
+  // Label widths can change without the strip box moving (font family or
+  // size preferences), so re-measure on every render as well as on resize
+  // and font loads.
+  useEffect(() => {
+    measure();
+  });
+
+  useEffect(() => {
+    if (!element) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    document.fonts.addEventListener("loadingdone", measure);
+    return () => {
+      observer.disconnect();
+      document.fonts.removeEventListener("loadingdone", measure);
+    };
+  }, [element, measure]);
+
+  return overflows;
+}
+
 export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
@@ -237,10 +329,11 @@ export const BranchToolbar = memo(function BranchToolbar({
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
   );
-  const serverThread = useThread(threadRef);
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
+  const serverThread = useThread(threadRef, { waitForShell: draftThread !== null });
+  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const activeProjectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
@@ -302,6 +395,8 @@ export const BranchToolbar = memo(function BranchToolbar({
     canPickEnvironment: showEnvironmentPicker,
   });
   const isMobile = useIsMobile();
+  const [stripElement, setStripElement] = useState<HTMLDivElement | null>(null);
+  const labelsOverflow = useLabelsOverflow(stripElement);
 
   if (!hasActiveThread || !showRepositoryControls || !activeProject) return null;
 

@@ -1,4 +1,12 @@
-import { useCallback, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type KeyboardEvent,
+} from "react";
 import {
   ArchiveIcon,
   ArrowLeftIcon,
@@ -11,8 +19,11 @@ import {
   Settings2Icon,
   UserRoundIcon,
 } from "lucide-react";
-import { useCanGoBack, useNavigate } from "@tanstack/react-router";
+import { useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Kbd } from "../ui/kbd";
 import {
   SidebarContent,
   SidebarFooter,
@@ -23,6 +34,13 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
+import { scrollToSettingsTarget } from "./settingsLayout";
+import {
+  searchSettings,
+  SETTINGS_SECTION_LABELS,
+  type SettingsPath,
+  type SettingsSearchItem,
+} from "./settingsSearch";
 
 export type SettingsSectionPath =
   | "/settings/profile"
@@ -37,7 +55,7 @@ export type SettingsSectionPath =
 
 export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
-  to: SettingsSectionPath;
+  to: SettingsPath;
   icon: ComponentType<{ className?: string }>;
 }> = [
   { label: "Profile & usage", to: "/settings/profile", icon: UserRoundIcon },
@@ -53,16 +71,110 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const navigate = useNavigate();
+  const currentHash = useLocation({ select: (location) => location.hash });
   const canGoBack = useCanGoBack();
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const [activeResultIndex, setActiveResultIndex] = useState(0);
+  const results = useMemo(() => searchSettings(query), [query]);
+  const isSearching = query.trim().length > 0;
+  const hasResults = results.length > 0;
+
+  useEffect(() => {
+    const result = results[activeResultIndex];
+    if (!result) return;
+    document
+      .getElementById(`settings-search-result-${result.id}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeResultIndex, results]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable ||
+          // Keep focus inside open dialogs and popups instead of escaping
+          // their focus trap into the sidebar search.
+          target.closest('[role="dialog"], [aria-modal="true"], [data-slot$="popup"]') !== null)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      if (isMobile) {
+        setOpenMobile(true);
+      } else if (!open) {
+        setOpen(true);
+      }
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      });
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobile, open, setOpen, setOpenMobile]);
+
   const handleSectionClick = useCallback(
-    (to: SettingsSectionPath) => {
+    (to: SettingsPath) => {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void navigate({ to, replace: true });
+      void navigate({ to, hash: "", replace: true, hashScrollIntoView: false });
     },
     [isMobile, navigate, setOpenMobile],
+  );
+  const clearSearch = useCallback(() => {
+    setQuery("");
+    setActiveResultIndex(0);
+  }, []);
+  const handleSearchResultClick = useCallback(
+    (item: SettingsSearchItem) => {
+      clearSearch();
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      const targetId = item.targetId ?? item.id;
+      if (pathname === item.to && currentHash.replace(/^#/, "") === targetId) {
+        scrollToSettingsTarget(targetId);
+        return;
+      }
+      void navigate({ to: item.to, hash: targetId, replace: true, hashScrollIntoView: false });
+    },
+    [clearSearch, currentHash, isMobile, navigate, pathname, setOpenMobile],
+  );
+  const handleSearchKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape" && isSearching) {
+        event.preventDefault();
+        event.stopPropagation();
+        clearSearch();
+        return;
+      }
+      if (results.length === 0) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveResultIndex((index) => (index + 1) % results.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveResultIndex((index) => (index - 1 + results.length) % results.length);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const result = results[activeResultIndex];
+        if (result) handleSearchResultClick(result);
+      }
+    },
+    [activeResultIndex, clearSearch, handleSearchResultClick, isSearching, results],
   );
   const handleBackClick = useCallback(() => {
     if (isMobile) {

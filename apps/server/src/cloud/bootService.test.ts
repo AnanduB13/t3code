@@ -1,97 +1,31 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, it } from "@effect/vitest";
-import * as ConfigProvider from "effect/ConfigProvider";
-import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
-import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
-
+import { expect, it } from "@effect/vitest";
 import {
   HostProcessArguments,
   HostProcessExecutablePath,
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import { reconcileService } from "../cli/service.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as BootService from "./bootService.ts";
+import { pinnedRuntimePaths } from "./pinnedRuntime.ts";
+import {
+  parseServiceState,
+  SERVICE_LAUNCHER_PROTOCOL,
+  serviceStateHasPendingUpdate,
+} from "./serviceProtocol.ts";
 
-const isUnsupportedError = Schema.is(BootService.BootServiceUnsupportedError);
-const isCommandError = Schema.is(BootService.BootServiceCommandError);
-
-interface RecordedCommand {
-  readonly command: string;
-  readonly args: ReadonlyArray<string>;
-}
-
-const makeRecordingRunnerLayer = (
-  commands: Array<RecordedCommand>,
-  options?: {
-    readonly failCommand?: string;
-    readonly failWhen?: (command: string, args: ReadonlyArray<string>) => boolean;
-  },
-) =>
-  Layer.succeed(
-    ProcessRunner.ProcessRunner,
-    ProcessRunner.ProcessRunner.of({
-      run: (input) =>
-        Effect.sync(() => {
-          assert.isUndefined(input.env);
-          commands.push({ command: input.command, args: input.args });
-          const failed =
-            input.command === options?.failCommand ||
-            options?.failWhen?.(input.command, input.args) === true;
-          return {
-            stdout: "",
-            stderr: failed ? `${input.command} exploded` : "",
-            code: ChildProcessSpawner.ExitCode(failed ? 1 : 0),
-            timedOut: false,
-            stdoutTruncated: false,
-            stderrTruncated: false,
-          };
-        }),
-    }),
-  );
-
-const makeHost = (entry: string): BootService.BootServiceHost => ({
-  execPath: "/usr/local/bin/node",
-  cliEntryPath: entry,
-});
-
-const provideHostRefs = (home: string, platform: NodeJS.Platform = "linux") =>
-  Effect.provide(
-    Layer.mergeAll(
-      Layer.succeed(HostProcessPlatform, platform),
-      ConfigProvider.layer(ConfigProvider.fromEnv({ env: { HOME: home } })),
-    ),
-  );
-
-const makeTestContext = Effect.fn("test.makeTestContext")(function* () {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-boot-service-test-" });
-  // A real file for the stable-entry cases so status can confirm the entry
-  // point exists.
-  const stableEntry = path.join(root, "bin.mjs");
-  yield* fs.writeFileString(stableEntry, "#!/usr/bin/env node\n");
-  return {
-    fs,
-    path,
-    dirs: {
-      home: root,
-      baseDir: path.join(root, ".t3"),
-      logsDir: path.join(root, ".t3", "userdata", "logs"),
-      stableEntry,
-    },
-  };
-});
-
-it("renders a systemd unit with absolute paths and append-mode logging", () => {
+it("keeps systemd pinned to the stable launcher rather than a versioned server", () => {
   const unit = BootService.renderBootServiceUnit({
-    nodePath: "/usr/local/bin/node",
-    t3EntryPath: "/home/theo/.t3/runtime/versions/0.0.27/node_modules/t3/dist/bin.mjs",
+    nodePath: "/usr/bin/node",
+    launcherPath: "/home/theo/.t3/runtime/service-launcher.mjs",
     baseDir: "/home/theo/.t3",
     logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
     unitPath: "/home/theo/.config/systemd/user/t3code.service",
@@ -123,24 +57,63 @@ it("renders a systemd unit with absolute paths and append-mode logging", () => {
   );
 });
 
-it("quotes systemd values containing spaces and escapes percent specifiers", () => {
-  assert.equal(BootService.quoteSystemdValue("/plain/path"), "/plain/path");
-  assert.equal(BootService.quoteSystemdValue("/home/me/T3 Data"), '"/home/me/T3 Data"');
-  assert.equal(BootService.quoteSystemdValue("/opt/100%cpu"), "/opt/100%%cpu");
+const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
+  platform: NodeJS.Platform = "linux",
+  usePinnedLauncher = false,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-boot-service-test-" });
+  const baseDir = path.join(home, ".t3");
+  const sourceLauncher = path.join(home, "service-launcher.mjs");
+  const statePath = path.join(baseDir, "runtime", "service-state.json");
+  yield* fs.writeFileString(sourceLauncher, "export {};\n");
+  const runtime = pinnedRuntimePaths(path, baseDir, "1.2.3");
+  yield* fs.makeDirectory(path.dirname(runtime.entryPath), { recursive: true });
+  yield* fs.writeFileString(runtime.entryPath, "export {};\n");
+  yield* fs.writeFileString(
+    path.join(path.dirname(runtime.entryPath), "service-launcher.mjs"),
+    "export const source = 'pinned runtime';\n",
+  );
+  yield* fs.writeFileString(runtime.sentinelPath, "1.2.3\n");
 
-  const unit = BootService.renderBootServiceUnit({
-    nodePath: "/home/me/my tools/node",
-    t3EntryPath: "/home/me/T3 Data/bin.mjs",
-    baseDir: "/home/me/T3 Data",
-    logPath: "/home/me/100%logs/boot.log",
-    unitPath: "/home/me/.config/systemd/user/t3code.service",
+  const commands: string[] = [];
+  const control: { failCommand: string | undefined } = { failCommand: undefined };
+  const runner = ProcessRunner.ProcessRunner.of({
+    run: (input) =>
+      Effect.sync(() => {
+        const command = `${input.command} ${input.args.join(" ")}`;
+        commands.push(command);
+        return {
+          stdout: input.args[1] === "--version" ? "t3 v1.2.3\n" : "",
+          stderr: "",
+          code: ChildProcessSpawner.ExitCode(command === control.failCommand ? 1 : 0),
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      }),
   });
-  assert.include(unit, 'ExecStart="/home/me/my tools/node" "/home/me/T3 Data/bin.mjs" serve');
-  assert.include(unit, 'Environment=T3CODE_HOME="/home/me/T3 Data"');
-  // append: paths take the rest of the line literally (spaces are fine,
-  // quoting is not), but % still goes through specifier expansion.
-  assert.include(unit, "StandardOutput=append:/home/me/100%%logs/boot.log");
-  assert.include(unit, "StandardError=append:/home/me/100%%logs/boot.log");
+  const service = yield* BootService.make({
+    baseDir,
+    logsDir: path.join(baseDir, "userdata", "logs"),
+    cliVersion: "1.2.3",
+    host: {
+      execPath: "/usr/bin/node",
+      ...(usePinnedLauncher ? {} : { launcherSourcePath: sourceLauncher }),
+    },
+  }).pipe(
+    Effect.provideService(ProcessRunner.ProcessRunner, runner),
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.succeed(HostProcessPlatform, platform),
+        Layer.succeed(HostProcessExecutablePath, "/usr/bin/node"),
+        Layer.succeed(HostProcessArguments, ["/usr/bin/node", path.join(home, "bin.mjs")]),
+        ConfigProvider.layer(ConfigProvider.fromEnv({ env: { HOME: home } })),
+      ),
+    ),
+  );
+  return { service, fs, statePath, commands, control };
 });
 
 it("flags package-manager cache entry points as ephemeral", () => {
@@ -201,102 +174,91 @@ it.layer(NodeServices.layer)("BootService", (it) => {
 
   it.effect("installs the unit, enables the service, and enables linger", () =>
     Effect.gen(function* () {
-      const { dirs, fs, path } = yield* makeTestContext();
-      const commands: Array<RecordedCommand> = [];
-      const service = yield* BootService.make({
-        baseDir: dirs.baseDir,
-        logsDir: dirs.logsDir,
-        cliVersion: "0.0.27",
-        host: makeHost(dirs.stableEntry),
-      }).pipe(Effect.provide(makeRecordingRunnerLayer(commands)), provideHostRefs(dirs.home));
-
+      const { service, fs, statePath, commands } = yield* makeHarness();
       const plan = yield* service.install;
 
-      // A stable entry point is reused directly — no npm install.
-      assert.equal(plan.t3EntryPath, dirs.stableEntry);
-      assert.deepEqual(
-        commands.map((entry) => [entry.command, ...entry.args].join(" ")),
-        [
-          "systemctl --user daemon-reload",
-          "systemctl --user enable t3code.service",
-          // restart (not enable --now) so repairing a stale unit replaces a
-          // running process instead of leaving the old one until reboot.
-          "systemctl --user restart t3code.service",
-          "loginctl enable-linger",
-        ],
-      );
-
-      const unitPath = path.join(dirs.home, ".config", "systemd", "user", "t3code.service");
-      const unit = yield* fs.readFileString(unitPath);
-      assert.include(unit, `ExecStart=/usr/local/bin/node ${dirs.stableEntry} serve`);
-      assert.include(unit, `Environment=T3CODE_HOME=${dirs.baseDir}`);
-
-      const status = yield* service.status;
-      assert.isTrue(status.supported);
-      assert.isTrue(status.installed);
-      assert.isTrue(status.current);
-
-      const removed = yield* service.uninstall;
-      assert.isTrue(removed);
-      assert.isFalse(yield* fs.exists(unitPath));
-      const statusAfter = yield* service.status;
-      assert.isFalse(statusAfter.installed);
-      const removedAgain = yield* service.uninstall;
-      assert.isFalse(removedAgain);
-    }),
-  );
-
-  it.effect("pins a runtime via npm install when running from the npx cache", () =>
-    Effect.gen(function* () {
-      const { dirs, fs, path } = yield* makeTestContext();
-      const commands: Array<RecordedCommand> = [];
-      const service = yield* BootService.make({
-        baseDir: dirs.baseDir,
-        logsDir: dirs.logsDir,
-        cliVersion: "0.0.27",
-        host: makeHost("/home/theo/.npm/_npx/abc/node_modules/t3/dist/bin.mjs"),
-      }).pipe(Effect.provide(makeRecordingRunnerLayer(commands)), provideHostRefs(dirs.home));
-
-      const plan = yield* service.install;
-
-      const runtimeDir = path.join(dirs.baseDir, "runtime", "versions", "0.0.27");
-      assert.equal(
-        plan.t3EntryPath,
-        path.join(runtimeDir, "node_modules", "t3", "dist", "bin.mjs"),
-      );
-      assert.deepEqual(commands[0], {
-        command: "npm",
-        args: ["install", "--prefix", runtimeDir, "--no-fund", "--no-audit", "t3@0.0.27"],
+      expect(parseServiceState(yield* fs.readFileString(statePath))).toEqual({
+        protocol: SERVICE_LAUNCHER_PROTOCOL,
+        activeVersion: "1.2.3",
       });
-      // Success is recorded via a sentinel so interrupted installs re-run.
-      assert.isTrue(yield* fs.exists(path.join(runtimeDir, ".install-complete")));
+      expect(yield* fs.readFileString(plan.launcherPath)).toBe("export {};\n");
+      expect((yield* service.status).current).toBe(true);
+      // @effect-diagnostics-next-line preferSchemaOverJson:off - fixed launcher-owned test document.
+      const pendingState = JSON.stringify({
+        protocol: SERVICE_LAUNCHER_PROTOCOL,
+        activeVersion: "1.2.3",
+        update: {
+          id: "u",
+          fromVersion: "1.2.3",
+          targetVersion: "1.2.4",
+          dbPath: "/tmp/state.sqlite",
+          status: "pending",
+        },
+      });
+      yield* fs.writeFileString(statePath, pendingState);
+      expect((yield* service.status).current).toBe(false);
+      expect(yield* service.uninstall).toBe(true);
+      expect((yield* service.status).installed).toBe(false);
+      expect(commands.some((command) => command.startsWith("npm "))).toBe(false);
     }),
   );
 
-  it.effect("reinstalls a pinned runtime when its entry point is missing", () =>
+  it.effect("copies the launcher from the prepared pinned runtime", () =>
     Effect.gen(function* () {
-      const { dirs, fs, path } = yield* makeTestContext();
-      const commands: Array<RecordedCommand> = [];
-      const service = yield* BootService.make({
-        baseDir: dirs.baseDir,
-        logsDir: dirs.logsDir,
-        cliVersion: "0.0.27",
-        host: makeHost("/home/theo/.npm/_npx/abc/node_modules/t3/dist/bin.mjs"),
-      }).pipe(Effect.provide(makeRecordingRunnerLayer(commands)), provideHostRefs(dirs.home));
-
+      const { service, fs } = yield* makeHarness("linux", true);
       const plan = yield* service.install;
-      yield* fs.makeDirectory(path.dirname(plan.t3EntryPath), { recursive: true });
-      yield* fs.writeFileString(plan.t3EntryPath, "#!/usr/bin/env node\n");
-      yield* fs.remove(plan.t3EntryPath);
+
+      expect(yield* fs.readFileString(plan.launcherPath)).toBe(
+        "export const source = 'pinned runtime';\n",
+      );
+    }),
+  );
+
+  it.effect("restarts an installed service when repair fails", () =>
+    Effect.gen(function* () {
+      const { service, commands, control } = yield* makeHarness();
+      yield* service.install;
+      commands.length = 0;
+      control.failCommand = "systemctl --user daemon-reload";
+
+      const error = yield* service.install.pipe(Effect.flip);
+      expect(error._tag).toBe("BootServiceCommandError");
+      expect(commands.filter((command) => command.startsWith("systemctl "))).toEqual([
+        "systemctl --user stop t3code.service",
+        "systemctl --user daemon-reload",
+        "systemctl --user restart t3code.service",
+      ]);
+    }),
+  );
+
+  it.effect("restarts without overwriting a pending remote update", () =>
+    Effect.gen(function* () {
+      const { service, fs, statePath, commands } = yield* makeHarness();
+      yield* service.install;
+      // @effect-diagnostics-next-line preferSchemaOverJson:off - fixed launcher-owned test document.
+      const pendingState = JSON.stringify({
+        protocol: SERVICE_LAUNCHER_PROTOCOL - 1,
+        activeVersion: "1.2.3",
+        update: {
+          id: "remote-update",
+          fromVersion: "1.2.3",
+          targetVersion: "1.2.4",
+          status: "pending",
+        },
+      });
+      yield* fs.writeFileString(statePath, pendingState);
       commands.length = 0;
 
-      yield* service.install;
-
-      assert.isTrue(commands.some(({ command }) => command === "npm"));
+      expect((yield* service.install.pipe(Effect.flip))._tag).toBe("BootServiceUpdatePendingError");
+      expect(serviceStateHasPendingUpdate(yield* fs.readFileString(statePath))).toBe(true);
+      expect(commands.filter((command) => command.startsWith("systemctl "))).toEqual([
+        "systemctl --user stop t3code.service",
+        "systemctl --user restart t3code.service",
+      ]);
     }),
   );
 
-  it.effect("reads executable metadata from host process references", () =>
+  it.effect("fails closed off Linux", () =>
     Effect.gen(function* () {
       const { dirs } = yield* makeTestContext();
       const commands: Array<RecordedCommand> = [];

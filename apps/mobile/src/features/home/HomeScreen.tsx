@@ -7,6 +7,10 @@ import {
   type EnvironmentProject,
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
+import {
+  threadSearchMatchKey,
+  type EnvironmentThreadSearchMatch,
+} from "@t3tools/client-runtime/state/thread-search";
 import type {
   EnvironmentId,
   SidebarProjectGroupingMode,
@@ -67,7 +71,9 @@ interface HomeScreenProps {
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
   readonly catalogState: WorkspaceState;
   readonly savedConnectionsById: Readonly<Record<string, SavedRemoteConnection>>;
-  readonly environments: ReadonlyArray<HomeListFilterMenuEnvironment>;
+  readonly environments: ReadonlyArray<
+    HomeListFilterMenuEnvironment & Pick<WorkspaceEnvironment, "connectionState">
+  >;
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
@@ -264,6 +270,39 @@ export function HomeScreen(props: HomeScreenProps) {
   const listRef = useRef<LegendListRef | null>(null);
   const insets = useSafeAreaInsets();
   const accentColor = useThemeColor("--color-icon-muted");
+  const iosBottomToolbarClearance =
+    Platform.OS === "ios" && !NATIVE_LIQUID_GLASS_SUPPORTED
+      ? PRE_LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT
+      : 0;
+  const searchEnvironmentIds = useMemo(
+    () =>
+      props.selectedEnvironmentId === null
+        ? props.environments
+            .filter((environment) => environment.connectionState === "connected")
+            .map((environment) => environment.environmentId)
+        : props.environments.some(
+              (environment) =>
+                environment.environmentId === props.selectedEnvironmentId &&
+                environment.connectionState === "connected",
+            )
+          ? [props.selectedEnvironmentId]
+          : [],
+    [props.environments, props.selectedEnvironmentId],
+  );
+  const threadSearch = useThreadSearch(searchEnvironmentIds, props.searchQuery);
+  const threadSearchMatchByKey = useMemo(() => {
+    const matches = new Map<string, EnvironmentThreadSearchMatch>();
+    for (const match of threadSearch.matches) {
+      if (match.source === "user" || match.source === "assistant") {
+        matches.set(threadSearchMatchKey(match), match);
+      }
+    }
+    return matches;
+  }, [threadSearch.matches]);
+  const matchedThreadKeys = useMemo(
+    () => new Set(threadSearch.matches.map(threadSearchMatchKey)),
+    [threadSearch.matches],
+  );
   const effectiveGroupDisplayStates = useMemo(() => {
     const next = new Map(groupDisplayStates);
     if (!AsyncResult.isSuccess(preferencesResult)) {
@@ -393,6 +432,7 @@ export function HomeScreen(props: HomeScreenProps) {
         pendingTasks: scopedPendingTasks,
         environmentId: props.selectedEnvironmentId,
         searchQuery: props.searchQuery,
+        matchedThreadKeys,
         projectSortOrder: props.projectSortOrder,
         threadSortOrder: props.threadSortOrder,
         projectGroupingMode: props.projectGroupingMode,
@@ -616,8 +656,13 @@ export function HomeScreen(props: HomeScreenProps) {
   );
 
   const extraData = useMemo(
-    () => ({ savedConnectionsById: props.savedConnectionsById, projectCwdByKey }),
-    [props.savedConnectionsById, projectCwdByKey],
+    () => ({
+      projectCwdByKey,
+      savedConnectionsById: props.savedConnectionsById,
+      searchQuery: props.searchQuery,
+      threadSearchMatchByKey,
+    }),
+    [projectCwdByKey, props.savedConnectionsById, props.searchQuery, threadSearchMatchByKey],
   );
 
   const renderItem = useCallback(
@@ -670,6 +715,13 @@ export function HomeScreen(props: HomeScreenProps) {
                 null
               }
               isLast={item.isLast}
+              searchMatch={threadSearchMatchByKey.get(
+                threadSearchMatchKey({
+                  environmentId: thread.environmentId,
+                  threadId: thread.id,
+                }),
+              )}
+              searchQuery={props.searchQuery}
               onArchiveThread={props.onArchiveThread}
               onDeleteThread={props.onDeleteThread}
               onSelectThread={props.onSelectThread}
@@ -700,7 +752,9 @@ export function HomeScreen(props: HomeScreenProps) {
       props.onNewThreadInProject,
       props.onSelectPendingTask,
       props.onSelectThread,
+      props.searchQuery,
       props.savedConnectionsById,
+      threadSearchMatchByKey,
       updateGroupDisplay,
     ],
   );
@@ -740,7 +794,7 @@ export function HomeScreen(props: HomeScreenProps) {
       <View
         className="flex-1 items-center justify-center bg-screen px-8"
         style={{
-          paddingBottom: Math.max(insets.bottom, 24),
+          paddingBottom: Math.max(insets.bottom, 24) + iosBottomToolbarClearance,
           paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 72 : 0,
         }}
       >
@@ -827,7 +881,7 @@ export function HomeScreen(props: HomeScreenProps) {
   );
 
   const listEmpty = !hasResults ? (
-    hasSearchQuery ? (
+    hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
       <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
     ) : selectedProjectScope !== null ? (
       <EmptyState
@@ -938,16 +992,19 @@ export function HomeScreen(props: HomeScreenProps) {
           scrollEventThrottle={16}
           contentContainerStyle={{
             // Android reserves room for the floating new-task FAB
-            // (56 button + 16 gap + bottom inset).
+            // (56 button + 16 gap + bottom inset). Pre-glass iOS shows a
+            // standard 44pt bottom toolbar that overlays the list and is not
+            // reflected in insets while contentInsetAdjustmentBehavior is
+            // "never".
             paddingBottom:
               Platform.OS === "ios"
-                ? Math.max(insets.bottom, 24) + 24
+                ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
                 : Math.max(insets.bottom, 16) + 88,
           }}
           scrollIndicatorInsets={
             Platform.OS === "ios"
               ? {
-                  bottom: Math.max(insets.bottom, 16) + 24,
+                  bottom: Math.max(insets.bottom, 16) + 24 + iosBottomToolbarClearance,
                   top: 0,
                 }
               : undefined

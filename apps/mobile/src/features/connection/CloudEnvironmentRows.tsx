@@ -21,6 +21,7 @@ import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useThemeColor } from "../../lib/useThemeColor";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { availableCloudEnvironmentPresentation } from "../cloud/cloudEnvironmentPresentation";
+import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { type RelayEnvironmentView, useConnectionController } from "./useConnectionController";
 
@@ -62,8 +63,10 @@ function SignedInCloudEnvironmentRows(props: CloudEnvironmentRowsProps) {
 function CloudEnvironmentRowsContent(props: CloudEnvironmentRowsProps) {
   const controller = useConnectionController();
   const iconColor = useThemeColor("--color-icon");
-  const availableCloudEnvironments =
-    props.showcaseAvailableEnvironments ?? controller.availableRelayEnvironments;
+  const discoveryAvailable = props.discoveryAvailable ?? true;
+  const availableCloudEnvironments = discoveryAvailable
+    ? (props.showcaseAvailableEnvironments ?? controller.availableRelayEnvironments)
+    : [];
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
   const hasCloudRows =
     props.connectedCloudEnvironments.length > 0 || availableCloudEnvironments.length > 0;
@@ -89,25 +92,27 @@ function CloudEnvironmentRowsContent(props: CloudEnvironmentRowsProps) {
       {showHeader ? (
         <View className="flex-row items-center justify-between px-1">
           <Text className="text-sm font-t3-bold uppercase text-foreground-muted">T3 Connect</Text>
-          <Pressable
-            accessibilityRole="button"
-            disabled={controller.relayDiscovery.isRefreshing}
-            onPress={() => {
-              void controller.refreshRelayEnvironments();
-            }}
-            className="h-9 w-9 items-center justify-center rounded-full bg-subtle active:opacity-70 disabled:opacity-50"
-          >
-            {controller.relayDiscovery.isRefreshing ? (
-              <ActivityIndicator color={iconColor} size="small" />
-            ) : (
-              <SymbolView
-                name="arrow.clockwise"
-                size={14}
-                tintColor={iconColor}
-                type="monochrome"
-              />
-            )}
-          </Pressable>
+          {discoveryAvailable ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={controller.relayDiscovery.isRefreshing}
+              onPress={() => {
+                void controller.refreshRelayEnvironments();
+              }}
+              className="h-9 w-9 items-center justify-center rounded-full bg-subtle active:opacity-70 disabled:opacity-50"
+            >
+              {controller.relayDiscovery.isRefreshing ? (
+                <ActivityIndicator color={iconColor} size="small" />
+              ) : (
+                <SymbolView
+                  name="arrow.clockwise"
+                  size={14}
+                  tintColor={iconColor}
+                  type="monochrome"
+                />
+              )}
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -152,7 +157,9 @@ function CloudEnvironmentRowsContent(props: CloudEnvironmentRowsProps) {
 
       {/* Rendered alongside any connected rows — a failed discovery must not
           hide behind an otherwise-healthy list. */}
-      {controller.relayDiscovery.error && !controller.relayDiscovery.isRefreshing ? (
+      {discoveryAvailable &&
+      controller.relayDiscovery.error &&
+      !controller.relayDiscovery.isRefreshing ? (
         <View collapsable={false} className="gap-3 rounded-[24px] bg-card p-5">
           <Text className="text-base font-t3-bold text-foreground">
             Could not load T3 Connect environments

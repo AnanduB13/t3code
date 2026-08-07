@@ -242,10 +242,16 @@ describe("buildHomeThreadGroups", () => {
     );
 
     expect(buildGroups(projects, threads, { projectGroupingMode: "repository" })).toHaveLength(1);
-    expect(buildGroups(projects, threads, { projectGroupingMode: "repository_path" })).toHaveLength(
-      2,
-    );
-    expect(buildGroups(projects, threads, { projectGroupingMode: "separate" })).toHaveLength(2);
+    expect(
+      buildGroups(projects, threads, { projectGroupingMode: "repository_path" }).map(
+        (group) => group.title,
+      ),
+    ).toEqual(["Mobile", "Web"]);
+    expect(
+      buildGroups(projects, threads, { projectGroupingMode: "separate" }).map(
+        (group) => group.title,
+      ),
+    ).toEqual(["Mobile", "Web"]);
   });
 
   it("default view shows only threads from the last 5 days", () => {
@@ -337,6 +343,33 @@ describe("buildHomeThreadGroups", () => {
     expect(group?.recentThreads.map((thread) => thread.id)).toEqual(
       group?.threads.map((thread) => thread.id),
     );
+  });
+
+  it("includes a thread matched by message content", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const project = makeProject({
+      environmentId,
+      id: ProjectId.make("project-1"),
+      title: "T3 Code",
+    });
+    const thread = makeThread({
+      environmentId,
+      id: ThreadId.make("thread-content"),
+      projectId: project.id,
+      title: "Unrelated title",
+    });
+
+    const groups = buildGroups([project], [thread], {
+      searchQuery: "relay reconnect",
+      matchedThreadKeys: new Set([
+        threadSearchMatchKey({
+          environmentId,
+          threadId: thread.id,
+        }),
+      ]),
+    });
+
+    expect(groups[0]?.threads.map((candidate) => candidate.id)).toEqual(["thread-content"]);
   });
 
   it("targets quick new threads at the group member with the newest thread", () => {

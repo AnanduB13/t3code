@@ -8,12 +8,13 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { Thread } from "../types";
+import type { Thread, ThreadShell } from "../types";
 import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
+  buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
@@ -428,19 +429,24 @@ describe("reconcileRetainedMountedThreadIds", () => {
 });
 
 describe("shouldWriteThreadErrorToCurrentServerThread", () => {
-  it("requires the environment, route thread, and target thread to match", () => {
+  it("writes errors for a shell-derived active server thread", () => {
     const routeThreadRef = { environmentId, threadId };
 
     expect(
       shouldWriteThreadErrorToCurrentServerThread({
-        serverThread: { environmentId, id: threadId },
+        activeServerThread: { environmentId, id: threadId },
         routeThreadRef,
         targetThreadId: threadId,
       }),
     ).toBe(true);
+  });
+
+  it("requires an active server thread matching the environment, route, and target", () => {
+    const routeThreadRef = { environmentId, threadId };
+
     expect(
       shouldWriteThreadErrorToCurrentServerThread({
-        serverThread: null,
+        activeServerThread: null,
         routeThreadRef,
         targetThreadId: threadId,
       }),

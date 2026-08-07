@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Terminal from "effect/Terminal";
 
+import * as BootService from "../cloud/bootService.ts";
 import {
   acquireRelayClientForLink,
   formatHeadlessAuthorizationPrompt,

@@ -3,6 +3,10 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
+import {
+  threadSearchMatchKey,
+  type EnvironmentThreadSearchMatch,
+} from "@t3tools/client-runtime/state/thread-search";
 import { LegendList } from "@legendapp/list/react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
@@ -180,7 +184,7 @@ function ThreadNavigationSidebarPane(
   const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
   const projects = useProjects();
   const threads = useThreadShells();
-  const { state: catalogState } = useWorkspaceState();
+  const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const [headerIsOverContent, setHeaderIsOverContent] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
@@ -305,6 +309,7 @@ function ThreadNavigationSidebarPane(
         pendingTasks: scopedPendingTasks,
         environmentId: options.selectedEnvironmentId,
         searchQuery: props.searchQuery,
+        matchedThreadKeys,
         projectSortOrder: options.projectSortOrder,
         threadSortOrder: options.threadSortOrder,
         projectGroupingMode: options.projectGroupingMode,
@@ -876,6 +881,13 @@ function ThreadNavigationSidebarPane(
                 null
               }
               isLast={item.isLast}
+              searchMatch={threadSearchMatchByKey.get(
+                threadSearchMatchKey({
+                  environmentId: thread.environmentId,
+                  threadId: thread.id,
+                }),
+              )}
+              searchQuery={props.searchQuery}
               selected={
                 scopedThreadKey(thread.environmentId, thread.id) === props.selectedThreadKey
               }
@@ -914,6 +926,7 @@ function ThreadNavigationSidebarPane(
       projectCwdByKey,
       projectTitleByProjectKey,
       props.onNewThreadInProject,
+      props.searchQuery,
       props.selectedThreadKey,
       props.width,
       savedConnectionsById,

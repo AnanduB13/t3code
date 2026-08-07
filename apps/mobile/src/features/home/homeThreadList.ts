@@ -259,6 +259,7 @@ export function buildHomeThreadGroups(input: {
   readonly pendingTasks?: ReadonlyArray<PendingNewTask>;
   readonly environmentId: EnvironmentId | null;
   readonly searchQuery: string;
+  readonly matchedThreadKeys?: ReadonlySet<string>;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
@@ -269,6 +270,7 @@ export function buildHomeThreadGroups(input: {
   const projects = excludeGeneralChatsProject(input.projects);
   const threads = excludeGeneralChatsThreads(input.threads);
   const groups = new Map<string, MutableHomeThreadGroup>();
+  const groupTitleByKey = new Map<string, string>();
   const groupKeyByProjectKey = new Map<string, string>();
 
   for (const project of projects) {
@@ -361,7 +363,16 @@ export function buildHomeThreadGroups(input: {
       group.projects.some((project) => project.title.toLocaleLowerCase().includes(query));
     const matchingThreads = groupMatches
       ? group.threads
-      : group.threads.filter((thread) => thread.title.toLocaleLowerCase().includes(query));
+      : group.threads.filter(
+          (thread) =>
+            thread.title.toLocaleLowerCase().includes(query) ||
+            input.matchedThreadKeys?.has(
+              threadSearchMatchKey({
+                environmentId: thread.environmentId,
+                threadId: thread.id,
+              }),
+            ) === true,
+        );
     const matchingPendingTasks = groupMatches
       ? group.pendingTasks
       : group.pendingTasks.filter((pendingTask) =>

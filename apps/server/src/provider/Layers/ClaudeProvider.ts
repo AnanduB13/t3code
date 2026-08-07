@@ -56,7 +56,13 @@ const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
 const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
 
-const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
+const CURRENT_CLAUDE_MODELS = new Set(["claude-fable-5", "claude-opus-5", "claude-sonnet-5"]);
+
+export function isLegacyClaudeModel(model: string): boolean {
+  return !CURRENT_CLAUDE_MODELS.has(model);
+}
+
+const CLAUDE_MODEL_CATALOG: ReadonlyArray<ServerProviderModel> = [
   {
     slug: "claude-fable-5",
     name: "Claude Fable 5",

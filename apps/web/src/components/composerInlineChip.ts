@@ -1,18 +1,22 @@
+// Chip metrics are in em so the pills scale with the text they sit in (the
+// composer honors the prompt font-size preference). The chat variant pins the
+// original 12px, where every em value resolves to the same pixels as before.
 const INLINE_CHIP_CLASS_NAME =
-  "inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-accent/40 px-1.5 py-px font-medium text-[12px] leading-[1.1] text-foreground align-middle";
+  "inline-flex max-w-full items-center gap-[0.33em] rounded-[0.5em] border border-border/70 bg-accent/40 px-[0.5em] py-[0.08em] font-medium leading-[1.1] text-foreground align-middle";
 
-export const CHAT_INLINE_CHIP_CLASS_NAME = INLINE_CHIP_CLASS_NAME;
+export const CHAT_INLINE_CHIP_CLASS_NAME = `${INLINE_CHIP_CLASS_NAME} text-[12px]`;
 
-export const COMPOSER_INLINE_CHIP_CLASS_NAME = `${INLINE_CHIP_CLASS_NAME} select-none`;
+export const COMPOSER_INLINE_CHIP_CLASS_NAME = `${INLINE_CHIP_CLASS_NAME} text-[0.86em] select-none`;
 
-export const COMPOSER_INLINE_CHIP_ICON_CLASS_NAME = "size-3.5 shrink-0 opacity-85";
+export const COMPOSER_INLINE_CHIP_ICON_CLASS_NAME = "size-[1.17em] shrink-0 opacity-85";
 
 export const CHAT_INLINE_CHIP_LABEL_CLASS_NAME = "truncate leading-tight";
 
 export const COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME = `${CHAT_INLINE_CHIP_LABEL_CLASS_NAME} select-none`;
 
-export const COMPOSER_INLINE_SKILL_CHIP_CLASS_NAME =
-  "inline-flex max-w-full select-none items-center gap-1 rounded-md border border-fuchsia-500/25 bg-fuchsia-500/12 px-1.5 py-px font-medium text-[12px] leading-[1.1] text-fuchsia-700 align-middle dark:text-fuchsia-300";
+// The skill label is smaller than the surrounding prompt text; offset its
+// glyphs without moving the pill box or changing the editor's line height.
+export const COMPOSER_INLINE_SKILL_CHIP_LABEL_CLASS_NAME = `${COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME} relative top-[0.15em]`;
 
 export const COMPOSER_INLINE_PLUGIN_CHIP_CLASS_NAME =
   "inline-flex max-w-full select-none items-center gap-1 rounded-md border border-blue-500/25 bg-blue-500/12 px-1.5 py-px font-medium text-[12px] leading-[1.1] text-blue-700 align-middle dark:text-blue-300";
@@ -22,4 +26,4 @@ export const SKILL_CHIP_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 
 export const PLUGIN_CHIP_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg>`;
 
 export const COMPOSER_INLINE_CHIP_DISMISS_BUTTON_CLASS_NAME =
-  "ml-0.5 inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/72 transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "ml-[0.17em] inline-flex size-[1.17em] shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/72 transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";

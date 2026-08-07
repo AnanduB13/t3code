@@ -211,6 +211,19 @@ describe("parsePersistedState", () => {
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
+          "turn-2": true,
+        },
+      },
+    });
+
+    expect(parsed.threadChangedFilesExpandedById).toEqual({});
+  });
+
+  it("ignores changed-file expansion values saved with legacy folder semantics", () => {
+    const parsed = parsePersistedState({
+      threadChangedFilesExpandedById: {
+        "environment:thread-1": {
+          "turn-1": false,
         },
       },
     });

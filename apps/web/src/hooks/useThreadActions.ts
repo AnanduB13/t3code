@@ -2,6 +2,7 @@ import {
   parseScopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
+  scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { canSettle } from "@t3tools/client-runtime/state/thread-settled";
@@ -27,6 +28,7 @@ import {
   readThreadShell,
 } from "../state/entities";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { useUiStateStore } from "../uiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
@@ -101,6 +103,7 @@ export function useThreadActions() {
     (store) => store.clearProjectDraftThreadById,
   );
   const clearTerminalUiState = useTerminalUiStateStore((state) => state.clearTerminalUiState);
+  const markThreadVisited = useUiStateStore((state) => state.markThreadVisited);
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
   // Keep a ref so archiveThread can call handleNewThread without appearing in
@@ -152,6 +155,10 @@ export function useThreadActions() {
       if (archiveResult._tag === "Failure") {
         return archiveResult;
       }
+      const wokeAt = threadWokeAt(thread, { now: new Date().toISOString() });
+      if (wokeAt !== null) {
+        markThreadVisited(scopedThreadKey(threadRef), wokeAt);
+      }
       refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       opts.onArchived?.();
 
@@ -170,7 +177,7 @@ export function useThreadActions() {
 
       return archiveResult;
     },
-    [archiveThreadMutation, getCurrentRouteThreadRef, resolveThreadTarget],
+    [archiveThreadMutation, getCurrentRouteThreadRef, markThreadVisited, resolveThreadTarget],
   );
 
   const unarchiveThread = useCallback(

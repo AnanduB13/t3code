@@ -1,5 +1,4 @@
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
@@ -14,16 +13,19 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ProviderItemId,
   ThreadId,
   TrimmedNonEmptyString,
+  TrimmedString,
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
+  getWorkflowScript: "orchestration.getWorkflowScript",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
@@ -346,6 +348,12 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+export const ThreadTitleRegeneration = Schema.Struct({
+  requestId: CommandId,
+  startedAt: IsoDateTime,
+});
+export type ThreadTitleRegeneration = typeof ThreadTitleRegeneration.Type;
+
 /**
  * A follow-up message held server-side while a turn is running. Queued
  * messages are not part of the thread timeline; they enter it via the
@@ -452,6 +460,26 @@ export const OrchestrationThreadShell = Schema.Struct({
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
   hasActionableProposedPlan: Schema.Boolean,
+  /**
+   * Native background work alive after the turn settles: "working" while
+   * subagents/workflows run, "monitoring" when watch loops are the only
+   * live work. Optional so old servers/clients interop; absent = none.
+   */
+  backgroundLiveness: Schema.optional(Schema.NullOr(Schema.Literals(["working", "monitoring"]))),
+  /**
+   * Current plan step while a turn runs, for the Working indicators
+   * (sidebar row, in-chat working line). Cleared when the turn settles —
+   * never persists as stale UI. Optional so old servers/clients interop.
+   */
+  planProgress: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        step: TrimmedNonEmptyString,
+        completedSteps: NonNegativeInt,
+        totalSteps: NonNegativeInt,
+      }),
+    ),
+  ),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
@@ -532,12 +560,62 @@ export const OrchestrationSubscribeThreadInput = Schema.Struct({
    * snapshot or catch-up replay and before it begins emitting live events.
    */
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  /**
+   * When provided, the fallback snapshot frame (sent when `afterSequence` is
+   * missing or the catch-up gap is too large) is windowed to the last
+   * `turnLimit` user-anchored turns and carries `page` metadata. Absent means
+   * the fallback snapshot is the full thread, preserving pre-pagination client
+   * behavior. Live events are unaffected either way.
+   */
+  turnLimit: Schema.optionalKey(PositiveInt),
 });
 export type OrchestrationSubscribeThreadInput = typeof OrchestrationSubscribeThreadInput.Type;
+
+/**
+ * Bounds a thread detail read to a window of recent turns. `turnLimit` counts
+ * turns with a user pending message (subagent/fan-out turns between them ride
+ * along), so the window always contains the last N user prompts. `beforeCursor`
+ * requests the disjoint page of older turns strictly before a previously
+ * returned cursor. Requests without a window get the full thread; pagination is
+ * strictly opt-in so older clients keep today's behavior on both HTTP and the
+ * WebSocket fallback snapshot.
+ */
+export const OrchestrationThreadDetailWindow = Schema.Struct({
+  turnLimit: Schema.optionalKey(PositiveInt),
+  beforeCursor: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type OrchestrationThreadDetailWindow = typeof OrchestrationThreadDetailWindow.Type;
+
+/**
+ * Page metadata for a windowed thread detail read. `beforeCursor` is opaque and
+ * exclusive: passing it back returns the adjacent disjoint slice of older
+ * turns. `null` means the thread is fully loaded below this page. The
+ * `snapshotSequence` mirrors the top-level snapshot sequence so history pages
+ * can be sequence-checked against live state before merging.
+ */
+export const OrchestrationThreadDetailPage = Schema.Struct({
+  beforeCursor: Schema.NullOr(TrimmedNonEmptyString),
+  hasMore: Schema.Boolean,
+  snapshotSequence: NonNegativeInt,
+  /**
+   * Highest event sequence applied to THIS thread at page read time. The
+   * global `snapshotSequence` advances with every thread's events, so a
+   * client cannot wait for it via its per-thread subscription; this
+   * thread-scoped watermark is reachable. A client merging an older page
+   * must first have applied live events up to it — otherwise a streaming
+   * turn outside the loaded window could have deltas replayed on top of
+   * page content that already includes them, duplicating text.
+   */
+  threadSequence: Schema.optionalKey(NonNegativeInt),
+});
+export type OrchestrationThreadDetailPage = typeof OrchestrationThreadDetailPage.Type;
 
 export const OrchestrationThreadDetailSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   thread: OrchestrationThread,
+  // Present only on windowed responses. Absent on full snapshots (and from
+  // pre-pagination servers), which clients treat as fully loaded.
+  page: Schema.optional(OrchestrationThreadDetailPage),
 });
 export type OrchestrationThreadDetailSnapshot = typeof OrchestrationThreadDetailSnapshot.Type;
 
@@ -624,11 +702,18 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
+  regenerateTitle: Schema.optional(Schema.Literal(true)),
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-});
+}).check(
+  Schema.makeFilter(
+    (input) =>
+      !(input.title !== undefined && input.regenerateTitle === true) ||
+      "title and regenerateTitle cannot be specified together",
+  ),
+);
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
   type: Schema.Literal("thread.runtime-mode.set"),
@@ -899,6 +984,14 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadTitleRegenerationCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.title.regeneration.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  requestId: CommandId,
+  title: Schema.optional(TrimmedNonEmptyString),
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -908,6 +1001,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadQueueDrainCommand,
   ThreadRevertCompleteCommand,
+  ThreadTitleRegenerationCompleteCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1023,6 +1117,13 @@ export const ThreadUnsettledPayload = Schema.Struct({
 export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
+  /** Intent marker consumed by the title-generation reactor. Keeping this on
+      the existing event lets older clients safely ignore the new field. */
+  regenerateTitle: Schema.optional(Schema.Literal(true)),
+  /** Title at request time, used to avoid overwriting a later manual rename. */
+  previousTitle: Schema.optional(TrimmedNonEmptyString),
+  /** Pending state shared with clients. Null clears a matching request. */
+  titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1330,7 +1431,7 @@ export const TurnCountRange = Schema.Struct({
   Schema.makeFilter(
     (input) =>
       input.fromTurnCount <= input.toTurnCount ||
-      new SchemaIssue.InvalidValue(Option.some(input.fromTurnCount), {
+      new SchemaIssue.InvalidValue({
         message: "fromTurnCount must be less than or equal to toTurnCount",
       }),
     { identifier: "OrchestrationTurnDiffRange" },
@@ -1406,10 +1507,83 @@ export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThr
 export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
 export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
 
+export const OrchestrationThreadSearchSource = Schema.Literals(["user", "assistant"]);
+export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSource.Type;
+
+export const OrchestrationSearchThreadsInput = Schema.Struct({
+  query: TrimmedString.check(Schema.isMinLength(2), Schema.isMaxLength(200)),
+  limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+});
+export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
+
+export const OrchestrationThreadSearchMatch = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  source: OrchestrationThreadSearchSource,
+  snippet: Schema.String.check(Schema.isMaxLength(240)),
+  messageCreatedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationThreadSearchMatch = typeof OrchestrationThreadSearchMatch.Type;
+
+export const OrchestrationSearchThreadsResult = Schema.Struct({
+  matches: Schema.Array(OrchestrationThreadSearchMatch),
+});
+export type OrchestrationSearchThreadsResult = typeof OrchestrationSearchThreadsResult.Type;
+
+export const OrchestrationGetWorkflowScriptInput = Schema.Struct({
+  threadId: ThreadId,
+  scriptPath: TrimmedNonEmptyString,
+});
+export type OrchestrationGetWorkflowScriptInput = typeof OrchestrationGetWorkflowScriptInput.Type;
+
+export const OrchestrationGetWorkflowScriptResult = Schema.Struct({
+  scriptPath: TrimmedNonEmptyString,
+  contents: Schema.String,
+  truncated: Schema.Boolean,
+});
+export type OrchestrationGetWorkflowScriptResult = typeof OrchestrationGetWorkflowScriptResult.Type;
+
+const WORKFLOW_SCRIPT_ERROR_MESSAGES = {
+  "invalid-path": "Workflow scripts must be absolute .js paths.",
+  "root-unavailable": "Script root unavailable.",
+  "not-found": "Script not found.",
+  "outside-root": "Script path is outside the workflow scripts root.",
+  "not-js": "Resolved script is not a .js file.",
+  "not-regular-file": "Script is not a regular file.",
+  "changed-during-read": "Script changed between resolution and open.",
+  "read-failed": "Script read failed.",
+} as const;
+
+export class OrchestrationGetWorkflowScriptError extends Schema.TaggedErrorClass<OrchestrationGetWorkflowScriptError>()(
+  "OrchestrationGetWorkflowScriptError",
+  {
+    reason: Schema.Literals([
+      "invalid-path",
+      "root-unavailable",
+      "not-found",
+      "outside-root",
+      "not-js",
+      "not-regular-file",
+      "changed-during-read",
+      "read-failed",
+    ]),
+    scriptPath: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return WORKFLOW_SCRIPT_ERROR_MESSAGES[this.reason];
+  }
+}
+
 export const OrchestrationRpcSchemas = {
   dispatchCommand: {
     input: ClientOrchestrationCommand,
     output: DispatchResult,
+  },
+  getWorkflowScript: {
+    input: OrchestrationGetWorkflowScriptInput,
+    output: OrchestrationGetWorkflowScriptResult,
   },
   getTurnDiff: {
     input: OrchestrationGetTurnDiffInput,
@@ -1418,6 +1592,10 @@ export const OrchestrationRpcSchemas = {
   getFullThreadDiff: {
     input: OrchestrationGetFullThreadDiffInput,
     output: OrchestrationGetFullThreadDiffResult,
+  },
+  searchThreads: {
+    input: OrchestrationSearchThreadsInput,
+    output: OrchestrationSearchThreadsResult,
   },
   getArchivedShellSnapshot: {
     input: Schema.Struct({}),
@@ -1459,6 +1637,14 @@ export class OrchestrationGetTurnDiffError extends Schema.TaggedErrorClass<Orche
 
 export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass<OrchestrationGetFullThreadDiffError>()(
   "OrchestrationGetFullThreadDiffError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+export class OrchestrationSearchThreadsError extends Schema.TaggedErrorClass<OrchestrationSearchThreadsError>()(
+  "OrchestrationSearchThreadsError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),

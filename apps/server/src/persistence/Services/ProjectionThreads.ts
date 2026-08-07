@@ -7,6 +7,7 @@
  * @module ProjectionThreadRepository
  */
 import {
+  CommandId,
   IsoDateTime,
   ModelSelection,
   NonNegativeInt,

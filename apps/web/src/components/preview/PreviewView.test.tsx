@@ -28,11 +28,15 @@ vi.mock("~/state/session", () => ({
 vi.mock("~/composerDraftStore", () => ({
   useComposerDraftStore: (
     select: (store: { addPreviewAnnotation: () => void; addImage: () => void }) => unknown,
-  ) => select({ addPreviewAnnotation: vi.fn(), addImage: vi.fn() }),
+  ) =>
+    select({
+      addPreviewAnnotation: mocks.addPreviewAnnotation,
+      addImage: mocks.addImage,
+    }),
 }));
 
 vi.mock("~/lib/previewAnnotation", () => ({
-  previewAnnotationScreenshotFile: vi.fn(),
+  previewAnnotationScreenshotFile: mocks.previewAnnotationScreenshotFile,
 }));
 
 vi.mock("~/localApi", () => ({

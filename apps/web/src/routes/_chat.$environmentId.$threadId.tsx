@@ -74,11 +74,14 @@ function ChatThreadRouteView() {
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
-      <ChatView
-        environmentId={threadRef.environmentId}
-        threadId={threadRef.threadId}
-        routeKind="server"
-      />
+      {renderState === "ready" || (renderState === "loading" && serverThreadShell !== null) ? (
+        <ChatView
+          environmentId={threadRef.environmentId}
+          threadId={threadRef.threadId}
+          routeKind="server"
+          threadSyncPhase={threadSyncPhase}
+        />
+      ) : null}
     </SidebarInset>
   );
 }

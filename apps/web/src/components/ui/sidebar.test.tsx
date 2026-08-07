@@ -61,6 +61,25 @@ describe("sidebar interactive cursors", () => {
     expect(html).toContain("]:size-4");
     expect(html).toContain("]:shrink-0");
     expect(html).toContain("cursor-pointer");
+    expect(html).toContain("gap-[var(--sidebar-control-gap)]");
+    expect(html).toContain("text-[var(--sidebar-icon-color)]");
+    expect(html).not.toContain("[&amp;&gt;svg]:opacity-60");
+  });
+
+  it("applies the shared default treatment to icon-only menu buttons", () => {
+    const html = renderToStaticMarkup(
+      <SidebarProvider>
+        <SidebarMenuButton size="icon">
+          <span>+</span>
+        </SidebarMenuButton>
+      </SidebarProvider>,
+    );
+
+    expect(html).toContain("size-8");
+    expect(html).toContain("justify-center");
+    expect(html).toContain("p-0");
+    expect(html).toContain("font-medium");
+    expect(html).toContain("text-sidebar-muted-foreground/80");
   });
 
   it("applies the shared default treatment to icon-only menu buttons", () => {
