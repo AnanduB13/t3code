@@ -51,6 +51,7 @@ import {
   AssetWorkspaceContextResolutionError,
   RpcClientId,
   EnvironmentAuthorizationError,
+  ProviderUsageError,
   ThreadId,
   type TerminalAttachStreamEvent,
   type TerminalError,
@@ -1454,6 +1455,27 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverGetProviderUsage]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetProviderUsage,
+            Effect.gen(function* () {
+              const providers = providerRegistry.getUsage ? yield* providerRegistry.getUsage : [];
+              const tokenUsage = projectionSnapshotQuery.getTokenUsageStats
+                ? yield* projectionSnapshotQuery.getTokenUsageStats()
+                : {
+                    lifetimeTokens: 0,
+                    peakThreadTokens: 0,
+                    trackedThreads: 0,
+                    daily: [],
+                  };
+              return { providers, tokenUsage };
+            }).pipe(
+              Effect.catchCause(() =>
+                Effect.fail(new ProviderUsageError({ message: "Could not load provider usage." })),
+              ),
+            ),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,

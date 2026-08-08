@@ -106,6 +106,13 @@ describe("general chats project", () => {
         detail: "Failed to create the workspace root.",
       }),
     ).toBe(false);
+    expect(
+      isGeneralChatsProjectAlreadyExistsError(
+        new Error(
+          `Orchestration command invariant failed (project.create): ${`Project '${GENERAL_CHATS_PROJECT_ID}' already exists and cannot be created twice.`}`,
+        ),
+      ),
+    ).toBe(true);
     expect(isGeneralChatsProjectAlreadyExistsError(new Error("already exists"))).toBe(false);
   });
 });

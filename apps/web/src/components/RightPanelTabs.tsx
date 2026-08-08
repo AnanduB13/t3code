@@ -98,7 +98,7 @@ function RightPanelEmptyState(props: {
   const actions = [
     {
       label: "Browser",
-      description: "Open a local app or URL.",
+      description: "Browse the web with the agent.",
       icon: Globe2,
       available: props.browserAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.browser,

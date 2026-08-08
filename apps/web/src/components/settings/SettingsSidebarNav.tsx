@@ -11,6 +11,7 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   BotIcon,
+  CircleUserRoundIcon,
   FlaskConicalIcon,
   GitBranchIcon,
   KeyboardIcon,
@@ -46,6 +47,7 @@ import {
 const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
+  "/settings/profile": CircleUserRoundIcon,
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/keybindings": KeyboardIcon,

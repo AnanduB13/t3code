@@ -38,10 +38,10 @@ import {
 } from "~/browser/browserRecording";
 import { resolveBrowserRecordingStopTarget } from "~/browser/browserRecordingScope";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
+import { environmentCatalog } from "~/connection/catalog";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
-import { useEnvironments } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -244,20 +244,18 @@ const raisePreviewAutomationHostError = (
 };
 
 export function PreviewAutomationHosts() {
-  const { environments } = useEnvironments();
+  const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
   if (!isElectron || !previewBridge?.automation) return null;
   return (
     <>
       {/*
-       * Host lifetime follows the desktop runtime's environment connections,
-       * not the routed thread. This keeps background threads automatable and
-       * lets the subscription runtime own reconnects for every saved target.
+       * Register directly from the connection catalog instead of waiting for
+       * environment presentation data. Presentation depends on a successful
+       * shell handshake, which allowed a newly started provider to call
+       * preview_status before the desktop automation host existed.
        */}
-      {environments.map((environment) => (
-        <PreviewAutomationHost
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-        />
+      {[...catalog.entries.keys()].map((environmentId) => (
+        <PreviewAutomationHost key={environmentId} environmentId={environmentId} />
       ))}
     </>
   );

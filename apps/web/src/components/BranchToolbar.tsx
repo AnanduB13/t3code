@@ -245,7 +245,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
   const activeProject = useProject(activeProjectRef);
-  const hasActiveThread = serverThread !== null || draftThread !== null;
+  const activeThread = serverThread ?? draftThread;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const effectiveEnvMode =
     effectiveEnvModeOverride ??
@@ -301,7 +301,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   });
   const isMobile = useIsMobile();
 
-  if (!hasActiveThread || !activeProject) return null;
+  if (!activeThread || !activeProject) return null;
 
   return (
     <div className="chat-composer-context-strip -mt-4 mx-auto flex w-[calc(100%-2.75rem)] max-w-[calc(48rem-2.75rem)] items-center gap-2 ps-1 pe-2 pt-5 pb-1">

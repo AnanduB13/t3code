@@ -1,4 +1,5 @@
 export type SettingsPath =
+  | "/settings/profile"
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/keybindings"
@@ -20,6 +21,7 @@ export interface SettingsSearchItem {
  * subtitles both render from this record, so each label exists once.
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
+  "/settings/profile": "Profile",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
@@ -37,6 +39,11 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
  * here once instead of separately in the panel and the index.
  */
 export const SETTINGS_SEARCH_ITEMS = [
+  {
+    id: "profile",
+    title: "Profile",
+    to: "/settings/profile",
+  },
   {
     id: "theme",
     title: "Theme",

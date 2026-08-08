@@ -61,15 +61,26 @@ export function resolveGeneralChatNewThreadOptions(
 }
 
 export function isGeneralChatsProjectAlreadyExistsError(error: unknown): boolean {
+  const detail = `Project '${GENERAL_CHATS_PROJECT_ID}' already exists and cannot be created twice.`;
   if (typeof error !== "object" || error === null) {
     return false;
   }
 
   const candidate = error as Record<string, unknown>;
-  return (
+  if (
     candidate._tag === "OrchestrationCommandInvariantError" &&
     candidate.commandType === "project.create" &&
-    candidate.detail ===
-      `Project '${GENERAL_CHATS_PROJECT_ID}' already exists and cannot be created twice.`
+    candidate.detail === detail
+  ) {
+    return true;
+  }
+
+  // RPC failures arrive at the UI as an Error with its typed invariant
+  // flattened into the message. Treat only this exact idempotent create race
+  // as success; every other project-create failure remains visible.
+  return (
+    error instanceof Error &&
+    error.message.includes("Orchestration command invariant failed (project.create):") &&
+    error.message.includes(detail)
   );
 }

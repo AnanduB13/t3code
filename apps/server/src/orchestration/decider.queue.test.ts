@@ -288,6 +288,45 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
     }),
   );
 
+  it.effect("steer preserves every earlier queued prompt in order", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const suffix of ["first", "second", "later"]) {
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({ command: turnStartCommand(suffix), readModel }),
+        );
+      }
+
+      const planned = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.queue.steer",
+          commandId: asCommandId("cmd-steer-second"),
+          threadId: THREAD_ID,
+          messageId: asMessageId("message-second"),
+          createdAt: NOW,
+        },
+        readModel,
+      });
+      const events = Array.isArray(planned) ? planned : [planned];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.queued-message-removed",
+        "thread.queued-message-removed",
+        "thread.message-sent",
+        "thread.turn-start-requested",
+      ]);
+
+      const projected = yield* applyPlanned(readModel, planned);
+      const thread = projected.threads.find((entry) => entry.id === THREAD_ID);
+      expect(thread?.queuedMessages.map((entry) => entry.messageId)).toEqual([
+        asMessageId("message-later"),
+      ]);
+      expect(
+        thread?.messages.find((entry) => entry.id === asMessageId("message-second"))?.text,
+      ).toBe("Follow up first\n\nFollow up second");
+    }),
+  );
+
   it.effect("steer rejects while the session is still starting", () =>
     Effect.gen(function* () {
       let readModel = yield* withSessionStatus(yield* seedReadModel, "starting", 3);

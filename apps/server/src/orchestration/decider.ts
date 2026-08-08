@@ -5,6 +5,8 @@ import {
   type OrchestrationQueuedMessage,
   type OrchestrationReadModel,
   type OrchestrationThread,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
@@ -303,19 +305,22 @@ const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(functio
   commandId,
   readModel,
   thread,
-  queuedMessage,
+  queuedMessages,
+  commandType,
   occurredAt,
 }: {
   readonly commandId: OrchestrationCommand["commandId"];
   readonly readModel: OrchestrationReadModel;
   readonly thread: OrchestrationThread;
-  readonly queuedMessage: OrchestrationQueuedMessage;
+  readonly queuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
+  readonly commandType: "thread.queue.steer" | "thread.queue.drain";
   readonly occurredAt: string;
 }): Effect.fn.Return<
   ReadonlyArray<PlannedOrchestrationEvent>,
-  PlatformError.PlatformError,
+  OrchestrationCommandInvariantError | PlatformError.PlatformError,
   Crypto.Crypto
 > {
+  const queuedMessage = queuedMessages.at(-1)!;
   const sourceProposedPlan = queuedMessage.sourceProposedPlan;
   const sourceThread = sourceProposedPlan
     ? readModel.threads.find((entry) => entry.id === sourceProposedPlan.threadId)
@@ -326,28 +331,45 @@ const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(functio
     sourceThread.projectId === thread.projectId &&
     sourceThread.proposedPlans.some((entry) => entry.id === sourceProposedPlan.planId);
 
-  const removedEvent: PlannedOrchestrationEvent = {
-    ...(yield* withEventBase({
-      aggregateKind: "thread",
-      aggregateId: thread.id,
-      occurredAt,
-      commandId,
-    })),
-    type: "thread.queued-message-removed",
-    payload: {
-      threadId: thread.id,
-      messageId: queuedMessage.messageId,
-      reason: "dispatched",
-      removedAt: occurredAt,
-    },
-  };
+  const text = queuedMessages.map((message) => message.text).join("\n\n");
+  const attachments = queuedMessages.flatMap((message) => message.attachments);
+  if (text.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
+    return yield* new OrchestrationCommandInvariantError({
+      commandType,
+      detail: `Queued prompts through '${queuedMessage.messageId}' exceed the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS}-character steer limit.`,
+    });
+  }
+  if (attachments.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+    return yield* new OrchestrationCommandInvariantError({
+      commandType,
+      detail: `Queued prompts through '${queuedMessage.messageId}' exceed the ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS}-attachment steer limit.`,
+    });
+  }
+  const removedEvents: PlannedOrchestrationEvent[] = [];
+  for (const message of queuedMessages) {
+    removedEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        occurredAt,
+        commandId,
+      })),
+      type: "thread.queued-message-removed",
+      payload: {
+        threadId: thread.id,
+        messageId: message.messageId,
+        reason: "dispatched",
+        removedAt: occurredAt,
+      },
+    });
+  }
   const turnStartEvents = yield* planTurnStartEvents({
     commandId,
     thread,
     message: {
       messageId: queuedMessage.messageId,
-      text: queuedMessage.text,
-      attachments: queuedMessage.attachments,
+      text,
+      attachments,
       ...(queuedMessage.modelSelection !== undefined
         ? { modelSelection: queuedMessage.modelSelection }
         : {}),
@@ -355,7 +377,7 @@ const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(functio
     },
     occurredAt,
   });
-  return [removedEvent, ...turnStartEvents];
+  return [...removedEvents, ...turnStartEvents];
 });
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
@@ -1013,9 +1035,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const queuedMessage = queuedMessagesForThread(thread).find(
+      const queuedMessages = queuedMessagesForThread(thread);
+      const queuedMessageIndex = queuedMessages.findIndex(
         (entry) => entry.messageId === command.messageId,
       );
+      const queuedMessage = queuedMessages[queuedMessageIndex];
       if (!queuedMessage) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1035,7 +1059,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         commandId: command.commandId,
         readModel,
         thread,
-        queuedMessage,
+        queuedMessages: queuedMessages.slice(0, queuedMessageIndex + 1),
+        commandType: command.type,
         occurredAt: command.createdAt,
       });
     }
@@ -1095,7 +1120,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         commandId: command.commandId,
         readModel,
         thread,
-        queuedMessage,
+        queuedMessages: [queuedMessage],
+        commandType: command.type,
         occurredAt: command.createdAt,
       });
     }

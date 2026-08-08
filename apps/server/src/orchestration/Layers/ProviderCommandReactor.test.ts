@@ -637,6 +637,10 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
       }),
     );
+    await waitFor(async () => {
+      const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
+      return thread?.session?.activeTurnId === asTurnId("turn-running");
+    });
 
     for (const [index, text] of ["queued first", "steer this", "queued last"].entries()) {
       await Effect.runPromise(
@@ -655,6 +659,10 @@ describe("ProviderCommandReactor", () => {
           createdAt: now,
         }),
       );
+      await waitFor(async () => {
+        const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
+        return thread?.queuedMessages.length === index + 1;
+      });
     }
 
     const beforeSteer = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
@@ -683,9 +691,11 @@ describe("ProviderCommandReactor", () => {
     });
     expect(afterSteer?.pendingTurnStart).toBeNull();
     expect(afterSteer?.queuedMessages.map((entry) => entry.messageId)).toEqual([
-      asMessageId("msg-queue-0"),
       asMessageId("msg-queue-2"),
     ]);
+    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
+      input: "queued first\n\nsteer this",
+    });
 
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -712,10 +722,8 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 3);
 
     const afterDrain = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
-    expect(afterDrain?.queuedMessages.map((entry) => entry.messageId)).toEqual([
-      asMessageId("msg-queue-2"),
-    ]);
-    expect(harness.sendTurn.mock.calls[2]?.[0]).toMatchObject({ input: "queued first" });
+    expect(afterDrain?.queuedMessages).toEqual([]);
+    expect(harness.sendTurn.mock.calls[2]?.[0]).toMatchObject({ input: "queued last" });
   });
 
   effectIt.effect("projects starting before a slow provider session finishes", () =>

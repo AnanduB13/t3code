@@ -10,13 +10,13 @@ import {
 } from "lucide-react";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
-import { useThreadShells } from "../../state/entities";
+import { useActiveEnvironmentId, useThreadShells } from "../../state/entities";
 import { cn } from "../../lib/utils";
 import { SettingsPageContainer } from "./settingsLayout";
 import { deriveUsageStats } from "./usageStats";
-import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
+import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { providerUsageQuery } from "../../state/providerUsage";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 
 const EMPTY_USAGE_ATOM = Atom.make(
   AsyncResult.success({
@@ -39,8 +39,25 @@ function formatTokens(value: number) {
   }).format(value);
 }
 
+function useProfileEnvironmentId() {
+  const activeEnvironmentId = useActiveEnvironmentId();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { environments } = useEnvironments();
+  const availableEnvironmentIds = new Set(
+    environments.map((environment) => environment.environmentId),
+  );
+
+  if (activeEnvironmentId !== null && availableEnvironmentIds.has(activeEnvironmentId)) {
+    return activeEnvironmentId;
+  }
+  if (primaryEnvironmentId !== null && availableEnvironmentIds.has(primaryEnvironmentId)) {
+    return primaryEnvironmentId;
+  }
+  return environments[0]?.environmentId ?? null;
+}
+
 function UsageLimits() {
-  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const environmentId = useProfileEnvironmentId();
   const atom =
     environmentId === null ? EMPTY_USAGE_ATOM : providerUsageQuery({ environmentId, input: {} });
   const result = useAtomValue(atom);
@@ -166,7 +183,8 @@ function UsageLimits() {
             ))}
         {!result.waiting && providers.length === 0 && (
           <div className="col-span-full rounded-2xl border bg-card px-5 py-8 text-center text-sm text-muted-foreground">
-            Connect Codex or Claude Code in Provider settings to see plan usage.
+            No provider usage is available for this environment yet. Connect Codex or Claude Code in
+            Provider settings, then refresh.
           </div>
         )}
       </div>
@@ -249,66 +267,69 @@ function ActivityGrid({
   const maxTokens = Math.max(1, ...dailyTokens.values());
   const months = [...new Set(days.map((day) => day.date.slice(0, 7)))];
   return (
-    <div className="overflow-x-auto pb-1">
-      <div
-        className="grid min-w-[680px] grid-flow-col grid-rows-7 gap-1"
-        aria-label="Conversation activity during the last year"
-      >
-        {days.map((day) => {
-          const tokens = dailyTokens.get(day.date) ?? 0;
-          const activity = tokens > 0 ? tokens / maxTokens : day.count / maxChats;
-          const level = activity === 0 ? 0 : Math.max(1, Math.ceil(activity * 4));
-          const date = formatDay(day.date);
-          const chatLabel = `${day.count.toLocaleString()} ${day.count === 1 ? "chat" : "chats"}`;
-          const tokenLabel = `${tokens.toLocaleString()} ${tokens === 1 ? "token" : "tokens"}`;
-          return (
-            <Tooltip key={day.date}>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
-                    className={cn(
-                      "aspect-square min-w-2.5 rounded-[3px] outline-none transition-[box-shadow,transform] hover:ring-2 hover:ring-primary/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card",
-                      level === 0 && "bg-muted/70",
-                      level === 1 && "bg-primary/25",
-                      level === 2 && "bg-primary/45",
-                      level === 3 && "bg-primary/70",
-                      level === 4 && "bg-primary",
-                    )}
-                  />
-                }
-              />
-              <TooltipPopup side="top" sideOffset={8} className="min-w-40 py-1">
-                <div className="font-medium text-foreground">{date}</div>
-                <div className="mt-1 flex items-center justify-between gap-5 tabular-nums">
-                  <span className="text-muted-foreground">Tokens processed</span>
-                  <span className="font-semibold">{formatTokens(tokens)}</span>
-                </div>
-                <div className="mt-0.5 flex items-center justify-between gap-5 tabular-nums">
-                  <span className="text-muted-foreground">Chats started</span>
-                  <span className="font-semibold">{day.count.toLocaleString()}</span>
-                </div>
-              </TooltipPopup>
-            </Tooltip>
-          );
-        })}
+    <TooltipProvider delay={0} closeDelay={0}>
+      <div className="overflow-x-auto pb-1">
+        <div
+          className="grid min-w-[680px] grid-flow-col grid-rows-7 gap-1"
+          aria-label="Conversation activity during the last year"
+        >
+          {days.map((day) => {
+            const tokens = dailyTokens.get(day.date) ?? 0;
+            const activity = tokens > 0 ? tokens / maxTokens : day.count / maxChats;
+            const level = activity === 0 ? 0 : Math.max(1, Math.ceil(activity * 4));
+            const date = formatDay(day.date);
+            const chatLabel = `${day.count.toLocaleString()} ${day.count === 1 ? "chat" : "chats"}`;
+            const tokenLabel = `${tokens.toLocaleString()} ${tokens === 1 ? "token" : "tokens"}`;
+            return (
+              <Tooltip key={day.date}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
+                      title={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
+                      className={cn(
+                        "aspect-square min-w-2.5 rounded-[3px] outline-none transition-[box-shadow,transform] hover:ring-2 hover:ring-primary/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card",
+                        level === 0 && "bg-muted/70",
+                        level === 1 && "bg-primary/25",
+                        level === 2 && "bg-primary/45",
+                        level === 3 && "bg-primary/70",
+                        level === 4 && "bg-primary",
+                      )}
+                    />
+                  }
+                />
+                <TooltipPopup side="top" sideOffset={8} className="min-w-40 py-1">
+                  <div className="font-medium text-foreground">{date}</div>
+                  <div className="mt-1 flex items-center justify-between gap-5 tabular-nums">
+                    <span className="text-muted-foreground">Tokens processed</span>
+                    <span className="font-semibold">{formatTokens(tokens)}</span>
+                  </div>
+                  <div className="mt-0.5 flex items-center justify-between gap-5 tabular-nums">
+                    <span className="text-muted-foreground">Chats started</span>
+                    <span className="font-semibold">{day.count.toLocaleString()}</span>
+                  </div>
+                </TooltipPopup>
+              </Tooltip>
+            );
+          })}
+        </div>
+        <div className="mt-2 flex min-w-[680px] justify-between text-[10px] text-muted-foreground/70">
+          {months.map((month) => (
+            <span key={month}>
+              {new Intl.DateTimeFormat(undefined, { month: "short", timeZone: "UTC" }).format(
+                new Date(`${month}-01T00:00:00Z`),
+              )}
+            </span>
+          ))}
+        </div>
       </div>
-      <div className="mt-2 flex min-w-[680px] justify-between text-[10px] text-muted-foreground/70">
-        {months.map((month) => (
-          <span key={month}>
-            {new Intl.DateTimeFormat(undefined, { month: "short", timeZone: "UTC" }).format(
-              new Date(`${month}-01T00:00:00Z`),
-            )}
-          </span>
-        ))}
-      </div>
-    </div>
+    </TooltipProvider>
   );
 }
 
 function ActivitySection({ days }: { days: ReturnType<typeof deriveUsageStats>["days"] }) {
-  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const environmentId = useProfileEnvironmentId();
   const result = useAtomValue(
     environmentId === null ? EMPTY_USAGE_ATOM : providerUsageQuery({ environmentId, input: {} }),
   );

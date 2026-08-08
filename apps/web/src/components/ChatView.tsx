@@ -169,6 +169,7 @@ import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { isGeneralChatsProject } from "../generalChats";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
@@ -221,7 +222,6 @@ import {
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
-import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
@@ -239,12 +239,12 @@ import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { resolveThreadPr } from "./ThreadStatusIndicators";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ThreadSyncStatusPill } from "./chat/ThreadSyncStatusPill";
+import { QueuedMessageChips } from "./chat/QueuedMessageChips";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
   DRAFT_HERO_TRANSITION_EASING,
   MOBILE_COMPOSER_VIEW_TRANSITION_NAME,
-  MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
   runMobileComposerTransition,
 } from "./chat/draftHeroTransition";
 import {
@@ -1190,6 +1190,12 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
+    reportFailure: false,
+  });
+  const steerQueuedMessage = useAtomCommand(threadEnvironment.steerQueuedMessage, {
+    reportFailure: false,
+  });
+  const removeQueuedMessage = useAtomCommand(threadEnvironment.removeQueuedMessage, {
     reportFailure: false,
   });
   const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
@@ -4975,6 +4981,42 @@ function ChatViewContent(props: ChatViewProps) {
     }
   };
 
+  const onSteerQueuedMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!activeThread) return;
+      const result = await steerQueuedMessage({
+        environmentId,
+        input: { threadId: activeThread.id, messageId },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to steer.",
+        );
+      }
+    },
+    [activeThread, environmentId, steerQueuedMessage],
+  );
+
+  const onRemoveQueuedMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!activeThread) return;
+      const result = await removeQueuedMessage({
+        environmentId,
+        input: { threadId: activeThread.id, messageId },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to remove queued prompt.",
+        );
+      }
+    },
+    [activeThread, environmentId, removeQueuedMessage],
+  );
+
   const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
       if (!activeThreadId) return;
@@ -5645,10 +5687,13 @@ function ChatViewContent(props: ChatViewProps) {
       terminalAvailable={activeProject !== null}
       terminalOpen={terminalUiState.terminalOpen}
       terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
+      browserAvailable={isPreviewSupportedInRuntime()}
+      browserOpen={previewPanelOpen}
       rightPanelAvailable={activeProject !== null}
       rightPanelOpen={rightPanelOpen}
       rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
       onToggleTerminal={toggleTerminalVisibility}
+      onToggleBrowser={togglePreviewPanel}
       onToggleRightPanel={toggleRightPanel}
     />
   );
@@ -5764,7 +5809,6 @@ function ChatViewContent(props: ChatViewProps) {
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
-          {!rightPanelOpen ? panelLayoutControls : null}
           <ChatHeader
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
@@ -5779,7 +5823,6 @@ function ChatViewContent(props: ChatViewProps) {
             }
             keybindings={keybindings}
             availableEditors={availableEditors}
-            rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
@@ -5787,6 +5830,11 @@ function ChatViewContent(props: ChatViewProps) {
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
           />
+          {!rightPanelOpen ? (
+            <div className="ml-2 flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+              {panelToggleControls}
+            </div>
+          ) : null}
         </header>
 
         <ThreadErrorBanner
@@ -5880,21 +5928,9 @@ function ChatViewContent(props: ChatViewProps) {
                 <div className="pointer-events-auto relative z-10">
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
-                      <div
-                        className="pb-8"
-                        style={
-                          forceExpandedMobileComposer
-                            ? {
-                                viewTransitionName: MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
-                              }
-                            : undefined
-                        }
-                      >
-                        <DraftHeroHeadline
-                          activeProjectRef={activeProjectRef}
-                          activeProjectTitle={activeProject?.title ?? null}
-                        />
-                      </div>
+                      <h1 className="mx-auto w-full max-w-5xl pb-8 text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
+                        What would you like to build?
+                      </h1>
                       <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
                     </div>
                   ) : (
@@ -5903,6 +5939,12 @@ function ChatViewContent(props: ChatViewProps) {
                   {threadSyncPhase && !activeEnvironmentUnavailable ? (
                     <ThreadSyncStatusPill phase={threadSyncPhase} />
                   ) : null}
+                  <QueuedMessageChips
+                    queuedMessages={activeThread?.queuedMessages ?? []}
+                    disabled={phase !== "running"}
+                    onSteer={onSteerQueuedMessage}
+                    onRemove={onRemoveQueuedMessage}
+                  />
                   <div
                     className="relative"
                     style={
@@ -5956,6 +5998,9 @@ function ChatViewContent(props: ChatViewProps) {
                             planSidebarOpen={planSidebarOpen}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
+                            isGeneralChat={
+                              activeProject !== null && isGeneralChatsProject(activeProject)
+                            }
                             goal={null}
                             goalPending={false}
                             lockedProvider={lockedProvider}

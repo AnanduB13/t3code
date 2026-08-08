@@ -367,7 +367,7 @@ describe("Codex Computer Use MCP approvals", () => {
 });
 
 describe("T3 browser developer instructions", () => {
-  it("prefers the product-native preview tools in both collaboration modes", () => {
+  it("routes live web research through the product-native preview in both collaboration modes", () => {
     for (const instructions of [
       CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
       CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
@@ -375,7 +375,13 @@ describe("T3 browser developer instructions", () => {
       NodeAssert.match(instructions, /t3-code/);
       NodeAssert.match(instructions, /preview_status/);
       NodeAssert.match(instructions, /preview_open/);
-      NodeAssert.match(instructions, /Do not switch to global browser skills/);
+      NodeAssert.match(instructions, /shopping and product comparisons/);
+      NodeAssert.match(instructions, /do not use built-in or external web-search tools/);
+      NodeAssert.match(instructions, /not before, in parallel with, or after opening the preview/);
+      NodeAssert.match(instructions, /Opening the preview alone is not completion/);
+      NodeAssert.match(instructions, /explicit unsupported\/unavailable error/);
+      NodeAssert.match(instructions, /open the same environment in T3 Code Desktop/);
+      NodeAssert.match(instructions, /do not describe it as generic infrastructure trouble/);
     }
   });
 });

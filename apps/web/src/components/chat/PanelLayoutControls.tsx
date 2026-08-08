@@ -1,4 +1,10 @@
-import { Maximize2Icon, Minimize2Icon, PanelBottomIcon, PanelRightIcon } from "lucide-react";
+import {
+  Globe2Icon,
+  Maximize2Icon,
+  Minimize2Icon,
+  PanelBottomIcon,
+  PanelRightIcon,
+} from "lucide-react";
 import { memo } from "react";
 
 import { Toggle } from "../ui/toggle";
@@ -8,10 +14,13 @@ interface PanelLayoutControlsProps {
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalShortcutLabel: string | null;
+  browserAvailable: boolean;
+  browserOpen: boolean;
   rightPanelAvailable: boolean;
   rightPanelOpen: boolean;
   rightPanelShortcutLabel: string | null;
   onToggleTerminal: () => void;
+  onToggleBrowser: () => void;
   onToggleRightPanel: () => void;
 }
 
@@ -19,10 +28,13 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   terminalAvailable,
   terminalOpen,
   terminalShortcutLabel,
+  browserAvailable,
+  browserOpen,
   rightPanelAvailable,
   rightPanelOpen,
   rightPanelShortcutLabel,
   onToggleTerminal,
+  onToggleBrowser,
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
   return (
@@ -50,6 +62,28 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
           {terminalAvailable
             ? `Toggle terminal drawer${terminalShortcutLabel ? ` (${terminalShortcutLabel})` : ""}`
             : "Terminal drawer is unavailable"}
+        </TooltipPopup>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0 [-webkit-app-region:no-drag]"
+              pressed={browserOpen}
+              onPressedChange={onToggleBrowser}
+              aria-label="Toggle collaborative browser"
+              variant="ghost"
+              size="sm"
+              disabled={!browserAvailable}
+            >
+              <Globe2Icon className="size-3.5" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {browserAvailable
+            ? "Toggle collaborative browser"
+            : "Collaborative browser is available in the T3 Code desktop app"}
         </TooltipPopup>
       </Tooltip>
       <Tooltip>

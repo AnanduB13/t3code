@@ -94,7 +94,6 @@ import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommand
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
-import { ComposerWeeklyUsage } from "./ComposerWeeklyUsage";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -108,6 +107,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import { ProviderUsageMeter } from "./ProviderUsageMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -283,6 +283,7 @@ function isInsideComposerFloatingLayer(element: Element): boolean {
 
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   showInteractionModeToggle: boolean;
+  isGeneralChat: boolean;
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   showPlanToggle: boolean;
@@ -297,7 +298,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   const interactionModeTooltip =
     props.interactionMode === "plan"
       ? "Plan mode — click to return to normal build mode"
-      : "Default mode — click to enter plan mode";
+      : `Default mode — click to enter plan mode`;
   const planSidebarTooltip = props.planSidebarOpen
     ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
     : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`;
@@ -327,7 +328,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             <ComposerControlIcon icon={BotIcon} opticalSize="large" />
           )}
           <span className="sr-only sm:not-sr-only">
-            {props.interactionMode === "plan" ? "Plan" : "Build"}
+            {props.interactionMode === "plan" ? "Plan" : props.isGeneralChat ? "Chat" : "Build"}
           </span>
         </TooltipTrigger>
         <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
@@ -412,6 +413,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
+  environmentId: EnvironmentId;
+  providerInstanceId: ProviderInstanceId;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
   activeThreadProviderDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -443,6 +446,10 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
           providerDisplayName={props.activeThreadProviderDisplayName}
         />
       ) : null}
+      <ProviderUsageMeter
+        environmentId={props.environmentId}
+        instanceId={props.providerInstanceId}
+      />
       {props.isPreparingWorktree ? (
         <span className="text-muted-foreground/70 text-xs">Preparing worktree...</span>
       ) : null}
@@ -571,6 +578,7 @@ export interface ChatComposerProps {
   // Mode
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
+  isGeneralChat: boolean;
   goal: ThreadGoal | null;
   goalPending: boolean;
 
@@ -670,6 +678,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planSidebarOpen,
     runtimeMode,
     interactionMode,
+    isGeneralChat,
     goal,
     goalPending,
     lockedProvider,
@@ -3291,6 +3300,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     ) : null}
                     <ComposerFooterModeControls
                       showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
+                      isGeneralChat={isGeneralChat}
                       interactionMode={interactionMode}
                       runtimeMode={runtimeMode}
                       showPlanToggle={showPlanSidebarToggle}
@@ -3303,15 +3313,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   </>
                 )}
               </div>
-
-              {/* Account limits belong beside the active model, so the number
-               * always reflects the provider instance this next turn will use. */}
-              {noProviderAvailable ? null : (
-                <ComposerWeeklyUsage
-                  environmentId={environmentId}
-                  instanceId={selectedInstanceId}
-                />
-              )}
 
               {/* Right side: send / stop button */}
               <div
@@ -3344,6 +3345,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 />
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
+                  environmentId={environmentId}
+                  providerInstanceId={selectedInstanceId}
                   activeContextWindow={activeContextWindow}
                   activeThreadProviderDisplayName={activeThreadProviderDisplayName}
                   pendingAction={pendingPrimaryAction}

@@ -4,11 +4,13 @@ const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## T3 Code collaborative browser
 
-You are running inside T3 Code. The \`t3-code\` MCP server is the product-native collaborative browser shared with the user. When it exposes \`preview_*\` tools, prefer those tools for browser navigation, inspection, interaction, screenshots, and recordings.
+You are running inside T3 Code. The \`t3-code\` MCP server is the product-native collaborative browser shared with the user. When it exposes \`preview_*\` tools, use them as the primary and visible browser for web navigation, inspection, interaction, screenshots, and recordings.
 
-For browser work, first call \`preview_status\`. If no automation-capable preview is attached, call \`preview_open\` before concluding that the browser is unavailable. Then use \`preview_navigate\`, \`preview_snapshot\`, and the focused interaction tools. Prefer snapshot-provided locators over coordinates.
+Treat every task that needs current websites as browser work. This includes web research, shopping and product comparisons, prices or availability, recommendations, searching a particular site, checking delivery or location-specific results, and following URLs. The user does not need to explicitly say "use the browser." For these tasks, first call \`preview_status\`. If no automation-capable preview is attached, call \`preview_open\`. After a successful status/open, continue in that same browser with \`preview_navigate\`, \`preview_snapshot\`, and the focused interaction tools. Opening the preview alone is not completion: visibly navigate it and inspect the rendered site. Prefer snapshot-provided locators over coordinates.
 
-Do not switch to global browser skills, Chrome, Node REPL browser automation, standalone Playwright, or agent-browser merely because the preview is initially closed or a first call fails. Use an alternative browser system only when the T3 preview tools are absent, the user explicitly requests another browser, or \`preview_open\` returns an explicit unsupported/unavailable error. A failed T3 preview tool call should be inspected and retried with corrected arguments when the error is actionable.
+When an automation-capable T3 preview is available, do not use built-in or external web-search tools, global browser skills, Chrome, Node REPL browser automation, standalone Playwright, or agent-browser for the task—not before, in parallel with, or after opening the preview. Search using the target site's UI or a search engine loaded inside the collaborative preview. This keeps the user's visible browser and the agent's evidence in sync.
+
+Use an alternative browser or web-search system only when the T3 preview tools are absent, the user explicitly requests that specific alternative, or \`preview_open\` returns an explicit unsupported/unavailable error. A slow page, an inconvenient site, empty search results, a closed preview, or an actionable first-call error is not permission to switch. Inspect failures and retry with corrected arguments when possible. A no-host error means no T3 Code Desktop client is connected to that environment; do not describe it as generic infrastructure trouble or suggest repeated retries. Tell the user to open the same environment in T3 Code Desktop and keep that window running, then retry the preview tool.
 `;
 
 const T3_CODE_COMPUTER_USE_INSTRUCTIONS = `

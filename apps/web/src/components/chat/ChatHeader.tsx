@@ -19,7 +19,6 @@ import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { cn } from "~/lib/utils";
 import { GENERAL_CHATS_PROJECT_ID } from "../../generalChats";
 
 export function shouldShowProjectHeaderActions(projectId: ProjectId | undefined): boolean {
@@ -38,7 +37,6 @@ interface ChatHeaderProps {
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
-  rightPanelOpen: boolean;
   gitCwd: string | null;
   onNewThreadInProject: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -74,7 +72,6 @@ export const ChatHeader = memo(function ChatHeader({
   preferredScriptId,
   keybindings,
   availableEditors,
-  rightPanelOpen,
   gitCwd,
   onNewThreadInProject,
   onRunProjectScript,
@@ -141,10 +138,7 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
       <div
         data-chat-header-actions
-        className={cn(
-          "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
-          rightPanelOpen ? "pr-0" : "pr-16",
-        )}
+        className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3"
       >
         {activeProjectScripts && (
           <ProjectScriptsControl

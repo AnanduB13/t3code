@@ -699,7 +699,7 @@ export class PreviewAutomationNoAvailableHostError extends Schema.TaggedErrorCla
   },
 ) {
   override get message(): string {
-    const summary = `No preview automation host is available for ${this.operation} in environment ${this.environmentId}.`;
+    const summary = `No T3 Code Desktop browser host is connected for ${this.operation} in environment ${this.environmentId}. Open this environment in T3 Code Desktop and keep the desktop window running; regular web browsers cannot host shared-browser automation.`;
     return summary;
   }
 }

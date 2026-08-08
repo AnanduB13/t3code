@@ -821,22 +821,25 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               />
             }
           >
-            {/* Settled history recedes: dimmed favicon at rest, restored on
-              hover so the tail stays scannable when you're hunting. */}
-            <span
-              className={cn(
-                "shrink-0 transition-opacity",
-                !props.isActive &&
-                  "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
-              )}
-            >
-              <ProjectFavicon
-                environmentId={thread.environmentId}
-                cwd={props.projectCwd ?? ""}
-                className="size-4"
-                fallbackIcon={MessageSquareIcon}
-              />
-            </span>
+            {/* Project-backed compact rows retain their project marker. General
+              chats deliberately omit it: the conversation title is all the
+              context that is needed in a flat Chats list. */}
+            {props.projectTitle ? (
+              <span
+                className={cn(
+                  "shrink-0 transition-opacity",
+                  !props.isActive &&
+                    "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
+                )}
+              >
+                <ProjectFavicon
+                  environmentId={thread.environmentId}
+                  cwd={props.projectCwd ?? ""}
+                  className="size-4"
+                  fallbackIcon={MessageSquareIcon}
+                />
+              </span>
+            ) : null}
             {title}
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
@@ -939,20 +942,22 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         >
           <div className="relative z-10 h-[4.875rem] px-[var(--sidebar-row-content-inset)] py-[var(--sidebar-content-inset)]">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
-              <ProjectFavicon
-                environmentId={thread.environmentId}
-                cwd={props.projectCwd ?? ""}
-                className="size-4 shrink-0"
-              />
               {props.projectTitle ? (
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-xs text-muted-foreground/85",
-                    shouldRecede ? "font-normal" : "font-medium",
-                  )}
-                >
-                  {props.projectTitle}
-                </span>
+                <>
+                  <ProjectFavicon
+                    environmentId={thread.environmentId}
+                    cwd={props.projectCwd ?? ""}
+                    className="size-4 shrink-0"
+                  />
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-xs text-muted-foreground/85",
+                      shouldRecede ? "font-normal" : "font-medium",
+                    )}
+                  >
+                    {props.projectTitle}
+                  </span>
+                </>
               ) : (
                 <span className="flex-1" />
               )}
@@ -1164,12 +1169,14 @@ const SidebarV2SearchResultRow = memo(function SidebarV2SearchResultRow(props: {
             />
           }
         >
-          <ProjectFavicon
-            environmentId={thread.environmentId}
-            cwd={props.projectCwd ?? ""}
-            className="size-4 shrink-0"
-            fallbackIcon={MessageSquareIcon}
-          />
+          {props.projectTitle ? (
+            <ProjectFavicon
+              environmentId={thread.environmentId}
+              cwd={props.projectCwd ?? ""}
+              className="size-4 shrink-0"
+              fallbackIcon={MessageSquareIcon}
+            />
+          ) : null}
           <span className="min-w-0 flex-1 truncate">{thread.title}</span>
           <span className="shrink-0 text-xs text-muted-foreground/55 tabular-nums">
             {threadTimeLabel(thread)}
@@ -1688,9 +1695,14 @@ export default function SidebarV2() {
       // or descriptor not loaded yet) never classify as settled: the user
       // could neither un-settle nor pin them, so auto-settling them would
       // strand rows in a tail with no working affordances.
+      // General chats are deliberately a flat conversation list. Project
+      // lifecycle controls (snooze/settle) would both add noise and make a
+      // chat unexpectedly disappear into a shelf.
       const supportsSettlement =
+        sidebarMode !== "chats" &&
         serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
       const supportsSnooze =
+        sidebarMode !== "chats" &&
         serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
       const changeRequestState = changeRequestStateByKey.get(threadKey) ?? null;
@@ -2927,9 +2939,11 @@ export default function SidebarV2() {
                           projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
                         }
                         projectTitle={
-                          projectDisplayNameByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
+                          sidebarMode === "chats"
+                            ? null
+                            : (projectDisplayNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null)
                         }
                         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                         providerEntryByInstanceId={providerEntryByInstanceId}
@@ -2972,7 +2986,9 @@ export default function SidebarV2() {
                     // row: every other thread is a full card. Density comes
                     // from users (or the auto rules) actually parking work,
                     // not from the sidebar second-guessing what still matters.
-                    const isCard = section === "active";
+                    // Chats are a compact, flat conversation list. Project
+                    // threads keep the richer card treatment while active.
+                    const isCard = section === "active" && sidebarMode !== "chats";
                     const rowVariant = isCard ? "card" : "slim";
                     return (
                       <SidebarV2Row
@@ -2996,10 +3012,12 @@ export default function SidebarV2() {
                               : "settle"
                         }
                         settlementSupported={
+                          sidebarMode !== "chats" &&
                           serverConfigs.get(thread.environmentId)?.environment.capabilities
                             .threadSettlement === true
                         }
                         snoozeSupported={
+                          sidebarMode !== "chats" &&
                           serverConfigs.get(thread.environmentId)?.environment.capabilities
                             .threadSnooze === true
                         }
@@ -3023,9 +3041,11 @@ export default function SidebarV2() {
                           projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
                         }
                         projectTitle={
-                          projectDisplayNameByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
+                          sidebarMode === "chats"
+                            ? null
+                            : (projectDisplayNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null)
                         }
                         providerEntryByInstanceId={providerEntryByInstanceId}
                         onThreadClick={handleThreadClick}

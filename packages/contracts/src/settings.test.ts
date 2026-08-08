@@ -16,6 +16,19 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 
+describe("ServerSettings assistant output", () => {
+  it("streams assistant responses by default", () => {
+    expect(decodeServerSettings({}).enableAssistantStreaming).toBe(true);
+    expect(DEFAULT_SERVER_SETTINGS.enableAssistantStreaming).toBe(true);
+  });
+
+  it("preserves an explicit buffered-output preference", () => {
+    expect(decodeServerSettings({ enableAssistantStreaming: false }).enableAssistantStreaming).toBe(
+      false,
+    );
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

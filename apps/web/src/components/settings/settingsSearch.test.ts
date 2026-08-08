@@ -84,4 +84,11 @@ describe("searchSettings", () => {
       targetId: "appearance",
     });
   });
+
+  it("includes the profile dashboard in Settings search", () => {
+    expect(searchSettings("profile")[0]).toMatchObject({
+      id: "profile",
+      to: "/settings/profile",
+    });
+  });
 });

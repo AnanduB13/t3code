@@ -31,10 +31,10 @@ export function PreviewEmptyState({
         <EmptyMedia variant="icon">
           <Globe className="size-4.5 text-muted-foreground" />
         </EmptyMedia>
-        <EmptyTitle>No preview yet</EmptyTitle>
+        <EmptyTitle>Collaborative browser</EmptyTitle>
         <EmptyDescription>
-          Type a URL above, or run a dev script. Listening localhost ports will show up here
-          automatically.
+          Search or enter a URL above. The agent can navigate and interact with this same browser
+          while you follow along.
         </EmptyDescription>
       </Empty>
     );

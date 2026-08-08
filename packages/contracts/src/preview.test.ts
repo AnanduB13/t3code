@@ -171,6 +171,20 @@ describe("PreviewAutomationHost", () => {
 });
 
 describe("PreviewAutomationError", () => {
+  it("explains how to attach the required desktop browser host", () => {
+    const error = decodeAutomationError({
+      _tag: "PreviewAutomationNoAvailableHostError",
+      operation: "status",
+      environmentId: "environment-1",
+      threadId: "thread-1",
+      providerSessionId: "provider-session-1",
+      providerInstanceId: "codex",
+    });
+
+    expect(error.message).toContain("Open this environment in T3 Code Desktop");
+    expect(error.message).toContain("regular web browsers cannot host shared-browser automation");
+  });
+
   it("preserves a typed non-editable target failure", () => {
     const error = decodeAutomationError({
       _tag: "PreviewAutomationTargetNotEditableError",
