@@ -22,4 +22,10 @@ describe("composer pasted text", () => {
       "Please inspect this\n\n<pasted_text_1>\nfirst\nblock\n</pasted_text_1>\n\n<pasted_text_2>\nsecond block\n</pasted_text_2>",
     );
   });
+
+  it("builds a sendable prompt from pasted text without a typed caption", () => {
+    expect(appendPastedTextsToPrompt("", [{ id: "only", text: "the full error" }])).toBe(
+      "<pasted_text_1>\nthe full error\n</pasted_text_1>",
+    );
+  });
 });

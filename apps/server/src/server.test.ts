@@ -6189,6 +6189,76 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("subscribeThread replays the queued prompt lifecycle", () =>
+    Effect.gen(function* () {
+      const queuedAt = "2026-01-01T00:00:01.000Z";
+      const removedAt = "2026-01-01T00:00:02.000Z";
+      const messageId = MessageId.make("queued-message");
+      const queuedEvent = {
+        sequence: 1,
+        eventId: EventId.make("event-message-queued"),
+        aggregateKind: "thread",
+        aggregateId: defaultThreadId,
+        occurredAt: queuedAt,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.message-queued",
+        payload: {
+          threadId: defaultThreadId,
+          messageId,
+          text: "Queued follow-up",
+          attachments: [],
+          queuedAt,
+        },
+      } satisfies Extract<OrchestrationEvent, { type: "thread.message-queued" }>;
+      const removedEvent = {
+        sequence: 2,
+        eventId: EventId.make("event-queued-message-removed"),
+        aggregateKind: "thread",
+        aggregateId: defaultThreadId,
+        occurredAt: removedAt,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.queued-message-removed",
+        payload: {
+          threadId: defaultThreadId,
+          messageId,
+          reason: "dispatched",
+          removedAt,
+        },
+      } satisfies Extract<OrchestrationEvent, { type: "thread.queued-message-removed" }>;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            latestSequence: Effect.succeed(2),
+            readEvents: () => Stream.make(queuedEvent, removedEvent),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId: defaultThreadId,
+            afterSequence: 0,
+            requestCompletionMarker: true,
+          }).pipe(Stream.take(3), Stream.runCollect),
+        ),
+      );
+
+      assert.deepEqual(
+        Array.from(items, (item) => (item.kind === "event" ? item.event.type : item.kind)),
+        ["thread.message-queued", "thread.queued-message-removed", "synchronized"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("subscribeShell sends a fresh snapshot instead of replaying a large gap", () =>
     Effect.gen(function* () {
       let readEventsCalls = 0;

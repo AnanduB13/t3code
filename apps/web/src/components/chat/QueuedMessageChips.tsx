@@ -12,12 +12,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
  */
 export const QueuedMessageChips = memo(function QueuedMessageChips({
   queuedMessages,
-  disabled,
+  steerDisabled,
   onSteer,
   onRemove,
 }: {
   readonly queuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
-  readonly disabled?: boolean;
+  readonly steerDisabled?: boolean;
   readonly onSteer: (messageId: MessageId) => void;
   readonly onRemove: (messageId: MessageId) => void;
 }) {
@@ -55,7 +55,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                     <Button
                       size="xs"
                       variant="ghost"
-                      disabled={disabled}
+                      disabled={steerDisabled}
                       aria-label={
                         index === 0
                           ? "Steer queued prompt 1"
@@ -69,7 +69,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                   Steer
                 </TooltipTrigger>
                 <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
-                  {disabled
+                  {steerDisabled
                     ? "Waiting for the agent to start"
                     : index === 0
                       ? "Send this prompt after the current provider step"
@@ -82,7 +82,6 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                     <Button
                       size="icon-xs"
                       variant="ghost"
-                      disabled={disabled}
                       aria-label="Remove queued message"
                       onClick={() => onRemove(queuedMessage.messageId)}
                     />

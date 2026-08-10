@@ -167,6 +167,17 @@ With mise, asdf, fnm, or nodenv, make sure the tool's shim directory is installe
 
 If reconnecting after an app update fails, retry the SSH launch once. The launcher now compares its generated runner script, stops stale launcher-managed remote servers, clears the SSH launch PID/port state, and starts a fresh remote server. You should not normally need to delete `~/.t3/ssh-launch` or kill `t3` processes manually.
 
+### macOS Local Network Access
+
+On macOS 15 or newer, connecting to LAN and private-network environments requires Local Network
+permission. T3 Code asks for this permission the first time it reaches one of those environments.
+Choose **Allow**, or enable **T3 Code** later under **System Settings** → **Privacy & Security** →
+**Local Network**, then restart the app.
+
+If the environment endpoint works in Terminal but **Add environment** reports a transport error,
+check this permission before replacing the pairing link. Terminal commands have separate local
+network access and can succeed while the desktop app is blocked.
+
 ## Updating a Remote Server
 
 When the T3 Code web or desktop app and a remote server use different versions, a warning appears in

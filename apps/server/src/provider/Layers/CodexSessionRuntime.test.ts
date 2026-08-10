@@ -376,12 +376,13 @@ describe("T3 browser developer instructions", () => {
       NodeAssert.match(instructions, /preview_status/);
       NodeAssert.match(instructions, /preview_open/);
       NodeAssert.match(instructions, /shopping and product comparisons/);
-      NodeAssert.match(instructions, /do not use built-in or external web-search tools/);
-      NodeAssert.match(instructions, /not before, in parallel with, or after opening the preview/);
+      NodeAssert.match(instructions, /Do not use built-in or external web-search tools/);
+      NodeAssert.match(instructions, /in parallel with a working preview/);
       NodeAssert.match(instructions, /Opening the preview alone is not completion/);
-      NodeAssert.match(instructions, /explicit unsupported\/unavailable error/);
-      NodeAssert.match(instructions, /open the same environment in T3 Code Desktop/);
-      NodeAssert.match(instructions, /do not describe it as generic infrastructure trouble/);
+      NodeAssert.match(instructions, /Preview availability must never block the user's task/);
+      NodeAssert.match(instructions, /immediately continue in the same turn/);
+      NodeAssert.match(instructions, /Do not ask the user to open Desktop/);
+      NodeAssert.match(instructions, /Do not repeatedly retry a host-level failure/);
     }
   });
 });
