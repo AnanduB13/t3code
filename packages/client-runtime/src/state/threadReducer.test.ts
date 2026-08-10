@@ -288,6 +288,47 @@ describe("applyThreadDetailEvent", () => {
       }
     });
 
+    it("reconciles a dispatched user message out of the prompt queue", () => {
+      const messageId = MessageId.make("queued-dispatched");
+      const threadWithQueue: OrchestrationThread = {
+        ...baseThread,
+        queuedMessages: [
+          {
+            messageId,
+            text: "Queued follow-up",
+            attachments: [],
+            queuedAt: "2026-04-01T05:59:00.000Z",
+          },
+        ],
+      };
+
+      const result = applyThreadDetailEvent(threadWithQueue, {
+        ...baseEventFields,
+        sequence: 7,
+        occurredAt: "2026-04-01T06:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-sent",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId,
+          role: "user",
+          text: "Queued follow-up",
+          attachments: [],
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-04-01T06:00:00.000Z",
+          updatedAt: "2026-04-01T06:00:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.queuedMessages).toEqual([]);
+        expect(result.thread.messages.map((message) => message.id)).toContain(messageId);
+      }
+    });
+
     it("appends text for streaming messages", () => {
       const threadWithMessage: OrchestrationThread = {
         ...baseThread,

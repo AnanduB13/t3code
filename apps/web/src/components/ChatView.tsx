@@ -209,6 +209,7 @@ import {
 } from "../lib/elementContext";
 import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
+import { appendPastedTextsToPrompt } from "./chat/composerPastedText";
 import { environmentCatalog } from "../connection/catalog";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
@@ -276,6 +277,8 @@ import {
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   dismissBranchMismatchForSession,
+  filterPendingOptimisticMessages,
+  formatDraftHeroHeading,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
   shouldShowBranchMismatchBanner,
@@ -569,9 +572,11 @@ function useLocalDispatchState(input: {
       setLocalDispatch((current) => {
         const active = serverAcknowledgedLocalDispatch ? null : current;
         if (active) {
-          return active.preparingWorktree === preparingWorktree
+          const expectedMessageId = options?.messageId ?? active.expectedMessageId;
+          return active.preparingWorktree === preparingWorktree &&
+            active.expectedMessageId === expectedMessageId
             ? active
-            : { ...active, preparingWorktree };
+            : { ...active, preparingWorktree, expectedMessageId };
         }
         return createLocalDispatchSnapshot(input.activeThread, options);
       });
@@ -2412,13 +2417,21 @@ function ChatViewContent(props: ChatViewProps) {
     if (optimisticUserMessages.length === 0) {
       return serverMessagesWithPreviewHandoff;
     }
-    const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
-    const pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
+    const pendingMessages = filterPendingOptimisticMessages({
+      optimisticMessages: optimisticUserMessages,
+      projectedMessages: serverMessagesWithPreviewHandoff,
+      queuedMessages: activeThread?.queuedMessages ?? [],
+    });
     if (pendingMessages.length === 0) {
       return serverMessagesWithPreviewHandoff;
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
-  }, [attachmentPreviewHandoffByMessageId, displayServerMessages, optimisticUserMessages]);
+  }, [
+    activeThread?.queuedMessages,
+    attachmentPreviewHandoffByMessageId,
+    displayServerMessages,
+    optimisticUserMessages,
+  ]);
   const timelineEntries = useMemo(
     () =>
       deriveTimelineEntries(
@@ -3875,17 +3888,19 @@ function ChatViewContent(props: ChatViewProps) {
     // A queued message is server-acknowledged too — it renders as a chip
     // above the composer, so its optimistic timeline copy must go.
     const persistedMessageIds = new Set(activeThread.messages.map((message) => message.id));
-    const serverIds = new Set([
+    const acknowledgedIds = new Set([
       ...persistedMessageIds,
       ...activeThread.queuedMessages.map((message) => message.messageId),
     ]);
-    const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
+    const removedMessages = optimisticUserMessages.filter((message) =>
+      acknowledgedIds.has(message.id),
+    );
     if (removedMessages.length === 0) {
       return;
     }
     const timer = window.setTimeout(() => {
       setOptimisticUserMessages((existing) =>
-        existing.filter((message) => !serverIds.has(message.id)),
+        existing.filter((message) => !acknowledgedIds.has(message.id)),
       );
     }, 0);
     for (const removedMessage of removedMessages) {
@@ -4816,6 +4831,8 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
+    const messageIdForSend = newMessageId();
+    const messageCreatedAt = new Date().toISOString();
     sendInFlightRef.current = true;
     if (isDraftHeroState && activeThreadKey) {
       let resolveDockStarted: (() => void) | undefined;
@@ -6093,7 +6110,9 @@ function ChatViewContent(props: ChatViewProps) {
                       {isServerThread && activeThread ? (
                         <QueuedMessageChips
                           queuedMessages={activeThread.queuedMessages}
-                          disabled={Boolean(activeEnvironmentUnavailableState)}
+                          steerDisabled={
+                            phase !== "running" || Boolean(activeEnvironmentUnavailableState)
+                          }
                           onSteer={(messageId) => void onSteerQueuedMessage(messageId)}
                           onRemove={(messageId) => void onRemoveQueuedMessage(messageId)}
                         />

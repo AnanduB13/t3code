@@ -19,6 +19,8 @@ import {
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   dismissBranchMismatchForSession,
+  filterPendingOptimisticMessages,
+  formatDraftHeroHeading,
   getStartedThreadModelChangeBlockReason,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
@@ -30,6 +32,19 @@ import {
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
+
+describe("formatDraftHeroHeading", () => {
+  it("names the selected project", () => {
+    expect(formatDraftHeroHeading("tradefxbook")).toBe(
+      "What would you like to change in tradefxbook?",
+    );
+  });
+
+  it("keeps the generic heading while project data is unavailable", () => {
+    expect(formatDraftHeroHeading(null)).toBe("What would you like to build?");
+    expect(formatDraftHeroHeading("   ")).toBe("What would you like to build?");
+  });
+});
 
 const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
@@ -88,6 +103,94 @@ const readySession = {
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
 
+describe("filterPendingOptimisticMessages", () => {
+  const optimisticMessage = (id: string) => ({
+    id: MessageId.make(id),
+    role: "user" as const,
+    text: id,
+    turnId: null,
+    streaming: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  it("hides an optimistic bubble once the server acknowledges it in the queue", () => {
+    const queuedMessage = optimisticMessage("queued");
+    const pendingMessage = optimisticMessage("pending");
+
+    expect(
+      filterPendingOptimisticMessages({
+        optimisticMessages: [queuedMessage, pendingMessage],
+        projectedMessages: [],
+        queuedMessages: [
+          {
+            messageId: queuedMessage.id,
+            text: queuedMessage.text,
+            attachments: [],
+            queuedAt: now,
+          },
+        ],
+      }).map((message) => message.id),
+    ).toEqual([pendingMessage.id]);
+  });
+
+  it("hides an optimistic bubble once it is projected in the timeline", () => {
+    const projectedMessage = optimisticMessage("projected");
+
+    expect(
+      filterPendingOptimisticMessages({
+        optimisticMessages: [projectedMessage],
+        projectedMessages: [projectedMessage],
+        queuedMessages: [],
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("buildLoadingThreadFromShell", () => {
+  it("preserves shell metadata and supplies empty detail collections", () => {
+    const shell = {
+      environmentId,
+      id: threadId,
+      projectId,
+      title: "Loading thread",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5.4",
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "main",
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      snoozedUntil: null,
+      snoozedAt: null,
+      session: null,
+      latestUserMessageAt: now,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    } satisfies ThreadShell;
+
+    expect(buildLoadingThreadFromShell(shell)).toMatchObject({
+      environmentId,
+      id: threadId,
+      projectId,
+      title: "Loading thread",
+      branch: "main",
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    });
+  });
+});
 describe("resolveThreadMetadataUpdateForNextTurn", () => {
   const modelSelection = {
     instanceId: ProviderInstanceId.make("codex"),
@@ -198,6 +301,18 @@ describe("deriveComposerSendState", () => {
 
     expect(state.trimmedPrompt).toBe("");
     expect(state.expiredTerminalContextCount).toBe(0);
+    expect(state.hasSendableContent).toBe(true);
+  });
+
+  it("treats pasted-text attachments as sendable content without a caption", () => {
+    const state = deriveComposerSendState({
+      prompt: "",
+      imageCount: 0,
+      pastedTextCount: 1,
+      terminalContexts: [],
+    });
+
+    expect(state.trimmedPrompt).toBe("");
     expect(state.hasSendableContent).toBe(true);
   });
 

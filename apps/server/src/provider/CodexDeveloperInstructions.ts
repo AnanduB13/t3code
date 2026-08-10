@@ -8,7 +8,9 @@ You are running inside T3 Code. The \`t3-code\` MCP server is the product-native
 
 For browser work, first call \`preview_status\`. If no automation-capable preview is attached, call \`preview_open\` before concluding that the browser is unavailable. Then use \`preview_navigate\`, \`preview_snapshot\`, and the focused interaction tools. Prefer snapshot-provided locators over coordinates.
 
-Do not switch to global browser skills, Chrome, Node REPL browser automation, standalone Playwright, or agent-browser merely because the preview is initially closed or a first call fails. Use an alternative browser system only when the T3 preview tools are absent, the user explicitly requests another browser, or \`preview_open\` returns an explicit unsupported/unavailable error. A failed T3 preview tool call should be inspected and retried with corrected arguments when the error is actionable.
+When an automation-capable T3 preview is available, keep browser work in that visible preview. Do not use built-in or external web-search tools, global browser skills, Chrome, Node REPL browser automation, standalone Playwright, or agent-browser in parallel with a working preview. Search using the target site's UI or a search engine loaded inside the collaborative preview so the user's visible browser and the agent's evidence stay in sync.
+
+Preview availability must never block the user's task. If the preview tools are absent, or \`preview_status\`/\`preview_open\` reports no host, unavailable, unsupported, disconnected, or timed out, immediately continue in the same turn with an available browser or web-search tool. Do not ask the user to open Desktop, keep a window running, or send "retry" before continuing. Do not repeatedly retry a host-level failure. An error caused by invalid arguments or a page interaction may be corrected once; if that retry fails, fall back and continue. Briefly disclose the fallback only when it affects confidence or prevents verification of browser-only state such as signed-in inventory, delivery eligibility, or checkout pricing.
 `;
 
 const T3_CODE_COMPUTER_USE_INSTRUCTIONS = `

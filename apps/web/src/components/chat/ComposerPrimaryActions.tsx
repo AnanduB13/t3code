@@ -1,5 +1,6 @@
 import { memo, type PointerEventHandler } from "react";
-import { ArrowUpIcon, ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronLeftIcon, ListPlusIcon } from "lucide-react";
+import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
@@ -137,15 +138,17 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     return (
       <div className="flex items-center gap-1.5">
         {hasSendableContent ? (
-          <button
+          <Button
             type="submit"
-            className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-xs transition-all duration-150 hover:bg-primary/90 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+            size="sm"
+            className={cn("rounded-full", compact ? "size-8 p-0" : "px-3")}
             {...pointerFocusProps}
-            disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
+            disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
             aria-label="Queue message"
           >
-            <ArrowUpIcon className="size-4" />
-          </button>
+            {isSendBusy ? <Spinner className="size-3.5" /> : <ListPlusIcon className="size-3.5" />}
+            {compact ? null : <span>Queue</span>}
+          </Button>
         ) : null}
         <button
           type="button"

@@ -53,6 +53,22 @@ describe("QueuedMessageChips", () => {
     expect(markup).toContain("2 attachment(s)");
   });
 
+  it("keeps remove available while steer waits for a running turn", () => {
+    const markup = renderToStaticMarkup(
+      <QueuedMessageChips
+        queuedMessages={[queuedMessage("waiting", "Waiting follow-up")]}
+        steerDisabled
+        onSteer={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(markup).toMatch(/<button[^>]*disabled[^>]*aria-label="Steer queued prompt 1"/);
+    const removeButton = markup.match(/<button[^>]*aria-label="Remove queued message"[^>]*>/)?.[0];
+    expect(removeButton).toBeDefined();
+    expect(removeButton).not.toContain(' disabled=""');
+  });
+
   it("renders nothing for an empty queue", () => {
     expect(
       renderToStaticMarkup(

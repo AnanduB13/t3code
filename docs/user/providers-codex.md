@@ -117,6 +117,16 @@ both.
 If you add a third Codex provider with a completely different `CODEX_HOME path`, T3 Code treats it
 as a different workspace. It will not be offered for existing threads created under `~/.codex`.
 
+## Browser Research When The Collaborative Browser Is Unavailable
+
+Codex prefers T3 Code's visible collaborative browser when a compatible desktop host is connected.
+If that host is unavailable, disconnected, unsupported, or times out, Codex automatically continues
+with another available live web or search tool. You do not need to open another client or send a
+retry message.
+
+Some signed-in or location-specific details can only be confirmed in an interactive browser. In
+that case, Codex continues the research and clearly identifies the detail it could not verify.
+
 ## If Both Accounts Look The Same
 
 If two Codex providers show the same account or the same unexpected model list:

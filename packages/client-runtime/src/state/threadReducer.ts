@@ -319,6 +319,14 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           messages,
+          // A dispatched queued prompt reuses its queued message ID when it
+          // becomes the next user message. Reconcile that invariant here as
+          // well as through `thread.queued-message-removed` so a missed queue
+          // lifecycle event cannot leave a ghost prompt in the composer.
+          queuedMessages:
+            event.payload.role === "user"
+              ? thread.queuedMessages.filter((entry) => entry.messageId !== event.payload.messageId)
+              : thread.queuedMessages,
           checkpoints,
           latestTurn,
           updatedAt: event.occurredAt,

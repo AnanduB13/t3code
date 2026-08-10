@@ -375,7 +375,14 @@ describe("T3 browser developer instructions", () => {
       NodeAssert.match(instructions, /t3-code/);
       NodeAssert.match(instructions, /preview_status/);
       NodeAssert.match(instructions, /preview_open/);
-      NodeAssert.match(instructions, /Do not switch to global browser skills/);
+      NodeAssert.match(instructions, /shopping and product comparisons/);
+      NodeAssert.match(instructions, /Do not use built-in or external web-search tools/);
+      NodeAssert.match(instructions, /in parallel with a working preview/);
+      NodeAssert.match(instructions, /Opening the preview alone is not completion/);
+      NodeAssert.match(instructions, /Preview availability must never block the user's task/);
+      NodeAssert.match(instructions, /immediately continue in the same turn/);
+      NodeAssert.match(instructions, /Do not ask the user to open Desktop/);
+      NodeAssert.match(instructions, /Do not repeatedly retry a host-level failure/);
     }
   });
 });

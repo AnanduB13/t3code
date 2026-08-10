@@ -171,6 +171,19 @@ describe("PreviewAutomationHost", () => {
 });
 
 describe("PreviewAutomationError", () => {
+  it("directs agents to continue when the collaborative browser host is unavailable", () => {
+    const error = decodeAutomationError({
+      _tag: "PreviewAutomationNoAvailableHostError",
+      operation: "status",
+      environmentId: "environment-1",
+      threadId: "thread-1",
+      providerSessionId: "provider-session-1",
+      providerInstanceId: "codex",
+    });
+
+    expect(error.message).toContain("Continue with another available browser or web-search tool");
+    expect(error.message).toContain("do not ask the user to retry this host");
+  });
   it("preserves a typed non-editable target failure", () => {
     const error = decodeAutomationError({
       _tag: "PreviewAutomationTargetNotEditableError",
