@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as HttpClient from "effect/unstable/http/HttpClient";
@@ -37,8 +38,20 @@ function boundedPercent(value: number): number {
 function isoFromUnixSeconds(value: number | null | undefined): string | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
-  return new Date(value * 1_000).toISOString();
+  return DateTime.formatIso(DateTime.makeUnsafe(value * 1_000));
 }
+
+const ClaudeCredentialsJson = Schema.fromJsonString(
+  Schema.Struct({
+    claudeAiOauth: Schema.optional(
+      Schema.Struct({
+        accessToken: Schema.optional(Schema.String),
+        access_token: Schema.optional(Schema.String),
+      }),
+    ),
+  }),
+);
+const decodeClaudeCredentials = Schema.decodeUnknownEffect(ClaudeCredentialsJson);
 
 function usageWindow(input: {
   readonly id: string;
@@ -315,9 +328,7 @@ export const makeClaudeUsageReader = Effect.fn("makeClaudeUsageReader")(function
       if (raw) break;
     }
     if (!raw) return yield* Effect.die("Claude Code OAuth credentials were not found.");
-    const parsed = JSON.parse(raw) as {
-      claudeAiOauth?: { accessToken?: string; access_token?: string };
-    };
+    const parsed = yield* decodeClaudeCredentials(raw).pipe(Effect.orDie);
     const token = parsed.claudeAiOauth?.accessToken ?? parsed.claudeAiOauth?.access_token;
     if (!token)
       return yield* Effect.die("Claude Code OAuth credentials do not contain an access token.");

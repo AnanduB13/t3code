@@ -1,8 +1,64 @@
-import { describe, expect, it } from "vite-plus/test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+vi.mock("~/hooks/useSettings", () => ({
+  useEnvironmentIdentificationMode: () => "none",
+}));
+vi.mock("../SidebarStageBackdrop", () => ({
+  StageBackdropButtonArt: () => null,
+  useSidebarStageBackdropVariant: () => null,
+}));
 
 import { ComposerPrimaryActions, formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+
+function renderPendingActions(isRunning: boolean) {
+  return renderToStaticMarkup(
+    createElement(ComposerPrimaryActions, {
+      compact: true,
+      pendingAction: {
+        questionIndex: 0,
+        isLastQuestion: true,
+        canAdvance: true,
+        isResponding: false,
+        isComplete: true,
+      },
+      isRunning,
+      showPlanFollowUpPrompt: false,
+      promptHasText: false,
+      isSendBusy: false,
+      sendDisabledReason: null,
+      isConnecting: false,
+      isEnvironmentUnavailable: false,
+      isPreparingWorktree: false,
+      hasSendableContent: false,
+      onPreviousPendingQuestion: () => {},
+      onInterrupt: () => {},
+      onImplementPlanInNewThread: () => {},
+    }),
+  );
+}
+
+function renderStandaloneStop() {
+  return renderToStaticMarkup(
+    createElement(ComposerPrimaryActions, {
+      compact: true,
+      pendingAction: null,
+      isRunning: true,
+      showPlanFollowUpPrompt: false,
+      promptHasText: false,
+      isSendBusy: false,
+      sendDisabledReason: null,
+      isConnecting: false,
+      isEnvironmentUnavailable: false,
+      isPreparingWorktree: false,
+      hasSendableContent: false,
+      onPreviousPendingQuestion: () => {},
+      onInterrupt: () => {},
+      onImplementPlanInNewThread: () => {},
+    }),
+  );
+}
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {
@@ -94,36 +150,18 @@ describe("formatPendingPrimaryActionLabel", () => {
   });
 });
 
-describe("ComposerPrimaryActions while running", () => {
-  const renderRunningActions = (hasSendableContent: boolean) =>
-    renderToStaticMarkup(
-      createElement(ComposerPrimaryActions, {
-        compact: false,
-        pendingAction: null,
-        isRunning: true,
-        showPlanFollowUpPrompt: false,
-        promptHasText: hasSendableContent,
-        isSendBusy: false,
-        isConnecting: false,
-        isEnvironmentUnavailable: false,
-        isPreparingWorktree: false,
-        sendDisabledReason: null,
-        hasSendableContent,
-        onPreviousPendingQuestion: () => undefined,
-        onInterrupt: () => undefined,
-        onImplementPlanInNewThread: () => undefined,
-      }),
-    );
-
-  it("offers queue and stop actions when the running composer has content", () => {
-    const markup = renderRunningActions(true);
-    expect(markup).toContain('aria-label="Queue message"');
-    expect(markup).toContain('aria-label="Stop generation"');
+describe("ComposerPrimaryActions", () => {
+  it("offers Stop generation while a running turn is waiting for user input", () => {
+    expect(renderPendingActions(true)).toContain('aria-label="Stop generation"');
   });
 
-  it("keeps only the stop action when there is no draft to queue", () => {
-    const markup = renderRunningActions(false);
-    expect(markup).not.toContain('aria-label="Queue message"');
-    expect(markup).toContain('aria-label="Stop generation"');
+  it("does not offer Stop generation for a pending request without a running turn", () => {
+    expect(renderPendingActions(false)).not.toContain('aria-label="Stop generation"');
+  });
+
+  it("matches the small pending action size without changing the standalone size", () => {
+    expect(renderPendingActions(true)).toContain("size-8 sm:size-7");
+    expect(renderStandaloneStop()).toContain("size-8 sm:h-8 sm:w-8");
+    expect(renderStandaloneStop()).not.toContain("sm:size-7");
   });
 });

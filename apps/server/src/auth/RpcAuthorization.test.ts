@@ -30,6 +30,18 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("separates read-only goal access from goal and computer-use operations", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.threadGoalGet)).toBe(AuthOrchestrationReadScope);
+    for (const method of [
+      WS_METHODS.threadGoalSet,
+      WS_METHODS.threadGoalClear,
+      WS_METHODS.computerUseConnect,
+      WS_METHODS.computerUseRespond,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
+  });
+
   it("allows relay status reads without granting relay installation access", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.cloudGetRelayClientStatus)).toBe(
       AuthRelayReadScope,
