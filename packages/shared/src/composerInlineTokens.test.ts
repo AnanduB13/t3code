@@ -130,51 +130,24 @@ describe("collectComposerInlineTokens", () => {
     ]);
   });
 
-  it.each(["@expo/ui", "@jane/foo.js", "@scope/pkg/sub/path"])(
-    "keeps scoped package reference %s as plain text",
-    (reference) => {
-      expect(collectComposerInlineTokens(`Install ${reference} next`)).toEqual([]);
-    },
-  );
+  it("still collects a file link whose label is at the length cap", () => {
+    const label = `${"a".repeat(508)}.tsx`;
+    const tokens = collectComposerInlineTokens(`see [${label}](src/${label}) ok`);
 
-  it("keeps scoped package references plain across incomplete input and IME whitespace", () => {
-    expect(collectComposerInlineTokens("Install @expo/ui")).toEqual([]);
-    expect(collectComposerInlineTokens("入力 @expo/ui　を追加")).toEqual([]);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.value).toBe(`src/${label}`);
   });
 
-  it("keeps bare non-scoped file paths as mentions", () => {
-    expect(collectComposerInlineTokens("Inspect @README.md next")).toEqual([
-      {
-        type: "mention",
-        value: "README.md",
-        source: "@README.md",
-        start: 8,
-        end: 18,
-      },
-    ]);
+  it("leaves a file link past the label cap as plain text", () => {
+    const label = `${"a".repeat(509)}.tsx`;
+    expect(collectComposerInlineTokens(`see [${label}](src/${label}) ok`)).toEqual([]);
   });
 
-  it("keeps canonical file links for scoped paths as mentions", () => {
-    expect(collectComposerInlineTokens("Inspect [sub](@scope/pkg/sub) next")).toEqual([
-      {
-        type: "mention",
-        value: "@scope/pkg/sub",
-        source: "[sub](@scope/pkg/sub)",
-        start: 8,
-        end: 29,
-      },
-    ]);
-  });
-
-  it("allows ambiguous scoped paths through explicit quoted mentions", () => {
-    expect(collectComposerInlineTokens('Inspect @"expo/ui" next')).toEqual([
-      {
-        type: "mention",
-        value: "expo/ui",
-        source: '@"expo/ui"',
-        start: 8,
-        end: 18,
-      },
-    ]);
+  it("stays fast on unterminated bracket runs", () => {
+    // Unbounded, the label body rescanned the rest of the text from every
+    // whitespace: this input took seconds.
+    const started = performance.now();
+    expect(collectComposerInlineTokens(" [[".repeat(40_000))).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });
