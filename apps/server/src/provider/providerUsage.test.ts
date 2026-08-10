@@ -24,6 +24,7 @@ describe("provider usage normalization", () => {
       ["Session", 73],
       ["Weekly", 36],
     ]);
+    expect(snapshot.windows[0]?.resetsAt).toBe("2026-03-23T22:40:00.000Z");
   });
 
   it("recognizes a weekly-only Codex limit reported in the primary slot", () => {

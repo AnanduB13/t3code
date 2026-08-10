@@ -9,6 +9,7 @@ import {
   AuthEnvironmentBootstrapTokenType,
   AuthTokenExchangeGrantType,
   CommandId,
+  type ComputerUseDevice,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   EventId,
@@ -4477,6 +4478,75 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.isTrue(Option.isSome(firstStreamClosed));
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("shares one computer-use broker across websocket sessions", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* buildAppUnderTest();
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const firstConnected = yield* Deferred.make<string>();
+        const firstClosed = yield* Deferred.make<void>();
+        const device: ComputerUseDevice = {
+          deviceId: "shared-computer-device",
+          label: "Shared desktop",
+          platform: "linux",
+          architecture: "x64",
+          kind: "remote-desktop",
+          sessionIsolation: "isolated",
+          available: true,
+          supportedOperations: ["listApps", "getAppState"],
+        };
+        const host = {
+          clientId: "shared-computer-host",
+          environmentId: testEnvironmentDescriptor.environmentId,
+          device,
+        } as const;
+
+        yield* withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.computerUseConnect](host).pipe(
+            Stream.tap((event) =>
+              event.type === "connected"
+                ? Deferred.succeed(firstConnected, event.connectionId)
+                : Effect.void,
+            ),
+            Stream.runDrain,
+            Effect.ensuring(Deferred.succeed(firstClosed, undefined)),
+          ),
+        ).pipe(Effect.forkScoped);
+
+        const firstConnectionId = yield* Deferred.await(firstConnected);
+        const replacementEvent = yield* withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.computerUseConnect](host).pipe(Stream.runHead),
+        ).pipe(Effect.map(Option.getOrThrow));
+        const firstStreamClosed = yield* Deferred.await(firstClosed).pipe(
+          Effect.timeoutOption("2 seconds"),
+        );
+
+        assert.equal(replacementEvent.type, "connected");
+        assert.notEqual(replacementEvent.connectionId, firstConnectionId);
+        assert.isTrue(Option.isSome(firstStreamClosed));
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("returns a typed goal error when the thread does not exist", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const error = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.threadGoalGet]({
+            threadId: ThreadId.make("missing-goal-thread"),
+          }).pipe(Effect.flip),
+        ),
+      );
+
+      assert.equal(error._tag, "ThreadGoalError");
+      assertInclude(error.message, "was not found");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("rejects websocket rpc handshake when session authentication is missing", () =>
