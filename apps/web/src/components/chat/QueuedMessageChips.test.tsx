@@ -37,7 +37,8 @@ describe("QueuedMessageChips", () => {
     expect(markup.indexOf("Check the failing tests")).toBeLessThan(
       markup.indexOf("Then update the docs"),
     );
-    expect(markup.match(/Steer: send now, interrupting the current step/g)).toHaveLength(2);
+    expect(markup.match(/aria-label="Steer queued prompt 1"/g)).toHaveLength(1);
+    expect(markup.match(/aria-label="Steer queued prompts 1 through 2"/g)).toHaveLength(1);
     expect(markup.match(/aria-label="Remove queued message"/g)).toHaveLength(2);
   });
 
