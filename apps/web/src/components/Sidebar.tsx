@@ -42,6 +42,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
+  LoaderIcon,
   MessageSquareIcon,
   PinIcon,
   PlusIcon,
@@ -64,7 +65,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { useParams, useRouter } from "@tanstack/react-router";
+import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -106,6 +107,7 @@ import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
+import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
@@ -154,14 +156,23 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
+import { resolveDefaultProviderModelSelection } from "../providerInstances";
 import { primaryServerProvidersAtom } from "../state/server";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
-import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarMenuButton,
+  SidebarSeparator,
+  useSidebar,
+} from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
+import { AgentsSidebar } from "./agents/AgentsSidebar";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -171,11 +182,20 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
+import {
+  findGeneralChatsProject,
+  GENERAL_CHAT_NEW_THREAD_OPTIONS,
+  GENERAL_CHATS_PROJECT_ID,
+  GENERAL_CHATS_PROJECT_TITLE,
+  GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
+} from "../generalChats";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
+type SidebarMode = "projects" | "chats";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -1574,6 +1594,9 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
+  const isAgentsRoute = useLocation({
+    select: (location) => location.pathname.startsWith("/agents"),
+  });
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
@@ -1592,6 +1615,9 @@ export default function Sidebar() {
     deleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+  const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
@@ -1639,6 +1665,13 @@ export default function Sidebar() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const generalChatsProject = useMemo(
+    () => findGeneralChatsProject(projects, primaryEnvironmentId),
+    [primaryEnvironmentId, projects],
+  );
+  const [isCreatingGeneralChat, setIsCreatingGeneralChat] = useState(false);
+  const creatingGeneralChatRef = useRef(false);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("projects");
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1678,10 +1711,14 @@ export default function Sidebar() {
       ),
     [environments],
   );
+  const projectModeProjects = useMemo(
+    () => projects.filter((project) => project.id !== GENERAL_CHATS_PROJECT_ID),
+    [projects],
+  );
   const orderedProjects = useMemo(
     () =>
       orderItemsByPreferredIds({
-        items: projects,
+        items: projectModeProjects,
         preferredIds: projectOrder,
         getId: getProjectOrderKey,
         getPreferenceIds: (project) => [
@@ -1689,12 +1726,12 @@ export default function Sidebar() {
           legacyProjectCwdPreferenceKey(project.workspaceRoot),
         ],
       }),
-    [projectOrder, projects],
+    [projectModeProjects, projectOrder],
   );
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
+        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projectModeProjects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
@@ -1704,7 +1741,7 @@ export default function Sidebar() {
       orderedProjects,
       primaryEnvironmentId,
       projectGroupingSettings,
-      projects,
+      projectModeProjects,
       sidebarProjectSortOrder,
     ],
   );
@@ -1713,6 +1750,63 @@ export default function Sidebar() {
     [sidebarProjectSortOrder, threads, unsortedProjectGroups],
   );
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
+  const createGeneralChat = useCallback(() => {
+    if (creatingGeneralChatRef.current) return;
+    if (primaryEnvironmentId === null) {
+      toastManager.add({ type: "error", title: "Connect an environment before starting a chat." });
+      return;
+    }
+
+    creatingGeneralChatRef.current = true;
+    setIsCreatingGeneralChat(true);
+    void (async () => {
+      const projectRef = scopeProjectRef(primaryEnvironmentId, GENERAL_CHATS_PROJECT_ID);
+      try {
+        if (generalChatsProject === null) {
+          const result = await createProject({
+            environmentId: primaryEnvironmentId,
+            input: {
+              projectId: GENERAL_CHATS_PROJECT_ID,
+              title: GENERAL_CHATS_PROJECT_TITLE,
+              workspaceRoot: GENERAL_CHATS_WORKSPACE_ROOT,
+              createWorkspaceRootIfMissing: true,
+              defaultModelSelection: resolveDefaultProviderModelSelection(serverProviders, null),
+            },
+          });
+          if (result._tag === "Failure") {
+            if (isAtomCommandInterrupted(result)) return;
+            const error = squashAtomCommandFailure(result);
+            if (!isGeneralChatsProjectAlreadyExistsError(error)) throw error;
+          }
+        }
+
+        const result = await settlePromise(() =>
+          newThreadContext.handleNewThread(projectRef, GENERAL_CHAT_NEW_THREAD_OPTIONS),
+        );
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        if (isMobile) setOpenMobile(false);
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not create chat",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      } finally {
+        creatingGeneralChatRef.current = false;
+        setIsCreatingGeneralChat(false);
+      }
+    })();
+  }, [
+    createProject,
+    generalChatsProject,
+    isMobile,
+    newThreadContext.handleNewThread,
+    primaryEnvironmentId,
+    serverProviders,
+    setOpenMobile,
+  ]);
   const providerEntryByInstanceId = useMemo(
     () =>
       new Map(
@@ -1741,14 +1835,20 @@ export default function Sidebar() {
   );
   const projectDisplayNameByKey = useMemo(
     () =>
-      new Map(
-        projectGroups.flatMap((group) =>
+      new Map([
+        ...projectGroups.flatMap((group) =>
           group.memberProjects.map(
             (project) => [`${project.environmentId}:${project.id}`, group.displayName] as const,
           ),
         ),
-      ),
-    [projectGroups],
+        ...projects
+          .filter((project) => project.id === GENERAL_CHATS_PROJECT_ID)
+          .map(
+            (project) =>
+              [`${project.environmentId}:${project.id}`, GENERAL_CHATS_PROJECT_TITLE] as const,
+          ),
+      ]),
+    [projectGroups, projects],
   );
 
   // now is quantized to the minute so effectiveSettled memoization doesn't
@@ -1803,6 +1903,17 @@ export default function Sidebar() {
           ),
     [scopedProjectGroup],
   );
+  const visibleProjectKeys = useMemo(() => {
+    if (sidebarMode === "chats") {
+      return new Set(
+        projects
+          .filter((project) => project.id === GENERAL_CHATS_PROJECT_ID)
+          .map((project) => `${project.environmentId}:${project.id}`),
+      );
+    }
+    if (scopedProjectKeys !== null) return scopedProjectKeys;
+    return new Set(projectModeProjects.map((project) => `${project.environmentId}:${project.id}`));
+  }, [projectModeProjects, projects, scopedProjectKeys, sidebarMode]);
   useEffect(() => {
     if (projectScopeKey !== null && scopedProjectGroup === null) {
       setProjectScopeKey(null);
@@ -1824,10 +1935,7 @@ export default function Sidebar() {
       if (!composerDraftHasUserContent(store.draftsByThreadKey[draftKey])) {
         continue;
       }
-      if (
-        scopedProjectKeys !== null &&
-        !scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
-      ) {
+      if (!visibleProjectKeys.has(`${session.environmentId}:${session.projectId}`)) {
         continue;
       }
       count += 1;
@@ -1838,7 +1946,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [clearSelection, projectScopeKey, sidebarMode]);
 
   const handleProjectSettings = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
@@ -1879,8 +1987,7 @@ export default function Sidebar() {
     const visible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+        visibleProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
     );
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
@@ -1950,7 +2057,7 @@ export default function Sidebar() {
     autoSettleAfterDays,
     changeRequestStateByKey,
     nowMinute,
-    scopedProjectKeys,
+    visibleProjectKeys,
     serverConfigs,
     snoozeWakeTick,
     threads,
@@ -3136,6 +3243,10 @@ export default function Sidebar() {
   // uses. The command palette already offers a "New thread in..." submenu
   // for multi-project setups.
   const handleNewThreadClick = useCallback(() => {
+    if (sidebarMode === "chats") {
+      createGeneralChat();
+      return;
+    }
     // One project: nothing to pick, create immediately.
     if (projectGroups.length <= 1) {
       if (isMobile) setOpenMobile(false);
@@ -3149,7 +3260,14 @@ export default function Sidebar() {
     }
     if (isMobile) setOpenMobile(false);
     openCommandPalette({ open: "new-thread-in" });
-  }, [isMobile, newThreadContext, projectGroups.length, setOpenMobile]);
+  }, [
+    createGeneralChat,
+    isMobile,
+    newThreadContext,
+    projectGroups.length,
+    setOpenMobile,
+    sidebarMode,
+  ]);
 
   // The button mirrors chat.new: in multi-project setups both route through
   // the command palette's "New thread in..." picker, and in single-project
@@ -3158,6 +3276,9 @@ export default function Sidebar() {
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     shortcutLabelForCommand(keybindings, "chat.newLocal");
+  if (isAgentsRoute) {
+    return <AgentsSidebar />;
+  }
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
@@ -3223,26 +3344,41 @@ export default function Sidebar() {
                         type="button"
                         className="relative focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                         onClick={handleNewThreadClick}
-                        disabled={projects.length === 0}
-                        aria-label="New thread"
+                        disabled={
+                          sidebarMode === "chats"
+                            ? primaryEnvironmentId === null
+                            : projectModeProjects.length === 0
+                        }
+                        aria-label={sidebarMode === "chats" ? "New chat" : "New thread"}
                       />
                     }
                   >
-                    <SquarePenIcon />
+                    {sidebarMode === "chats" && isCreatingGeneralChat ? (
+                      <LoaderIcon className="animate-spin" />
+                    ) : (
+                      <SquarePenIcon />
+                    )}
                     <span
                       className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
                       aria-hidden="true"
                     />
                   </TooltipTrigger>
                   <TooltipPopup side="right">
-                    {newThreadShortcutLabel
-                      ? `New thread (${newThreadShortcutLabel})`
-                      : "New thread"}
+                    {sidebarMode === "chats"
+                      ? "New chat"
+                      : newThreadShortcutLabel
+                        ? `New thread (${newThreadShortcutLabel})`
+                        : "New thread"}
                   </TooltipPopup>
                 </Tooltip>
               </div>
             </div>
-            {projectGroups.length > 0 ? (
+            {sidebarMode === "chats" ? (
+              <div className="flex h-8 items-center gap-2 px-2 text-sm font-medium text-sidebar-foreground">
+                <MessageSquareIcon className="size-4 shrink-0" />
+                <span>Chats</span>
+              </div>
+            ) : projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">
                 <Menu open={projectScopeMenuOpen} onOpenChange={setProjectScopeMenuOpen}>
                   <MenuTrigger
@@ -3420,7 +3556,8 @@ export default function Sidebar() {
                     // row: every other thread is a full card. Density comes
                     // from users (or the auto rules) actually parking work,
                     // not from the sidebar second-guessing what still matters.
-                    const isCard = section === "active" || section === "pinned";
+                    const isCard =
+                      sidebarMode !== "chats" && (section === "active" || section === "pinned");
                     const rowVariant = isCard ? "card" : "slim";
                     return (
                       <SidebarThreadRow
@@ -3482,9 +3619,11 @@ export default function Sidebar() {
                           ) ?? null
                         }
                         projectTitle={
-                          projectDisplayNameByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
+                          sidebarMode === "chats"
+                            ? null
+                            : (projectDisplayNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null)
                         }
                         providerEntryByInstanceId={providerEntryByInstanceId}
                         timestampFormat={timestampFormat}
@@ -3520,7 +3659,7 @@ export default function Sidebar() {
                       projectDisplayNameByKey={projectDisplayNameByKey}
                       projectCwdByKey={projectCwdByKey}
                       projectFaviconPathByKey={projectFaviconPathByKey}
-                      scopedProjectKeys={scopedProjectKeys}
+                      scopedProjectKeys={visibleProjectKeys}
                       routeDraftId={routeDraftIdForRows}
                       onNavigateToDraft={navigateToDraft}
                     />,
@@ -3666,7 +3805,20 @@ export default function Sidebar() {
             settledThreads.length ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-              {projects.length === 0 ? (
+              {sidebarMode === "chats" ? (
+                <>
+                  <span>No chats yet</span>
+                  <button
+                    type="button"
+                    onClick={createGeneralChat}
+                    disabled={isCreatingGeneralChat}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <PlusIcon className="-mx-0.5 size-3" />
+                    New chat
+                  </button>
+                </>
+              ) : projectModeProjects.length === 0 ? (
                 <>
                   <span>No projects yet</span>
                   <button
@@ -3687,6 +3839,27 @@ export default function Sidebar() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
+      <SidebarSeparator />
+      <SidebarGroup className="px-2 py-1">
+        <SidebarMenuButton
+          type="button"
+          onClick={() => {
+            setProjectScopeKey(null);
+            setSidebarMode((mode) => (mode === "chats" ? "projects" : "chats"));
+          }}
+          tooltip={sidebarMode === "chats" ? "Show projects" : "Show chats"}
+          className="gap-2 px-2 text-muted-foreground hover:text-foreground"
+        >
+          {sidebarMode === "chats" ? (
+            <FolderIcon className="size-4" />
+          ) : (
+            <MessageSquareIcon className="size-4" />
+          )}
+          <span>{sidebarMode === "chats" ? "Projects" : "Chats"}</span>
+        </SidebarMenuButton>
+      </SidebarGroup>
+      <AgentsSidebarLink />
+      <SidebarSeparator />
       <SidebarChromeFooter />
     </>
   );
