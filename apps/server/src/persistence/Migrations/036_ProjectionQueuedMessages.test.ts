@@ -8,12 +8,12 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("036_ProjectionQueuedMessages", (it) => {
+layer("041_ProjectionQueuedMessages", (it) => {
   it.effect("creates the queued-message projection table", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 36 });
+      yield* runMigrations({ toMigrationInclusive: 41 });
 
       const tables = yield* sql<{ readonly name: string }>`
         SELECT name FROM sqlite_master
