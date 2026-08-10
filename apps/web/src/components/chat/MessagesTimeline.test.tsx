@@ -38,6 +38,8 @@ vi.mock("@legendapp/list/react", async () => {
           size?: boolean;
           shouldRestorePosition?: (item: { id: string }) => boolean;
         };
+    initialScrollAtEnd?: boolean;
+    initialScrollOffset?: number;
     ref?: Ref<LegendListRef>;
   }) => {
     if (props.anchoredEndSpace) {
@@ -93,6 +95,8 @@ vi.mock("@legendapp/list/react", async () => {
             ? Boolean(props.maintainVisibleContentPosition.shouldRestorePosition)
             : undefined
         }
+        data-initial-scroll-at-end={props.initialScrollAtEnd}
+        data-initial-scroll-offset={props.initialScrollOffset}
       >
         {props.ListHeaderComponent}
         {props.data.map((item) => (
@@ -198,6 +202,7 @@ function buildProps() {
     contentInsetEndAdjustment: 0,
     liveFollowEnabled: true,
     onIsAtEndChange: () => {},
+    onScrollPositionChange: () => {},
     onManualNavigation: () => {},
   };
 }
@@ -226,6 +231,21 @@ function buildUserTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("restores a saved reading position instead of opening at the live edge", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        initialScrollOffset={640}
+        liveFollowEnabled={false}
+        timelineEntries={[buildUserTimelineEntry("Hello")]}
+      />,
+    );
+
+    expect(markup).toContain('data-initial-scroll-at-end="false"');
+    expect(markup).toContain('data-initial-scroll-offset="640"');
+    expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
+  });
+
   it("uses the larger leading inset only when the top fade is enabled", () => {
     const timelineEntries = [buildUserTimelineEntry("Hello")];
 

@@ -94,6 +94,11 @@ import {
 import { type LegendListRef } from "@legendapp/list/react";
 import { getAnchoredTurnMetrics, type TimelineScrollMode } from "./chat/timelineScrollAnchoring";
 import {
+  forgetTimelineScrollOffset,
+  getRememberedTimelineScrollOffset,
+  rememberTimelineScrollOffset,
+} from "./chat/timelineScrollMemory";
+import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
   setPendingUserInputCustomAnswer,
@@ -1199,6 +1204,10 @@ function ChatViewContent(props: ChatViewProps) {
     [environmentId, threadId],
   );
   const routeThreadKey = useMemo(() => scopedThreadKey(routeThreadRef), [routeThreadRef]);
+  const initialTimelineScrollOffset = useMemo(
+    () => getRememberedTimelineScrollOffset(routeThreadKey),
+    [routeThreadKey],
+  );
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
@@ -3690,22 +3699,26 @@ function ChatViewContent(props: ChatViewProps) {
   );
   // Live-follow stays active after send/thread-open until an actual list scroll
   // gesture opts out.
-  const scrollToEnd = useCallback((animated = false) => {
-    isAtEndRef.current = true;
-    timelineScrollModeRef.current = "following-end";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
-    pendingTimelineAnchorRef.current = null;
-    activeTimelineAnchorIndexRef.current = null;
-    showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
-    setTimelineAnchor((current) =>
-      current.messageId === null ? current : { ...current, messageId: null },
-    );
-    requestAnimationFrame(() => {
-      void legendListRef.current?.scrollToEnd?.({ animated });
-    });
-  }, []);
+  const scrollToEnd = useCallback(
+    (animated = false) => {
+      forgetTimelineScrollOffset(routeThreadKey);
+      isAtEndRef.current = true;
+      timelineScrollModeRef.current = "following-end";
+      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      setTimelineLiveFollowEnabled(true);
+      pendingTimelineAnchorRef.current = null;
+      activeTimelineAnchorIndexRef.current = null;
+      showScrollDebouncer.current.cancel();
+      setShowScrollToBottom(false);
+      setTimelineAnchor((current) =>
+        current.messageId === null ? current : { ...current, messageId: null },
+      );
+      requestAnimationFrame(() => {
+        void legendListRef.current?.scrollToEnd?.({ animated });
+      });
+    },
+    [routeThreadKey],
+  );
   useEffect(() => {
     let removeListeners: (() => void) | null = null;
     let frame: number | null = null;
@@ -3885,6 +3898,22 @@ function ChatViewContent(props: ChatViewProps) {
     }
   }, []);
 
+  const onTimelineScrollPositionChange = useCallback(
+    (scrollOffset: number, isAtEnd: boolean) => {
+      if (isAtEnd) {
+        forgetTimelineScrollOffset(routeThreadKey);
+        return;
+      }
+      // LegendList can briefly report an away-from-end offset while its own
+      // live-follow adjustment is settling. That is not a reading position.
+      if (liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current) {
+        return;
+      }
+      rememberTimelineScrollOffset(routeThreadKey, scrollOffset);
+    },
+    [routeThreadKey],
+  );
+
   // Anchored end space intentionally disables LegendList's normal end-follow so
   // the sent message can stay near the top. T3 only owns streaming adjustments
   // during that mode; LegendList owns ordinary end-follow everywhere else.
@@ -3939,18 +3968,21 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     setPullRequestDialogState(null);
-    isAtEndRef.current = true;
-    timelineScrollModeRef.current = "following-end";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
+    const restoresReadingPosition = initialTimelineScrollOffset !== undefined;
+    isAtEndRef.current = !restoresReadingPosition;
+    timelineScrollModeRef.current = restoresReadingPosition ? "free-scrolling" : "following-end";
+    liveFollowUserScrollGenerationRef.current = restoresReadingPosition
+      ? null
+      : anchorUserScrollGenerationRef.current;
+    setTimelineLiveFollowEnabled(!restoresReadingPosition);
     pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
+    setShowScrollToBottom(restoresReadingPosition);
     // activeThreadRef resets transitively with the active thread.
-  }, [activeThread?.id]);
+  }, [activeThread?.id, initialTimelineScrollOffset]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -6182,7 +6214,7 @@ function ChatViewContent(props: ChatViewProps) {
               <MessagesTimeline
                 agentPanelModel={agentPanelModel}
                 onOpenAgents={addAgentsSurface}
-                key={activeThread.id}
+                key={routeThreadKey}
                 isWorking={isWorking}
                 workingStepLabel={workingStepLabel}
                 activeTurnInProgress={isWorking || !latestTurnSettled}
@@ -6211,8 +6243,14 @@ function ChatViewContent(props: ChatViewProps) {
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 contentInsetEndAdjustment={composerOverlayHeight}
-                liveFollowEnabled={timelineLiveFollowEnabled}
+                {...(initialTimelineScrollOffset === undefined
+                  ? {}
+                  : { initialScrollOffset: initialTimelineScrollOffset })}
+                liveFollowEnabled={
+                  initialTimelineScrollOffset === undefined && timelineLiveFollowEnabled
+                }
                 onIsAtEndChange={onIsAtEndChange}
+                onScrollPositionChange={onTimelineScrollPositionChange}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                 topFadeEnabled={!hasTimelineTopBanner}
