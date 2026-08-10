@@ -204,7 +204,7 @@ index 8204015..cdeaab7 100644
       * Number of columns to render items in.
       * @default 1
 diff --git a/react-native.js b/react-native.js
-index 8d4ff89..003b2f7 100644
+index 229f09a..2a1ceb6 100644
 --- a/react-native.js
 +++ b/react-native.js
 @@ -930,7 +930,7 @@ function setInitialRenderState(ctx, {
@@ -520,8 +520,8 @@ index 8d4ff89..003b2f7 100644
 +    onScrollBeginDrag,
      onRefresh,
      onScroll: onScrollProp,
-     onStartReached,
-@@ -6577,7 +6729,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
+     onScrollBeginDrag,
+@@ -7076,7 +7232,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
    const combinedRef = useCombinedRef(refScroller, refScrollView);
    const keyExtractor = keyExtractorProp != null ? keyExtractorProp : ((_item, index) => index.toString());
    const stickyHeaderIndices = stickyHeaderIndicesProp;
@@ -530,7 +530,7 @@ index 8d4ff89..003b2f7 100644
    const previousContentInsetEndAdjustmentRef = React2.useRef(contentInsetEndAdjustmentResolved);
    const alwaysRenderIndices = React2.useMemo(() => {
      const indices = getAlwaysRenderIndices(alwaysRender, dataProp, keyExtractor, anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorIndex);
-@@ -6710,6 +6862,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
+@@ -7215,6 +7371,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
      contentContainerAlignItems: contentContainerStyle.alignItems,
      contentInset,
      contentInsetEndAdjustment: contentInsetEndAdjustmentResolved,
@@ -569,7 +569,7 @@ index 8d4ff89..003b2f7 100644
        recycleItems,
        refreshControl: refreshControlElement ? stylePaddingTopState > 0 ? React2__namespace.cloneElement(refreshControlElement, {
 diff --git a/react-native.mjs b/react-native.mjs
-index 2e96ca7..fc88d4b 100644
+index c2e0f38..5313086 100644
 --- a/react-native.mjs
 +++ b/react-native.mjs
 @@ -909,7 +909,7 @@ function setInitialRenderState(ctx, {
@@ -878,15 +878,7 @@ index 2e96ca7..fc88d4b 100644
      estimatedItemSize = 100,
      estimatedListSize,
      extraData,
-@@ -6471,6 +6622,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
-     onLayout: onLayoutProp,
-     onLoad,
-     onMomentumScrollEnd,
-+    onScrollBeginDrag,
-     onRefresh,
-     onScroll: onScrollProp,
-     onStartReached,
-@@ -6556,7 +6708,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
+@@ -7055,7 +7210,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
    const combinedRef = useCombinedRef(refScroller, refScrollView);
    const keyExtractor = keyExtractorProp != null ? keyExtractorProp : ((_item, index) => index.toString());
    const stickyHeaderIndices = stickyHeaderIndicesProp;
@@ -895,7 +887,7 @@ index 2e96ca7..fc88d4b 100644
    const previousContentInsetEndAdjustmentRef = useRef(contentInsetEndAdjustmentResolved);
    const alwaysRenderIndices = useMemo(() => {
      const indices = getAlwaysRenderIndices(alwaysRender, dataProp, keyExtractor, anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorIndex);
-@@ -6689,6 +6841,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
+@@ -7194,6 +7349,7 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
      contentContainerAlignItems: contentContainerStyle.alignItems,
      contentInset,
      contentInsetEndAdjustment: contentInsetEndAdjustmentResolved,
