@@ -151,6 +151,15 @@ const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .filter((entry) => entry.length > 0);
 const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
+// The packaged desktop renderer uses a custom protocol. Remote-environment
+// discovery is proxied through Vite in shared dev mode, so Chromium preflights
+// the request before it can reach the backend's own CORS middleware.
+const devCorsAllowedOrigins = [
+  /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/,
+  "t3code://app",
+  "t3code-dev://app",
+];
+
 export default defineConfig(() => {
   return {
     assetsInclude: ["**/*.wasm"],
@@ -221,6 +230,10 @@ export default defineConfig(() => {
       // over a tailnet origin turns into minutes of waterfall.
       warmup: {
         clientFiles: ["./src/main.tsx"],
+      },
+      cors: {
+        origin: devCorsAllowedOrigins,
+        credentials: true,
       },
       ...(devProxyTarget
         ? {

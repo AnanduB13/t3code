@@ -1,5 +1,5 @@
 import { memo, type PointerEventHandler } from "react";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronLeftIcon, ListPlusIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -148,7 +148,24 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (isRunning) {
-    return renderStopGenerationButton(false);
+    return (
+      <div className="flex items-center gap-1.5">
+        {hasSendableContent ? (
+          <Button
+            type="submit"
+            size="sm"
+            className={cn("rounded-full", compact ? "size-8 p-0" : "px-3")}
+            {...pointerFocusProps}
+            disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+            aria-label="Queue message"
+          >
+            {isSendBusy ? <Spinner className="size-3.5" /> : <ListPlusIcon className="size-3.5" />}
+            {compact ? null : <span>Queue</span>}
+          </Button>
+        ) : null}
+        {renderStopGenerationButton(false)}
+      </div>
+    );
   }
 
   if (showPlanFollowUpPrompt) {

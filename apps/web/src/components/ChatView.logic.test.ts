@@ -20,6 +20,8 @@ import {
   deriveComposerSendState,
   dismissBranchMismatchForSession,
   ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
+  filterPendingOptimisticMessages,
+  formatDraftHeroHeading,
   getStartedThreadModelChangeBlockReason,
   hasEnvironmentReconnectWarningGraceElapsed,
   hasServerAcknowledgedLocalDispatch,
@@ -33,6 +35,19 @@ import {
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
+
+describe("formatDraftHeroHeading", () => {
+  it("names the selected project", () => {
+    expect(formatDraftHeroHeading("tradefxbook")).toBe(
+      "What would you like to change in tradefxbook?",
+    );
+  });
+
+  it("keeps the generic heading while project data is unavailable", () => {
+    expect(formatDraftHeroHeading(null)).toBe("What would you like to build?");
+    expect(formatDraftHeroHeading("   ")).toBe("What would you like to build?");
+  });
+});
 
 const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
@@ -126,6 +141,50 @@ const readySession = {
   lastError: null,
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
+
+describe("filterPendingOptimisticMessages", () => {
+  const optimisticMessage = (id: string) => ({
+    id: MessageId.make(id),
+    role: "user" as const,
+    text: id,
+    turnId: null,
+    streaming: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  it("hides an optimistic bubble once the server acknowledges it in the queue", () => {
+    const queuedMessage = optimisticMessage("queued");
+    const pendingMessage = optimisticMessage("pending");
+
+    expect(
+      filterPendingOptimisticMessages({
+        optimisticMessages: [queuedMessage, pendingMessage],
+        projectedMessages: [],
+        queuedMessages: [
+          {
+            messageId: queuedMessage.id,
+            text: queuedMessage.text,
+            attachments: [],
+            queuedAt: now,
+          },
+        ],
+      }).map((message) => message.id),
+    ).toEqual([pendingMessage.id]);
+  });
+
+  it("hides an optimistic bubble once it is projected in the timeline", () => {
+    const projectedMessage = optimisticMessage("projected");
+
+    expect(
+      filterPendingOptimisticMessages({
+        optimisticMessages: [projectedMessage],
+        projectedMessages: [projectedMessage],
+        queuedMessages: [],
+      }),
+    ).toEqual([]);
+  });
+});
 
 describe("buildLoadingThreadFromShell", () => {
   it("preserves shell metadata and supplies empty detail collections", () => {
@@ -282,6 +341,18 @@ describe("deriveComposerSendState", () => {
 
     expect(state.trimmedPrompt).toBe("");
     expect(state.expiredTerminalContextCount).toBe(0);
+    expect(state.hasSendableContent).toBe(true);
+  });
+
+  it("treats pasted-text attachments as sendable content without a caption", () => {
+    const state = deriveComposerSendState({
+      prompt: "",
+      imageCount: 0,
+      pastedTextCount: 1,
+      terminalContexts: [],
+    });
+
+    expect(state.trimmedPrompt).toBe("");
     expect(state.hasSendableContent).toBe(true);
   });
 

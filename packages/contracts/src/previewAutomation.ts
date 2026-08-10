@@ -694,7 +694,7 @@ export class PreviewAutomationNoAvailableHostError extends Schema.TaggedErrorCla
   },
 ) {
   override get message(): string {
-    const summary = `No T3 Code Desktop browser host is connected for ${this.operation} in environment ${this.environmentId}. Open this environment in T3 Code Desktop and keep the desktop window running; regular web browsers cannot host shared-browser automation.`;
+    const summary = `The collaborative browser host is unavailable for ${this.operation} in environment ${this.environmentId}. Continue with another available browser or web-search tool; do not ask the user to retry this host.`;
     return summary;
   }
 }

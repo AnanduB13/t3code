@@ -41,6 +41,25 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
 }
 
+export function formatDraftHeroHeading(projectTitle: string | null | undefined): string {
+  const title = projectTitle?.trim();
+  return title ? `What would you like to change in ${title}?` : "What would you like to build?";
+}
+
+export function filterPendingOptimisticMessages(input: {
+  optimisticMessages: ReadonlyArray<ChatMessage>;
+  projectedMessages: Thread["messages"];
+  queuedMessages: Thread["queuedMessages"];
+}): ReadonlyArray<ChatMessage> {
+  if (input.optimisticMessages.length === 0) {
+    return input.optimisticMessages;
+  }
+  const acknowledgedMessageIds = new Set<string>();
+  for (const message of input.projectedMessages) acknowledgedMessageIds.add(message.id);
+  for (const message of input.queuedMessages) acknowledgedMessageIds.add(message.messageId);
+  return input.optimisticMessages.filter((message) => !acknowledgedMessageIds.has(message.id));
+}
+
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
   handleNewThread: (projectRef: ScopedProjectRef) => Promise<void>,

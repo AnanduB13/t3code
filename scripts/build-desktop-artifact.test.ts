@@ -532,6 +532,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(mac.extendInfo, {
         NSAppleEventsUsageDescription:
           "T3 Code needs Automation access so Codex Computer Use can inspect and control apps you explicitly ask it to use.",
+        NSLocalNetworkUsageDescription:
+          "T3 Code connects to environments on your local and private networks, including Tailscale.",
       });
       assert.deepStrictEqual(mac.protocols, [
         { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },

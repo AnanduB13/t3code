@@ -213,6 +213,7 @@ import {
 } from "../lib/elementContext";
 import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
+import { appendPastedTextsToPrompt } from "./chat/composerPastedText";
 import { environmentCatalog } from "../connection/catalog";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
@@ -285,6 +286,8 @@ import {
   dismissBranchMismatchForSession,
   hasEnvironmentReconnectWarningGraceElapsed,
   scheduleEnvironmentReconnectWarning,
+  filterPendingOptimisticMessages,
+  formatDraftHeroHeading,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
   shouldShowBranchMismatchBanner,
@@ -568,14 +571,16 @@ function useLocalDispatchState(input: {
   );
   const activeLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
   const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
+    (options?: { preparingWorktree?: boolean; messageId?: ChatMessage["id"] }) => {
       const preparingWorktree = Boolean(options?.preparingWorktree);
       setLocalDispatch((current) => {
         const active = serverAcknowledgedLocalDispatch ? null : current;
         if (active) {
-          return active.preparingWorktree === preparingWorktree
+          const expectedMessageId = options?.messageId ?? active.expectedMessageId;
+          return active.preparingWorktree === preparingWorktree &&
+            active.expectedMessageId === expectedMessageId
             ? active
-            : { ...active, preparingWorktree };
+            : { ...active, preparingWorktree, expectedMessageId };
         }
         return createLocalDispatchSnapshot(input.activeThread, options);
       });
@@ -1301,6 +1306,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
+  const setComposerDraftPastedTexts = useComposerDraftStore((store) => store.setPastedTexts);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
@@ -2493,13 +2499,21 @@ function ChatViewContent(props: ChatViewProps) {
     if (optimisticUserMessages.length === 0) {
       return serverMessagesWithPreviewHandoff;
     }
-    const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
-    const pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
+    const pendingMessages = filterPendingOptimisticMessages({
+      optimisticMessages: optimisticUserMessages,
+      projectedMessages: serverMessagesWithPreviewHandoff,
+      queuedMessages: activeThread?.queuedMessages ?? [],
+    });
     if (pendingMessages.length === 0) {
       return serverMessagesWithPreviewHandoff;
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
-  }, [attachmentPreviewHandoffByMessageId, displayServerMessages, optimisticUserMessages]);
+  }, [
+    activeThread?.queuedMessages,
+    attachmentPreviewHandoffByMessageId,
+    displayServerMessages,
+    optimisticUserMessages,
+  ]);
   const timelineEntries = useMemo(
     () =>
       deriveTimelineEntries(
@@ -3954,22 +3968,23 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     if (!activeThread?.id) return;
-    if (activeThread.messages.length === 0) {
-      return;
-    }
     const serverIds = new Set(activeThread.messages.map((message) => message.id));
-    const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
+    const queuedIds = new Set(activeThread.queuedMessages.map((message) => message.messageId));
+    const acknowledgedIds = new Set([...serverIds, ...queuedIds]);
+    const removedMessages = optimisticUserMessages.filter((message) =>
+      acknowledgedIds.has(message.id),
+    );
     if (removedMessages.length === 0) {
       return;
     }
     const timer = window.setTimeout(() => {
       setOptimisticUserMessages((existing) =>
-        existing.filter((message) => !serverIds.has(message.id)),
+        existing.filter((message) => !acknowledgedIds.has(message.id)),
       );
     }, 0);
     for (const removedMessage of removedMessages) {
       const previewUrls = collectUserMessageBlobPreviewUrls(removedMessage);
-      if (previewUrls.length > 0) {
+      if (serverIds.has(removedMessage.id) && previewUrls.length > 0) {
         handoffAttachmentPreviews(removedMessage.id, previewUrls);
         continue;
       }
@@ -3978,7 +3993,13 @@ function ChatViewContent(props: ChatViewProps) {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeThread?.id,
+    activeThread?.messages,
+    activeThread?.queuedMessages,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+  ]);
 
   useEffect(() => {
     setOptimisticUserMessages((existing) => {
@@ -4852,6 +4873,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     const {
       images: sendContextImages,
+      pastedTexts: composerPastedTexts,
       terminalContexts: composerTerminalContexts,
       elementContexts: composerElementContexts,
       previewAnnotations: sendContextPreviewAnnotations,
@@ -4891,6 +4913,7 @@ function ChatViewContent(props: ChatViewProps) {
     } = deriveComposerSendState({
       prompt: promptForSend,
       imageCount: composerImages.length,
+      pastedTextCount: composerPastedTexts.length,
       terminalContexts: composerTerminalContexts,
       elementContextCount:
         composerElementContexts.length +
@@ -4898,8 +4921,9 @@ function ChatViewContent(props: ChatViewProps) {
         composerReviewComments.length,
     });
     if (!directAnnotation && showPlanFollowUpPrompt && activeProposedPlan) {
+      const followUpDraftText = appendPastedTextsToPrompt(trimmed, composerPastedTexts);
       const followUp = resolvePlanFollowUpSubmission({
-        draftText: trimmed,
+        draftText: followUpDraftText,
         planMarkdown: activeProposedPlan.planMarkdown,
       });
       promptRef.current = "";
@@ -4916,6 +4940,7 @@ function ChatViewContent(props: ChatViewProps) {
     const standaloneSlashCommand =
       settings.planModeEnabled &&
       composerImages.length === 0 &&
+      composerPastedTexts.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
@@ -4971,6 +4996,8 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
+    const messageIdForSend = newMessageId();
+    const messageCreatedAt = new Date().toISOString();
     sendInFlightRef.current = true;
     if (isDraftHeroState && activeThreadKey) {
       let resolveDockStarted: (() => void) | undefined;
@@ -4987,9 +5014,13 @@ function ChatViewContent(props: ChatViewProps) {
       void dockTransition.catch(() => resolveDockStarted?.());
       await dockStarted;
     }
-    beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
+    beginLocalDispatch({
+      preparingWorktree: Boolean(baseBranchForWorktree),
+      messageId: messageIdForSend,
+    });
 
     const composerImagesSnapshot = [...composerImages];
+    const composerPastedTextsSnapshot = [...composerPastedTexts];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
@@ -5002,12 +5033,14 @@ function ChatViewContent(props: ChatViewProps) {
       (text, annotation) => appendPreviewAnnotationPrompt(text, annotation),
       messageTextWithContexts,
     );
-    const messageTextForSend = appendReviewCommentsToPrompt(
+    const messageTextWithReviewComments = appendReviewCommentsToPrompt(
       messageTextWithPreviewAnnotations,
       composerReviewCommentsSnapshot,
     );
-    const messageIdForSend = newMessageId();
-    const messageCreatedAt = new Date().toISOString();
+    const messageTextForSend = appendPastedTextsToPrompt(
+      messageTextWithReviewComments,
+      composerPastedTextsSnapshot,
+    );
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
@@ -5172,7 +5205,7 @@ function ChatViewContent(props: ChatViewProps) {
                 : {}),
             }
           : undefined;
-      beginLocalDispatch({ preparingWorktree: false });
+      beginLocalDispatch({ preparingWorktree: false, messageId: messageIdForSend });
       const startResult = await startThreadTurn({
         environmentId,
         input: {
@@ -5203,6 +5236,8 @@ function ChatViewContent(props: ChatViewProps) {
       if (
         promptRef.current.length === 0 &&
         composerImagesRef.current.length === 0 &&
+        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.pastedTexts
+          .length ?? 0) === 0 &&
         composerTerminalContextsRef.current.length === 0 &&
         composerElementContextsRef.current.length === 0 &&
         (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.previewAnnotations
@@ -5225,6 +5260,7 @@ function ChatViewContent(props: ChatViewProps) {
         composerElementContextsRef.current = composerElementContextsSnapshot;
         setComposerDraftPrompt(composerDraftTarget, promptForSend);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
+        setComposerDraftPastedTexts(composerDraftTarget, composerPastedTextsSnapshot);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
         setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
         setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
@@ -5512,7 +5548,7 @@ function ChatViewContent(props: ChatViewProps) {
       });
 
       sendInFlightRef.current = true;
-      beginLocalDispatch({ preparingWorktree: false });
+      beginLocalDispatch({ preparingWorktree: false, messageId: messageIdForSend });
       setThreadError(threadIdForSend, null);
 
       // Position this sent row once LegendList has measured the anchored tail.
@@ -6221,7 +6257,7 @@ function ChatViewContent(props: ChatViewProps) {
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
                       <h1 className="mx-auto w-full max-w-5xl pb-8 text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
-                        What would you like to build?
+                        {formatDraftHeroHeading(activeProject?.title)}
                       </h1>
                       <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
                     </div>
@@ -6233,7 +6269,7 @@ function ChatViewContent(props: ChatViewProps) {
                   ) : null}
                   <QueuedMessageChips
                     queuedMessages={activeThread?.queuedMessages ?? []}
-                    disabled={phase !== "running"}
+                    steerDisabled={phase !== "running"}
                     onSteer={onSteerQueuedMessage}
                     onRemove={onRemoveQueuedMessage}
                   />

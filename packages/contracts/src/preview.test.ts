@@ -171,7 +171,7 @@ describe("PreviewAutomationHost", () => {
 });
 
 describe("PreviewAutomationError", () => {
-  it("explains how to attach the required desktop browser host", () => {
+  it("directs agents to continue when the collaborative browser host is unavailable", () => {
     const error = decodeAutomationError({
       _tag: "PreviewAutomationNoAvailableHostError",
       operation: "status",
@@ -181,8 +181,8 @@ describe("PreviewAutomationError", () => {
       providerInstanceId: "codex",
     });
 
-    expect(error.message).toContain("Open this environment in T3 Code Desktop");
-    expect(error.message).toContain("regular web browsers cannot host shared-browser automation");
+    expect(error.message).toContain("Continue with another available browser or web-search tool");
+    expect(error.message).toContain("do not ask the user to retry this host");
   });
 
   it("preserves a typed non-editable target failure", () => {
