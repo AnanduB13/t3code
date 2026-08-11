@@ -13,6 +13,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ChevronDownIcon,
   EyeIcon,
+  FolderGit2Icon,
   GitMergeIcon,
   GitPullRequestClosedIcon,
   GitPullRequestIcon,
@@ -1058,6 +1059,27 @@ function PullRequestsRouteView() {
       onProject={(projectId) => updateListScope({ projectId })}
     />
   );
+  const projectMenuOptions: ReadonlyArray<PullRequestFilterOption<string>> = [
+    { value: "", label: "All projects", Icon: LayersIcon },
+    ...scopedProjects.map((project) => ({
+      value: project.id,
+      label: project.title,
+      Icon: FolderGit2Icon,
+      ...(unavailableProjects.has(project.id)
+        ? { unavailable: unavailableProjects.get(project.id) ?? "This project could not be read." }
+        : {}),
+    })),
+  ];
+  const projectFilter = (
+    <CompactFilterMenu
+      label="Filter by project"
+      value={scopedProjectId ?? ""}
+      options={projectMenuOptions}
+      onChange={(projectId) =>
+        updateListScope({ projectId: projectId === "" ? undefined : (projectId as ProjectId) })
+      }
+    />
+  );
   const columnProps = {
     refreshing,
     onRefresh: () => void refreshFromHost(),
@@ -1070,6 +1092,7 @@ function PullRequestsRouteView() {
     onState: (state: PullRequestListState) => updateListScope({ state }),
     onHost: (host: string | undefined) => updateListScope({ host }),
     searchInput,
+    projectFilter,
     filtersMenu,
     rightPanelControl:
       !pullRequestsSupported || rightPanelState.isOpen ? null : panelToggleControls,
@@ -1321,6 +1344,7 @@ function PullRequestsColumn({
   onState,
   onHost,
   searchInput,
+  projectFilter,
   filtersMenu,
   rightPanelControl,
   rightPanelOpen,
@@ -1337,6 +1361,7 @@ function PullRequestsColumn({
   onState: (state: PullRequestListState) => void;
   onHost: (host: string | undefined) => void;
   searchInput: ReactNode;
+  projectFilter: ReactNode;
   filtersMenu: ReactNode;
   rightPanelControl: ReactNode;
   rightPanelOpen: boolean;
@@ -1423,6 +1448,7 @@ function PullRequestsColumn({
             </WorkspaceBreadcrumbItem>
             <WorkspaceBreadcrumbSeparator />
             <WorkspaceBreadcrumbItem className="gap-1.5 overflow-hidden">
+              {projectFilter}
               <CompactFilterMenu
                 label="Filter by state"
                 value={state}
@@ -1487,6 +1513,7 @@ function PullRequestsColumn({
           <div className="flex flex-col gap-3">
             <div ref={inFlowSearchRef} className="flex items-center gap-2">
               {searchInput}
+              {projectFilter}
               {filtersMenu}
             </div>
             {/* Scrolled past this marker, the controls are gone and the title takes over. */}
