@@ -1,4 +1,5 @@
 import type { PullRequestListEntry } from "@t3tools/contracts";
+import { FolderGit2Icon } from "lucide-react";
 
 import { memo } from "react";
 
@@ -69,7 +70,18 @@ function PullRequestRowImpl({
             ) : null}
             #{entry.number}
           </span>
-          {showProjectTitle ? <span className="truncate">{entry.repository}</span> : null}
+          {showProjectTitle ? (
+            <span
+              className="inline-flex min-w-0 shrink items-center gap-1 rounded-md bg-muted/70 px-1.5 py-0.5 text-foreground/80"
+              title={`Project: ${entry.projectTitle}`}
+            >
+              <FolderGit2Icon aria-hidden className="size-3 shrink-0" />
+              <span className="truncate">{entry.projectTitle}</span>
+            </span>
+          ) : null}
+          <span className="truncate" title={entry.repository}>
+            {entry.repository}
+          </span>
           <PullRequestActorLabel actor={entry.author} className="max-w-40 shrink-0" />
           <span className="truncate" title={`${entry.headBranch} to ${entry.baseBranch}`}>
             {entry.headBranch}
