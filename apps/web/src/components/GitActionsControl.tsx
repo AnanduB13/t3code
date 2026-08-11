@@ -1696,22 +1696,6 @@ export default function GitActionsControl({
 
   return (
     <>
-      <EnvironmentSummaryPopover
-        status={gitStatusForActions}
-        workspaceLabel={activeWorktreePath ? "Worktree" : "Local checkout"}
-        workspaceDetail={workspaceDetail}
-        providerName={sourceControlPresentation.providerName}
-        ProviderIcon={SourceControlIcon}
-        quickActionLabel={isRepo ? quickAction.label : "Initialize Git"}
-        quickActionDisabled={
-          isRepo ? isGitActionRunning || quickAction.disabled : initAction.isPending
-        }
-        refreshing={gitStatusQuery.isPending}
-        onRefresh={() => requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd)}
-        onOpenChanges={openChanges}
-        onRunQuickAction={isRepo ? runQuickAction : initializeGit}
-        onOpenPullRequest={() => void openExistingPr()}
-      />
       {!isRepo ? (
         <Button variant="outline" size="xs" disabled={initAction.isPending} onClick={initializeGit}>
           <GitBranchPlusIcon className="size-3.5" aria-hidden />
@@ -1851,6 +1835,22 @@ export default function GitActionsControl({
           </Menu>
         </Group>
       )}
+      <EnvironmentSummaryPopover
+        status={gitStatusForActions}
+        workspaceLabel={activeWorktreePath ? "Worktree" : "Local checkout"}
+        workspaceDetail={workspaceDetail}
+        providerName={sourceControlPresentation.providerName}
+        ProviderIcon={SourceControlIcon}
+        quickActionLabel={isRepo ? quickAction.label : "Initialize Git"}
+        quickActionDisabled={
+          isRepo ? isGitActionRunning || quickAction.disabled : initAction.isPending
+        }
+        refreshing={gitStatusQuery.isPending}
+        onRefresh={() => requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd)}
+        onOpenChanges={openChanges}
+        onRunQuickAction={isRepo ? runQuickAction : initializeGit}
+        onOpenPullRequest={() => void openExistingPr()}
+      />
 
       <Dialog
         open={isCommitDialogOpen}

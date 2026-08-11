@@ -109,7 +109,7 @@ export function EnvironmentSummaryPopover({
   onRunQuickAction,
   onOpenPullRequest,
 }: EnvironmentSummaryPopoverProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const hasChanges = status?.hasWorkingTreeChanges === true;
   const fileCount = status?.workingTree.files.length ?? 0;
   const insertions = status?.workingTree.insertions ?? 0;
