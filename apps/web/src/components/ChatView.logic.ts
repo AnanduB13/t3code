@@ -62,7 +62,7 @@ export function filterPendingOptimisticMessages(input: {
 
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
-  handleNewThread: (projectRef: ScopedProjectRef) => Promise<void>,
+  handleNewThread: (projectRef: ScopedProjectRef) => Promise<unknown>,
 ): boolean {
   if (projectRef === null) return false;
   void handleNewThread(projectRef);

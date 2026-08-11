@@ -1,5 +1,6 @@
 import { autoAnimate } from "@formkit/auto-animate";
 import { useAtomValue } from "@effect/atom-react";
+import * as Schema from "effect/Schema";
 import {
   DndContext,
   PointerSensor,
@@ -101,6 +102,7 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
@@ -196,6 +198,9 @@ import {
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 type SidebarMode = "projects" | "chats";
+// Keep the v2 key so existing preferences survive the v2-to-default rename.
+const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:settled-expanded";
+const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:snoozed-expanded";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -691,6 +696,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // the user visits the thread.
   wokeAt: string | null;
   isActive: boolean;
+  openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
   currentEnvironmentId: string | null;
   environmentLabel: string | null;
@@ -732,6 +738,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     onUnsettle,
     onUnsnooze,
     onUnpin,
+    openPullRequestsInRightPanel,
     renamingTitle,
     thread,
     variant,
@@ -1019,9 +1026,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   }, [showSnoozeButton]);
   const handlePrClick = useCallback(
     (event: ReactMouseEvent<HTMLElement>) => {
-      if (pr?.url) openPrLink(event, pr.url);
+      if (!pr?.url) return;
+      const openedInRightPanel = openPrLink(
+        event,
+        pr.url,
+        openPullRequestsInRightPanel ? threadRef : undefined,
+      );
+      if (openedInRightPanel && openPullRequestsInRightPanel && !props.isActive) {
+        onThreadActivate(threadRef);
+      }
     },
-    [openPrLink, pr],
+    [onThreadActivate, openPrLink, openPullRequestsInRightPanel, pr, props.isActive, threadRef],
   );
 
   // All sidebar rows share one surface model. Live threads used to look
@@ -2141,8 +2156,15 @@ export default function Sidebar() {
     () => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
     [],
   );
-  const [settledShelfExpanded, setSettledShelfExpanded] = useState(true);
-  const toggleSettledShelf = useCallback(() => setSettledShelfExpanded((value) => !value), []);
+  const [settledShelfExpanded, setSettledShelfExpanded] = useLocalStorage(
+    SETTLED_SHELF_EXPANDED_KEY,
+    true,
+    Schema.Boolean,
+  );
+  const toggleSettledShelf = useCallback(
+    () => setSettledShelfExpanded((value) => !value),
+    [setSettledShelfExpanded],
+  );
   const renderedSettledThreads = useMemo(() => {
     if (settledShelfExpanded) return visibleSettledThreads;
     if (routeThreadKey === null) return [];
@@ -2156,8 +2178,15 @@ export default function Sidebar() {
   // The snoozed shelf is collapsed by default: out of the way, never gone.
   // Collapsed threads don't render (and so don't participate in jump
   // shortcuts or multi-select), matching the settled tail's paging model.
-  const [snoozedShelfExpanded, setSnoozedShelfExpanded] = useState(false);
-  const toggleSnoozedShelf = useCallback(() => setSnoozedShelfExpanded((value) => !value), []);
+  const [snoozedShelfExpanded, setSnoozedShelfExpanded] = useLocalStorage(
+    SNOOZED_SHELF_EXPANDED_KEY,
+    false,
+    Schema.Boolean,
+  );
+  const toggleSnoozedShelf = useCallback(
+    () => setSnoozedShelfExpanded((value) => !value),
+    [setSnoozedShelfExpanded],
+  );
   const visibleSnoozedThreads = useMemo(() => {
     if (snoozedShelfExpanded) return snoozedThreads;
     // The open thread must never vanish behind the collapsed shelf: a
@@ -3607,6 +3636,7 @@ export default function Sidebar() {
                         // rows resolve to null on their own.
                         wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                         isActive={routeThreadKey === threadKey}
+                        openPullRequestsInRightPanel={routeThreadRef !== null}
                         jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
                         currentEnvironmentId={primaryEnvironmentId}
                         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
