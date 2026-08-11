@@ -26,38 +26,32 @@ describe("resolveEnvironmentSyncLabel", () => {
 });
 
 describe("resolveEnvironmentHostPresentation", () => {
-  it("shows the reachable network host while retaining local process context", () => {
+  it("shows the scanner-reported host without inventing a network route", () => {
     expect(
-      resolveEnvironmentHostPresentation(
-        {
-          host: "localhost",
-          port: 5173,
-          url: "http://localhost:5173",
-          processName: "vite",
-          pid: 123,
-          terminal: null,
-        },
-        "http://k11.taild2a048.ts.net:5173/",
-      ),
+      resolveEnvironmentHostPresentation({
+        host: "localhost",
+        port: 5173,
+        url: "http://localhost:5173",
+        processName: "vite",
+        pid: 123,
+        terminal: null,
+      }),
     ).toEqual({
-      label: "k11.taild2a048.ts.net:5173",
+      label: "localhost:5173",
       detail: "vite · local port 5173",
     });
   });
 
-  it("falls back to the scanner host for an invalid resolved URL", () => {
+  it("describes hosts whose process name is unavailable", () => {
     expect(
-      resolveEnvironmentHostPresentation(
-        {
-          host: "localhost",
-          port: 3000,
-          url: "http://localhost:3000",
-          processName: null,
-          pid: null,
-          terminal: null,
-        },
-        "not a url",
-      ),
+      resolveEnvironmentHostPresentation({
+        host: "localhost",
+        port: 3000,
+        url: "http://localhost:3000",
+        processName: null,
+        pid: null,
+        terminal: null,
+      }),
     ).toEqual({ label: "localhost:3000", detail: "Local port 3000" });
   });
 });
