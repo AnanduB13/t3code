@@ -6,7 +6,7 @@ import type {
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { FolderGit2Icon, LayersIcon, ListFilterIcon, LoaderIcon, SearchIcon } from "lucide-react";
-import type { ElementType } from "react";
+import type { ElementType, ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
@@ -30,6 +30,8 @@ export interface PullRequestFilterOption<Value extends string> {
    * uncoloured, which lets the item's selected state stay the thing the eye follows.
    */
   readonly Icon: ElementType<{ className?: string }>;
+  /** A project-specific favicon or other icon instance when a static component is insufficient. */
+  readonly icon?: ReactNode;
   /** Why it cannot be chosen, carried onto the item as its title. */
   readonly unavailable?: string | undefined;
 }
@@ -131,7 +133,7 @@ function PullRequestFilterRadioGroup<Value extends string>({
           title={option.unavailable}
         >
           <span className="flex min-w-0 items-center gap-2">
-            <option.Icon aria-hidden className="size-3.5" />
+            {option.icon ?? <option.Icon aria-hidden className="size-3.5" />}
             {option.label}
           </span>
         </MenuRadioItem>

@@ -53,6 +53,7 @@ import {
 import { PullRequestListEmptyState } from "../components/pullRequest/PullRequestListEmptyState";
 import { PullRequestListGhost } from "../components/pullRequest/PullRequestGhosts";
 import { PullRequestRow } from "../components/pullRequest/PullRequestRow";
+import { ProjectFavicon } from "../components/ProjectFavicon";
 import { PullRequestsUnavailableState } from "../components/pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatus } from "../components/RightPanelTabs";
 import {
@@ -82,6 +83,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { cn } from "~/lib/utils";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
+import { excludeGeneralChatsProject } from "~/generalChats";
 
 export interface PullRequestsSearch {
   readonly involvement: PullRequestInvolvement;
@@ -176,7 +178,10 @@ function PullRequestsRouteView() {
   // The page reads one environment, so a project from another one could neither be listed
   // nor acted on: scoping here keeps the filter and the selection honest.
   const projects = useMemo(
-    () => allProjects.filter((project) => project.environmentId === environmentId),
+    () =>
+      excludeGeneralChatsProject(
+        allProjects.filter((project) => project.environmentId === environmentId),
+      ),
     [allProjects, environmentId],
   );
   const scopedProjects = useMemo(
@@ -1065,6 +1070,18 @@ function PullRequestsRouteView() {
       value: project.id,
       label: project.title,
       Icon: FolderGit2Icon,
+      ...(environmentId === null
+        ? {}
+        : {
+            icon: (
+              <ProjectFavicon
+                environmentId={environmentId}
+                cwd={project.workspaceRoot}
+                fallbackIcon={FolderGit2Icon}
+                className="size-3.5 shrink-0"
+              />
+            ),
+          }),
       ...(unavailableProjects.has(project.id)
         ? { unavailable: unavailableProjects.get(project.id) ?? "This project could not be read." }
         : {}),
@@ -1247,7 +1264,7 @@ function CompactFilterMenu<Value extends string>({
               title={option.unavailable}
             >
               <span className="flex min-w-0 items-center gap-2">
-                <option.Icon aria-hidden className="size-3.5" />
+                {option.icon ?? <option.Icon aria-hidden className="size-3.5" />}
                 {option.label}
               </span>
             </MenuRadioItem>
