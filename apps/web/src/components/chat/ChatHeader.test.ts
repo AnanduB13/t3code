@@ -1,7 +1,22 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveRenameCommit, shouldShowOpenInPicker } from "./ChatHeader";
+import {
+  resolveRenameCommit,
+  shouldShowOpenInPicker,
+  shouldShowProjectHeaderActions,
+} from "./ChatHeader";
+import { GENERAL_CHATS_PROJECT_ID } from "../../generalChats";
+
+describe("shouldShowProjectHeaderActions", () => {
+  it("hides project controls for standalone chats", () => {
+    expect(shouldShowProjectHeaderActions(GENERAL_CHATS_PROJECT_ID)).toBe(false);
+  });
+
+  it("shows project controls for regular projects", () => {
+    expect(shouldShowProjectHeaderActions(ProjectId.make("project-1"))).toBe(true);
+  });
+});
 
 describe("shouldShowOpenInPicker", () => {
   const primaryEnvironmentId = EnvironmentId.make("environment-primary");

@@ -43,7 +43,6 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
-import { cn } from "~/lib/utils";
 
 export function shouldShowProjectHeaderActions(projectId: ProjectId | undefined): boolean {
   return projectId === undefined || projectId !== GENERAL_CHATS_PROJECT_ID;
@@ -58,6 +57,7 @@ interface ChatHeaderProps {
   isServerThread: boolean;
   /** PR state feeding the settled classification, resolved by ChatView. */
   changeRequestState: ChangeRequestStateLike | null;
+  activeProjectId: ProjectId | undefined;
   activeProjectName: string | undefined;
   activeProjectCwd: string | null;
   activeProjectFaviconPath: string | null;
@@ -111,6 +111,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   isServerThread,
   changeRequestState,
+  activeProjectId,
   activeProjectName,
   activeProjectCwd,
   activeProjectFaviconPath,
@@ -137,6 +138,7 @@ export const ChatHeader = memo(function ChatHeader({
     activeThreadEnvironmentId,
     primaryEnvironmentId,
   });
+  const showProjectHeaderActions = shouldShowProjectHeaderActions(activeProjectId);
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
@@ -308,7 +310,7 @@ export const ChatHeader = memo(function ChatHeader({
         data-chat-header-actions
         className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3"
       >
-        {activeProjectScripts && (
+        {showProjectHeaderActions && activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
             fileScripts={fileScripts}
@@ -320,7 +322,7 @@ export const ChatHeader = memo(function ChatHeader({
             onDeleteScript={onDeleteProjectScript}
           />
         )}
-        {showOpenInPicker && (
+        {showProjectHeaderActions && showOpenInPicker && (
           <OpenInPicker
             environmentId={activeThreadEnvironmentId}
             keybindings={keybindings}
@@ -328,7 +330,7 @@ export const ChatHeader = memo(function ChatHeader({
             openInCwd={openInCwd}
           />
         )}
-        {activeProjectName && (
+        {showProjectHeaderActions && activeProjectName && (
           <GitActionsControl
             gitCwd={gitCwd}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
