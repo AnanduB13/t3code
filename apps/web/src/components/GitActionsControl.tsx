@@ -1849,6 +1849,7 @@ export default function GitActionsControl({
         </Group>
       )}
       <EnvironmentSummaryWidget
+        threadRef={activeThreadRef}
         status={gitStatusForActions}
         workspaceLabel={activeWorktreePath ? "Worktree" : "Local checkout"}
         workspaceDetail={workspaceDetail}
