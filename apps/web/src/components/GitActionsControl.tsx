@@ -90,7 +90,7 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { openPullRequestLink } from "~/lib/openPullRequestLink";
-import { EnvironmentSummaryPopover } from "~/components/chat/EnvironmentSummaryPopover";
+import { EnvironmentSummaryWidget } from "~/components/chat/EnvironmentSummaryPopover";
 import { useDiffPanelStore } from "~/diffPanelStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
@@ -1835,7 +1835,7 @@ export default function GitActionsControl({
           </Menu>
         </Group>
       )}
-      <EnvironmentSummaryPopover
+      <EnvironmentSummaryWidget
         status={gitStatusForActions}
         workspaceLabel={activeWorktreePath ? "Worktree" : "Local checkout"}
         workspaceDetail={workspaceDetail}

@@ -14,9 +14,9 @@ import {
   RefreshCwIcon,
 } from "lucide-react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "../ui/button";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { cn } from "~/lib/utils";
 
 export function resolveEnvironmentSyncLabel(
@@ -95,7 +95,7 @@ function SummaryRow({
   );
 }
 
-export function EnvironmentSummaryPopover({
+export function EnvironmentSummaryWidget({
   status,
   workspaceLabel,
   workspaceDetail,
@@ -132,30 +132,24 @@ export function EnvironmentSummaryPopover({
         ? ArrowUpIcon
         : CheckIcon;
 
-  const runAndClose = (action: () => void) => {
-    setOpen(false);
-    action();
-  };
-
   return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (nextOpen) onRefresh();
-      }}
-    >
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            aria-label="Environment details"
-            title="Environment details"
-            className="relative shrink-0"
-          />
-        }
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-xs"
+        aria-label={open ? "Hide environment details" : "Show environment details"}
+        title={open ? "Hide environment details" : "Show environment details"}
+        aria-controls="environment-summary-widget"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen((current) => {
+            const next = !current;
+            if (next) onRefresh();
+            return next;
+          });
+        }}
+        className={cn("relative shrink-0", open && "bg-accent text-accent-foreground")}
       >
         <ListTreeIcon className="size-3.5" />
         {hasChanges ? (
@@ -164,102 +158,105 @@ export function EnvironmentSummaryPopover({
             className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-warning ring-2 ring-background"
           />
         ) : null}
-      </PopoverTrigger>
-      <PopoverPopup
-        side="bottom"
-        align="end"
-        sideOffset={7}
-        className="w-[min(21rem,calc(100vw-1rem))]"
-        viewportClassName="p-2"
-      >
-        <div className="flex items-center justify-between px-2.5 pt-1 pb-1.5">
-          <div>
-            <p className="text-sm font-medium text-foreground">Environment</p>
-            <p className="text-[11px] text-muted-foreground">Workspace and source control</p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Refresh environment status"
-            title="Refresh environment status"
-            aria-busy={refreshing}
-            onClick={onRefresh}
-          >
-            <RefreshCwIcon className={cn("size-3.5", refreshing && "opacity-50")} />
-          </Button>
-        </div>
+      </Button>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <aside
+              id="environment-summary-widget"
+              aria-label="Environment details"
+              className="dropdown-glass fixed top-14 right-4 z-40 max-h-[calc(100dvh-4.5rem)] w-[min(21rem,calc(100vw-1rem))] overflow-y-auto rounded-xl p-2 text-popover-foreground shadow-xl [-webkit-app-region:no-drag] max-sm:right-2"
+            >
+              <div className="flex items-center justify-between px-2.5 pt-1 pb-1.5">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Environment</p>
+                  <p className="text-[11px] text-muted-foreground">Workspace and source control</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Refresh environment status"
+                  title="Refresh environment status"
+                  aria-busy={refreshing}
+                  onClick={onRefresh}
+                >
+                  <RefreshCwIcon className={cn("size-3.5", refreshing && "opacity-50")} />
+                </Button>
+              </div>
 
-        <div className="space-y-0.5">
-          <SummaryRow
-            icon={FileDiffIcon}
-            label="Changes"
-            detail={changesDetail}
-            trailing={
-              status === null ? (
-                "—"
-              ) : hasChanges ? (
-                <span className="flex items-center gap-1 font-medium tabular-nums">
-                  <span className="text-success">+{insertions}</span>
-                  <span className="text-destructive">-{deletions}</span>
-                </span>
-              ) : (
-                "Clean"
-              )
-            }
-            onClick={() => runAndClose(onOpenChanges)}
-          />
-          <SummaryRow icon={WorkspaceIcon} label={workspaceLabel} detail={workspaceDetail} />
-          <SummaryRow
-            icon={GitBranchIcon}
-            label={status === null ? "Checking status" : (status.refName ?? "No branch")}
-            detail="Current branch"
-            trailing={syncLabel}
-          />
-          <SummaryRow
-            icon={GitCommitIcon}
-            label={quickActionLabel}
-            detail="Recommended next action"
-            disabled={quickActionDisabled}
-            onClick={() => runAndClose(onRunQuickAction)}
-          />
-          {openPullRequest ? (
-            <SummaryRow
-              icon={GitPullRequestIcon}
-              label={`#${openPullRequest.number} ${openPullRequest.title}`}
-              detail={`${openPullRequest.headRef} → ${openPullRequest.baseRef}`}
-              trailing="Open"
-              onClick={() => runAndClose(onOpenPullRequest)}
-            />
-          ) : null}
-        </div>
+              <div className="space-y-0.5">
+                <SummaryRow
+                  icon={FileDiffIcon}
+                  label="Changes"
+                  detail={changesDetail}
+                  trailing={
+                    status === null ? (
+                      "—"
+                    ) : hasChanges ? (
+                      <span className="flex items-center gap-1 font-medium tabular-nums">
+                        <span className="text-success">+{insertions}</span>
+                        <span className="text-destructive">-{deletions}</span>
+                      </span>
+                    ) : (
+                      "Clean"
+                    )
+                  }
+                  onClick={onOpenChanges}
+                />
+                <SummaryRow icon={WorkspaceIcon} label={workspaceLabel} detail={workspaceDetail} />
+                <SummaryRow
+                  icon={GitBranchIcon}
+                  label={status === null ? "Checking status" : (status.refName ?? "No branch")}
+                  detail="Current branch"
+                  trailing={syncLabel}
+                />
+                <SummaryRow
+                  icon={GitCommitIcon}
+                  label={quickActionLabel}
+                  detail="Recommended next action"
+                  disabled={quickActionDisabled}
+                  onClick={onRunQuickAction}
+                />
+                {openPullRequest ? (
+                  <SummaryRow
+                    icon={GitPullRequestIcon}
+                    label={`#${openPullRequest.number} ${openPullRequest.title}`}
+                    detail={`${openPullRequest.headRef} → ${openPullRequest.baseRef}`}
+                    trailing="Open"
+                    onClick={onOpenPullRequest}
+                  />
+                ) : null}
+              </div>
 
-        <div className="mx-2.5 my-1.5 h-px bg-border/70" />
-        <div className="px-2.5 pt-1 pb-1.5">
-          <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Repository</p>
-          <div className="flex items-center gap-2 text-xs">
-            <ProviderIcon className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-foreground">{providerName}</span>
-            <span className="shrink-0 text-muted-foreground">
-              {status === null
-                ? "Status unavailable"
-                : status.hasPrimaryRemote
-                  ? "Remote connected"
-                  : "Local only"}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-            {syncIcon === ArrowDownIcon ? (
-              <ArrowDownIcon className="size-3" />
-            ) : syncIcon === ArrowUpIcon ? (
-              <ArrowUpIcon className="size-3" />
-            ) : (
-              <CheckIcon className="size-3" />
-            )}
-            <span>{syncLabel}</span>
-          </div>
-        </div>
-      </PopoverPopup>
-    </Popover>
+              <div className="mx-2.5 my-1.5 h-px bg-border/70" />
+              <div className="px-2.5 pt-1 pb-1.5">
+                <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Repository</p>
+                <div className="flex items-center gap-2 text-xs">
+                  <ProviderIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-foreground">{providerName}</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {status === null
+                      ? "Status unavailable"
+                      : status.hasPrimaryRemote
+                        ? "Remote connected"
+                        : "Local only"}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  {syncIcon === ArrowDownIcon ? (
+                    <ArrowDownIcon className="size-3" />
+                  ) : syncIcon === ArrowUpIcon ? (
+                    <ArrowUpIcon className="size-3" />
+                  ) : (
+                    <CheckIcon className="size-3" />
+                  )}
+                  <span>{syncLabel}</span>
+                </div>
+              </div>
+            </aside>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
