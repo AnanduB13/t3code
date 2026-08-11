@@ -18,9 +18,8 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "../ui/button";
-import { resolveDiscoveredServerUrl } from "~/browser/browserTargetResolver";
 import { cn } from "~/lib/utils";
-import { useDiscoveredPorts } from "~/portDiscoveryState";
+import { useThreadDiscoveredPorts } from "~/portDiscoveryState";
 
 export function resolveEnvironmentSyncLabel(
   status: Pick<VcsStatusResult, "hasUpstream" | "aheadCount" | "behindCount"> | null,
@@ -51,19 +50,12 @@ interface EnvironmentSummaryPopoverProps {
   onOpenPullRequest: () => void;
 }
 
-export function resolveEnvironmentHostPresentation(
-  server: DiscoveredLocalServer,
-  resolvedUrl: string,
-): { label: string; detail: string } {
-  let label = `${server.host}:${server.port}`;
-  try {
-    label = new URL(resolvedUrl).host;
-  } catch {
-    // Keep the scanner-provided host when a provider returns an invalid URL.
-  }
-
+export function resolveEnvironmentHostPresentation(server: DiscoveredLocalServer): {
+  label: string;
+  detail: string;
+} {
   return {
-    label,
+    label: `${server.host}:${server.port}`,
     detail: server.processName
       ? `${server.processName} · local port ${server.port}`
       : `Local port ${server.port}`,
@@ -289,7 +281,10 @@ export function EnvironmentSummaryWidget({
 }
 
 function RunningHosts({ threadRef }: { threadRef: ScopedThreadRef }) {
-  const servers = useDiscoveredPorts(threadRef.environmentId);
+  const servers = useThreadDiscoveredPorts({
+    environmentId: threadRef.environmentId,
+    threadId: threadRef.threadId,
+  });
 
   if (servers.length === 0) return null;
 
@@ -302,8 +297,7 @@ function RunningHosts({ threadRef }: { threadRef: ScopedThreadRef }) {
       </div>
       <div className="space-y-0.5">
         {servers.map((server) => {
-          const resolvedUrl = resolveDiscoveredServerUrl(threadRef.environmentId, server.url);
-          const presentation = resolveEnvironmentHostPresentation(server, resolvedUrl);
+          const presentation = resolveEnvironmentHostPresentation(server);
           return (
             <SummaryRow
               key={`${server.host}:${server.port}`}
