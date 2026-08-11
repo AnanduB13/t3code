@@ -1,4 +1,4 @@
-import type { VcsStatusResult } from "@t3tools/contracts";
+import type { DiscoveredLocalServer, ScopedThreadRef, VcsStatusResult } from "@t3tools/contracts";
 import type { ElementType } from "react";
 import {
   ArrowDownIcon,
@@ -11,13 +11,16 @@ import {
   GitPullRequestIcon,
   LaptopIcon,
   ListTreeIcon,
+  RadioTowerIcon,
   RefreshCwIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "../ui/button";
+import { resolveDiscoveredServerUrl } from "~/browser/browserTargetResolver";
 import { cn } from "~/lib/utils";
+import { useDiscoveredPorts } from "~/portDiscoveryState";
 
 export function resolveEnvironmentSyncLabel(
   status: Pick<VcsStatusResult, "hasUpstream" | "aheadCount" | "behindCount"> | null,
@@ -33,6 +36,7 @@ export function resolveEnvironmentSyncLabel(
 }
 
 interface EnvironmentSummaryPopoverProps {
+  threadRef: ScopedThreadRef | null;
   status: VcsStatusResult | null;
   workspaceLabel: string;
   workspaceDetail: string | null;
@@ -45,6 +49,25 @@ interface EnvironmentSummaryPopoverProps {
   onOpenChanges: () => void;
   onRunQuickAction: () => void;
   onOpenPullRequest: () => void;
+}
+
+export function resolveEnvironmentHostPresentation(
+  server: DiscoveredLocalServer,
+  resolvedUrl: string,
+): { label: string; detail: string } {
+  let label = `${server.host}:${server.port}`;
+  try {
+    label = new URL(resolvedUrl).host;
+  } catch {
+    // Keep the scanner-provided host when a provider returns an invalid URL.
+  }
+
+  return {
+    label,
+    detail: server.processName
+      ? `${server.processName} · local port ${server.port}`
+      : `Local port ${server.port}`,
+  };
 }
 
 function SummaryRow({
@@ -96,6 +119,7 @@ function SummaryRow({
 }
 
 export function EnvironmentSummaryWidget({
+  threadRef,
   status,
   workspaceLabel,
   workspaceDetail,
@@ -169,7 +193,9 @@ export function EnvironmentSummaryWidget({
               <div className="flex items-center justify-between px-2.5 pt-1 pb-1.5">
                 <div>
                   <p className="text-sm font-medium text-foreground">Environment</p>
-                  <p className="text-[11px] text-muted-foreground">Workspace and source control</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Workspace, hosts, and source control
+                  </p>
                 </div>
                 <Button
                   type="button"
@@ -228,6 +254,7 @@ export function EnvironmentSummaryWidget({
                 ) : null}
               </div>
 
+              {threadRef ? <RunningHosts threadRef={threadRef} /> : null}
               <div className="mx-2.5 my-1.5 h-px bg-border/70" />
               <div className="px-2.5 pt-1 pb-1.5">
                 <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Repository</p>
@@ -258,5 +285,41 @@ export function EnvironmentSummaryWidget({
           )
         : null}
     </>
+  );
+}
+
+function RunningHosts({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const servers = useDiscoveredPorts(threadRef.environmentId);
+
+  if (servers.length === 0) return null;
+
+  return (
+    <div className="px-2.5 pt-1 pb-1.5">
+      <div className="mx-0 mb-2 h-px bg-border/70" />
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-medium text-muted-foreground">Running hosts</p>
+        <span className="text-[10px] text-success">{servers.length} active</span>
+      </div>
+      <div className="space-y-0.5">
+        {servers.map((server) => {
+          const resolvedUrl = resolveDiscoveredServerUrl(threadRef.environmentId, server.url);
+          const presentation = resolveEnvironmentHostPresentation(server, resolvedUrl);
+          return (
+            <SummaryRow
+              key={`${server.host}:${server.port}`}
+              icon={RadioTowerIcon}
+              label={presentation.label}
+              detail={presentation.detail}
+              trailing={
+                <span className="inline-flex items-center gap-1.5 text-success">
+                  <span className="size-1.5 rounded-full bg-success" aria-hidden />
+                  Live
+                </span>
+              }
+            />
+          );
+        })}
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveEnvironmentSyncLabel } from "./EnvironmentSummaryPopover";
+import {
+  resolveEnvironmentHostPresentation,
+  resolveEnvironmentSyncLabel,
+} from "./EnvironmentSummaryPopover";
 
 describe("resolveEnvironmentSyncLabel", () => {
   it("describes synchronized branches", () => {
@@ -19,5 +22,42 @@ describe("resolveEnvironmentSyncLabel", () => {
     expect(resolveEnvironmentSyncLabel({ hasUpstream: false, aheadCount: 0, behindCount: 0 })).toBe(
       "No upstream",
     );
+  });
+});
+
+describe("resolveEnvironmentHostPresentation", () => {
+  it("shows the reachable network host while retaining local process context", () => {
+    expect(
+      resolveEnvironmentHostPresentation(
+        {
+          host: "localhost",
+          port: 5173,
+          url: "http://localhost:5173",
+          processName: "vite",
+          pid: 123,
+          terminal: null,
+        },
+        "http://k11.taild2a048.ts.net:5173/",
+      ),
+    ).toEqual({
+      label: "k11.taild2a048.ts.net:5173",
+      detail: "vite · local port 5173",
+    });
+  });
+
+  it("falls back to the scanner host for an invalid resolved URL", () => {
+    expect(
+      resolveEnvironmentHostPresentation(
+        {
+          host: "localhost",
+          port: 3000,
+          url: "http://localhost:3000",
+          processName: null,
+          pid: null,
+          terminal: null,
+        },
+        "not a url",
+      ),
+    ).toEqual({ label: "localhost:3000", detail: "Local port 3000" });
   });
 });
