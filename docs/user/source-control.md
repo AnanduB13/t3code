@@ -32,6 +32,7 @@ T3 Code works with the platforms your team already uses:
 **Create pull requests while you work**
 
 - Push a branch and create a pull request from the Git actions controls in the toolbar
+- Open **Environment details** in the thread toolbar to review changed lines, the active checkout and branch, upstream sync, pull request status, and the recommended next Git action
 - T3 Code can suggest titles and descriptions based on your commits
 - Supports GitHub Pull Requests, GitLab Merge Requests, Bitbucket Pull Requests, and Azure DevOps Pull Requests
 

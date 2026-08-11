@@ -90,6 +90,9 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { openPullRequestLink } from "~/lib/openPullRequestLink";
+import { EnvironmentSummaryPopover } from "~/components/chat/EnvironmentSummaryPopover";
+import { useDiffPanelStore } from "~/diffPanelStore";
+import { useRightPanelStore } from "~/rightPanelStore";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -1652,33 +1655,65 @@ export default function GitActionsControl({
 
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
 
+  const openChanges = useCallback(() => {
+    if (!activeThreadRef) return;
+    useDiffPanelStore
+      .getState()
+      .selectGitScope(
+        activeThreadRef,
+        gitStatusForActions?.hasWorkingTreeChanges ? "unstaged" : "branch",
+      );
+    useRightPanelStore.getState().open(activeThreadRef, "diff");
+  }, [activeThreadRef, gitStatusForActions?.hasWorkingTreeChanges]);
+
+  const activeWorktreePath = activeServerThread?.worktreePath ?? activeDraftThread?.worktreePath;
+  const workspaceDetail = activeWorktreePath
+    ? (activeWorktreePath
+        .replace(/[\\/]+$/, "")
+        .split(/[\\/]/)
+        .at(-1) ?? activeWorktreePath)
+    : gitCwd;
+
+  const initializeGit = useCallback(() => {
+    void (async () => {
+      const result = await initAction.run();
+      if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+        return;
+      }
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Git initialization failed",
+          description: error instanceof Error ? error.message : "An error occurred.",
+          ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+        }),
+      );
+    })();
+  }, [initAction, threadToastData]);
+
   if (!gitCwd) return null;
 
   return (
     <>
+      <EnvironmentSummaryPopover
+        status={gitStatusForActions}
+        workspaceLabel={activeWorktreePath ? "Worktree" : "Local checkout"}
+        workspaceDetail={workspaceDetail}
+        providerName={sourceControlPresentation.providerName}
+        ProviderIcon={SourceControlIcon}
+        quickActionLabel={isRepo ? quickAction.label : "Initialize Git"}
+        quickActionDisabled={
+          isRepo ? isGitActionRunning || quickAction.disabled : initAction.isPending
+        }
+        refreshing={gitStatusQuery.isPending}
+        onRefresh={() => requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd)}
+        onOpenChanges={openChanges}
+        onRunQuickAction={isRepo ? runQuickAction : initializeGit}
+        onOpenPullRequest={() => void openExistingPr()}
+      />
       {!isRepo ? (
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={initAction.isPending}
-          onClick={() => {
-            void (async () => {
-              const result = await initAction.run();
-              if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
-                return;
-              }
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Git initialization failed",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                  ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-                }),
-              );
-            })();
-          }}
-        >
+        <Button variant="outline" size="xs" disabled={initAction.isPending} onClick={initializeGit}>
           <GitBranchPlusIcon className="size-3.5" aria-hidden />
           <span className="ml-0.5">
             {initAction.isPending ? "Initializing..." : "Initialize Git"}
