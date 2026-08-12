@@ -17,7 +17,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -33,6 +33,8 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 
 import FileBrowserPanel from "~/components/files/FileBrowserPanel";
 import { FinderCodeEditor } from "./FinderCodeEditor";
+import { FinderSpreadsheetEditor } from "./FinderSpreadsheetEditor";
+import { clearFinderRevealRequest, readFinderRevealRequest } from "./finderNavigation";
 
 type FinderView = "list" | "grid";
 
@@ -90,6 +92,20 @@ function relativePath(root: string, fullPath: string): string | null {
   return fullPath.slice(normalizedRoot.length + 1).replaceAll("\\", "/");
 }
 
+function containingProjectRoot(
+  projects: ReturnType<typeof useProjects>,
+  environmentId: EnvironmentId | null,
+  fullPath: string,
+) {
+  return projects
+    .toSorted((left, right) => right.workspaceRoot.length - left.workspaceRoot.length)
+    .find(
+      (project) =>
+        project.environmentId === environmentId &&
+        relativePath(project.workspaceRoot, fullPath) !== null,
+    )?.workspaceRoot;
+}
+
 function FinderEntryIcon({
   entry,
   className,
@@ -106,6 +122,8 @@ function FinderEntryIcon({
 
 export function FinderWorkspacePage() {
   const projects = useProjects();
+  const revealRequest = useMemo(readFinderRevealRequest, []);
+  const revealHandled = useRef(false);
   const { environments } = useEnvironments();
   const [persistedFinder, setPersistedFinder] = useLocalStorage(
     FINDER_PERSISTENCE_KEY,
@@ -141,6 +159,31 @@ export function FinderWorkspacePage() {
   const [view, setView] = useState<FinderView>(initialLocation?.view ?? "list");
   const [filter, setFilter] = useState("");
   const dirty = openFilePath !== null && contents !== savedContents;
+
+  useEffect(() => {
+    if (!revealRequest || revealHandled.current) return;
+    revealHandled.current = true;
+    const containingDirectory = parentPath(revealRequest.fullPath);
+    const projectRoot = containingProjectRoot(
+      projects,
+      revealRequest.environmentId,
+      revealRequest.fullPath,
+    );
+    setEnvironmentId(revealRequest.environmentId);
+    setRootPath(projectRoot ?? containingDirectory);
+    setEditorRootPath(projectRoot ?? containingDirectory);
+    setCurrentDirectory(containingDirectory);
+    setHistory([]);
+    setSelectedEntry({
+      name: revealRequest.fullPath.split(/[\\/]/).at(-1) ?? revealRequest.fullPath,
+      fullPath: revealRequest.fullPath,
+      kind: "file",
+    });
+    setOpenFilePath(revealRequest.fullPath);
+    setContents("");
+    setSavedContents("");
+    clearFinderRevealRequest(revealRequest.requestId);
+  }, [projects, revealRequest]);
 
   useEffect(() => {
     if (
@@ -250,13 +293,7 @@ export function FinderWorkspacePage() {
       return;
     }
     if (!guardDirty()) return;
-    const projectRoot = projects
-      .toSorted((left, right) => right.workspaceRoot.length - left.workspaceRoot.length)
-      .find(
-        (project) =>
-          project.environmentId === environmentId &&
-          relativePath(project.workspaceRoot, entry.fullPath) !== null,
-      )?.workspaceRoot;
+    const projectRoot = containingProjectRoot(projects, environmentId, entry.fullPath);
     setSelectedEntry(entry);
     setEditorRootPath(projectRoot ?? currentDirectory);
     setOpenFilePath(entry.fullPath);
@@ -409,6 +446,11 @@ export function FinderWorkspacePage() {
       .at(-1) ??
     "Files";
   const canGoUp = Boolean(rootPath && currentDirectory !== rootPath);
+  const spreadsheetDelimiter = openFilePath?.toLowerCase().endsWith(".csv")
+    ? ","
+    : openFilePath?.toLowerCase().endsWith(".tsv")
+      ? "\t"
+      : null;
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col bg-background" data-finder-workspace="">
@@ -598,12 +640,21 @@ export function FinderWorkspacePage() {
               <p className="max-w-md text-xs leading-5 text-muted-foreground">{file.error}</p>
             </div>
           ) : openFilePath ? (
-            <FinderCodeEditor
-              fileName={openRelativePath ?? selectedEntry?.name ?? "file"}
-              contents={contents}
-              readOnly={Boolean(file.data?.truncated)}
-              onChange={setContents}
-            />
+            spreadsheetDelimiter ? (
+              <FinderSpreadsheetEditor
+                contents={contents}
+                delimiter={spreadsheetDelimiter}
+                readOnly={Boolean(file.data?.truncated)}
+                onChange={setContents}
+              />
+            ) : (
+              <FinderCodeEditor
+                fileName={openRelativePath ?? selectedEntry?.name ?? "file"}
+                contents={contents}
+                readOnly={Boolean(file.data?.truncated)}
+                onChange={setContents}
+              />
+            )
           ) : (
             <div
               className={

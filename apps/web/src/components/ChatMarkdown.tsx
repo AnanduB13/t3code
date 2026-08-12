@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -94,6 +95,7 @@ import {
   openUrlInPreview,
   BrowserPreviewUnavailableError,
 } from "../browser/openFileInPreview";
+import { requestFinderReveal } from "./finder/finderNavigation";
 
 interface ChatMarkdownProps {
   text: string;
@@ -1091,6 +1093,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   onOpenInBrowser,
   className,
 }: MarkdownFileLinkProps) {
+  const navigate = useNavigate();
   const handleOpenInEditor = useCallback(() => {
     void (async () => {
       try {
@@ -1133,6 +1136,12 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
     }
     useRightPanelStore.getState().openFile(threadRef, workspaceRelativePath, line);
   }, [handleOpenInEditor, line, threadRef, workspaceRelativePath]);
+
+  const handleShowInFinder = useCallback(() => {
+    if (!threadRef) return;
+    requestFinderReveal({ environmentId: threadRef.environmentId, fullPath: targetPath });
+    void navigate({ to: "/finder" });
+  }, [navigate, targetPath, threadRef]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!onOpenInBrowser) {
@@ -1223,6 +1232,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         const clicked = await api.contextMenu.show(
           [
             { id: "open", label: "Open in editor" },
+            ...(threadRef ? ([{ id: "show-in-finder", label: "Show in Finder" }] as const) : []),
             ...(onOpenInBrowser
               ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
               : []),
@@ -1240,6 +1250,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           handleOpenInBrowser();
           return;
         }
+        if (clicked === "show-in-finder") {
+          handleShowInFinder();
+          return;
+        }
         if (clicked === "copy-relative") {
           handleCopy(displayPath, "Relative path");
           return;
@@ -1254,7 +1268,16 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         );
       }
     },
-    [displayPath, handleCopy, handleOpenInBrowser, handleOpenInEditor, onOpenInBrowser, targetPath],
+    [
+      displayPath,
+      handleCopy,
+      handleOpenInBrowser,
+      handleOpenInEditor,
+      handleShowInFinder,
+      onOpenInBrowser,
+      targetPath,
+      threadRef,
+    ],
   );
 
   return (
