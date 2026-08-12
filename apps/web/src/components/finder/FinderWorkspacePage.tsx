@@ -504,6 +504,7 @@ export function FinderWorkspacePage() {
               projectName={editorProjectName}
               selectedPath={openRelativePath}
               selectedPathRevealId={0}
+              initialExpansion={0}
               onOpenFile={(path) => {
                 if (!guardDirty()) return;
                 const fullPath = joinPath(activeFileRoot, path);
