@@ -31,6 +31,7 @@ interface FileBrowserPanelProps {
   /** Bumped when the same path should be revealed again (e.g. re-opened from search). */
   selectedPathRevealId: number;
   onOpenFile: (relativePath: string) => void;
+  onSelectEntry?: (relativePath: string, kind: ProjectEntry["kind"]) => void;
 }
 
 const TREE_UNSAFE_CSS = `
@@ -105,6 +106,7 @@ export default function FileBrowserPanel({
   selectedPath,
   selectedPathRevealId,
   onOpenFile,
+  onSelectEntry,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
@@ -237,7 +239,9 @@ export default function FileBrowserPanel({
         return;
       }
       const selectedPath = selectedPaths.at(-1)?.replace(/\/$/, "");
-      if (selectedPath && entryKindsRef.current.get(selectedPath) === "file") {
+      const selectedKind = selectedPath ? entryKindsRef.current.get(selectedPath) : undefined;
+      if (selectedPath && selectedKind) onSelectEntry?.(selectedPath, selectedKind);
+      if (selectedPath && selectedKind === "file") {
         treeSelectionPathRef.current = selectedPath;
         onOpenFile(selectedPath);
       }

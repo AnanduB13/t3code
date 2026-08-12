@@ -265,4 +265,62 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
   });
+
+  describe("entry mutations", () => {
+    it.effect("creates, moves, and deletes files while refreshing the index", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const cwd = yield* makeTempDir;
+
+        expect(
+          yield* workspaceFileSystem.createEntry({ cwd, relativePath: "notes.txt", kind: "file" }),
+        ).toEqual({ relativePath: "notes.txt" });
+        expect((yield* workspaceEntries.list({ cwd })).entries).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path: "notes.txt", kind: "file" })]),
+        );
+
+        expect(
+          yield* workspaceFileSystem.moveEntry({
+            cwd,
+            relativePath: "notes.txt",
+            destinationPath: "renamed.txt",
+          }),
+        ).toEqual({ relativePath: "renamed.txt" });
+        expect(
+          (yield* workspaceEntries.list({ cwd })).entries.some(
+            (entry) => entry.path === "notes.txt",
+          ),
+        ).toBe(false);
+
+        yield* workspaceFileSystem.deleteEntry({
+          cwd,
+          relativePath: "renamed.txt",
+          recursive: false,
+        });
+        expect(
+          (yield* workspaceEntries.list({ cwd })).entries.some(
+            (entry) => entry.path === "renamed.txt",
+          ),
+        ).toBe(false);
+      }),
+    );
+
+    it.effect("never allows a mutation to target the workspace root or its parent", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+
+        const rootError = yield* workspaceFileSystem
+          .deleteEntry({ cwd, relativePath: ".", recursive: true })
+          .pipe(Effect.flip);
+        const escapeError = yield* workspaceFileSystem
+          .createEntry({ cwd, relativePath: "../outside", kind: "directory" })
+          .pipe(Effect.flip);
+
+        expect(rootError._tag).toBe("WorkspacePathOutsideRootError");
+        expect(escapeError._tag).toBe("WorkspacePathOutsideRootError");
+      }),
+    );
+  });
 });

@@ -222,6 +222,8 @@ export const ProjectFileOperation = Schema.Literals([
   "read",
   "close",
   "make-directory",
+  "remove-entry",
+  "rename-entry",
   "write-file",
 ]);
 export type ProjectFileOperation = typeof ProjectFileOperation.Type;
@@ -295,6 +297,59 @@ export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteF
       message:
         decodedProjectErrorMessage(props) ??
         `Failed to write workspace file '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export const ProjectCreateEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  kind: ProjectEntryKind,
+});
+export type ProjectCreateEntryInput = typeof ProjectCreateEntryInput.Type;
+
+export const ProjectMoveEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  destinationPath: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH),
+  ),
+});
+export type ProjectMoveEntryInput = typeof ProjectMoveEntryInput.Type;
+
+export const ProjectDeleteEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  recursive: Schema.Boolean,
+});
+export type ProjectDeleteEntryInput = typeof ProjectDeleteEntryInput.Type;
+
+export const ProjectMutateEntryResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectMutateEntryResult = typeof ProjectMutateEntryResult.Type;
+
+export class ProjectMutateEntryError extends Schema.TaggedErrorClass<ProjectMutateEntryError>()(
+  "ProjectMutateEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to update workspace entry '${props.relativePath}' in '${props.cwd}'.`,
     } as any);
   }
 }

@@ -104,9 +104,14 @@ import {
   RelayClientStatusSchema,
 } from "./relayClient.ts";
 import {
+  ProjectCreateEntryInput,
+  ProjectDeleteEntryInput,
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectMoveEntryInput,
+  ProjectMutateEntryError,
+  ProjectMutateEntryResult,
   ProjectReadFileError,
   ProjectReadFileInput,
   ProjectReadFileResult,
@@ -230,6 +235,9 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsCreateEntry: "projects.createEntry",
+  projectsMoveEntry: "projects.moveEntry",
+  projectsDeleteEntry: "projects.deleteEntry",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -742,6 +750,24 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+export const WsProjectsCreateEntryRpc = Rpc.make(WS_METHODS.projectsCreateEntry, {
+  payload: ProjectCreateEntryInput,
+  success: ProjectMutateEntryResult,
+  error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
+});
+
+export const WsProjectsMoveEntryRpc = Rpc.make(WS_METHODS.projectsMoveEntry, {
+  payload: ProjectMoveEntryInput,
+  success: ProjectMutateEntryResult,
+  error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
+});
+
+export const WsProjectsDeleteEntryRpc = Rpc.make(WS_METHODS.projectsDeleteEntry, {
+  payload: ProjectDeleteEntryInput,
+  success: ProjectMutateEntryResult,
+  error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
+});
+
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -1145,6 +1171,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsCreateEntryRpc,
+  WsProjectsMoveEntryRpc,
+  WsProjectsDeleteEntryRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAssetsCreateUrlRpc,

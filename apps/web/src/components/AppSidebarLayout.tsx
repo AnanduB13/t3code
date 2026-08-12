@@ -19,6 +19,7 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarChromeFooter } from "./sidebar/SidebarChrome";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
 import {
@@ -30,6 +31,7 @@ import {
 } from "./threadSidebarWidth";
 import {
   Sidebar,
+  SidebarContent,
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
@@ -127,6 +129,31 @@ function ProjectProjectionRetention() {
   return null;
 }
 
+function FinderSidebar() {
+  const projects = useProjects();
+  return (
+    <>
+      <SidebarChromeHeader isElectron={isElectron} />
+      <SidebarContent className="gap-1 px-2 py-3">
+        <p className="px-2 pb-1 text-xs font-medium text-muted-foreground">Project workspaces</p>
+        {projects.map((project) => (
+          <div
+            key={`${project.environmentId}:${project.id}`}
+            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+          >
+            <span className="size-2 rounded-sm bg-primary/60" />
+            <span className="truncate">{project.title}</span>
+          </div>
+        ))}
+        <p className="px-2 pt-3 text-xs leading-5 text-muted-foreground">
+          Choose the active project in Finder to browse files on its environment.
+        </p>
+      </SidebarContent>
+      <SidebarChromeFooter />
+    </>
+  );
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
@@ -134,6 +161,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // sidebar is active.
   const pathname = useLocation({ select: (location) => location.pathname });
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+  const isOnFinder = pathname === "/finder";
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -214,6 +242,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             <SidebarChromeHeader isElectron={isElectron} />
             <SettingsSidebarNav pathname={pathname} />
           </>
+        ) : isOnFinder ? (
+          <FinderSidebar />
         ) : legacySidebarEnabled ? (
           <LegacyThreadSidebar />
         ) : (

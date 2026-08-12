@@ -102,5 +102,20 @@ export function createProjectEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.cwd, input.relativePath]),
       },
     }),
+    createEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:create-entry",
+      tag: WS_METHODS.projectsCreateEntry,
+      scheduler: fileScheduler,
+    }),
+    moveEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:move-entry",
+      tag: WS_METHODS.projectsMoveEntry,
+      scheduler: fileScheduler,
+    }),
+    deleteEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:delete-entry",
+      tag: WS_METHODS.projectsDeleteEntry,
+      scheduler: fileScheduler,
+    }),
   };
 }

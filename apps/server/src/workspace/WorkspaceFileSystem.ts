@@ -10,6 +10,10 @@
 import * as NodeFSP from "node:fs/promises";
 
 import type {
+  ProjectCreateEntryInput,
+  ProjectDeleteEntryInput,
+  ProjectMoveEntryInput,
+  ProjectMutateEntryResult,
   ProjectReadFileInput,
   ProjectReadFileResult,
   ProjectWriteFileInput,
@@ -42,6 +46,8 @@ export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<W
       "read",
       "close",
       "make-directory",
+      "remove-entry",
+      "rename-entry",
       "write-file",
     ]),
     cause: Schema.Defect(),
@@ -121,6 +127,24 @@ export class WorkspaceFileSystem extends Context.Service<
       input: ProjectWriteFileInput,
     ) => Effect.Effect<
       ProjectWriteFileResult,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
+    readonly createEntry: (
+      input: ProjectCreateEntryInput,
+    ) => Effect.Effect<
+      ProjectMutateEntryResult,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
+    readonly moveEntry: (
+      input: ProjectMoveEntryInput,
+    ) => Effect.Effect<
+      ProjectMutateEntryResult,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
+    readonly deleteEntry: (
+      input: ProjectDeleteEntryInput,
+    ) => Effect.Effect<
+      ProjectMutateEntryResult,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
   }
@@ -297,7 +321,84 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
-  return WorkspaceFileSystem.of({ readFile, writeFile });
+  const mutationError = (
+    input: { readonly cwd: string; readonly relativePath: string },
+    resolvedPath: string,
+    operation: WorkspaceFileSystemOperationError["operation"],
+    operationPath: string,
+    cause: unknown,
+  ) =>
+    new WorkspaceFileSystemOperationError({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+      resolvedPath,
+      operationPath,
+      operation,
+      cause,
+    });
+
+  const createEntry: WorkspaceFileSystem["Service"]["createEntry"] = Effect.fn(
+    "WorkspaceFileSystem.createEntry",
+  )(function* (input) {
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    yield* Effect.tryPromise({
+      try: () =>
+        input.kind === "directory"
+          ? NodeFSP.mkdir(target.absolutePath)
+          : NodeFSP.open(target.absolutePath, "wx").then((handle) => handle.close()),
+      catch: (cause) =>
+        mutationError(
+          input,
+          target.absolutePath,
+          input.kind === "directory" ? "make-directory" : "write-file",
+          target.absolutePath,
+          cause,
+        ),
+    });
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath: target.relativePath };
+  });
+
+  const moveEntry: WorkspaceFileSystem["Service"]["moveEntry"] = Effect.fn(
+    "WorkspaceFileSystem.moveEntry",
+  )(function* (input) {
+    const source = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    const destination = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.destinationPath,
+    });
+    yield* Effect.tryPromise({
+      try: () => NodeFSP.rename(source.absolutePath, destination.absolutePath),
+      catch: (cause) =>
+        mutationError(input, source.absolutePath, "rename-entry", destination.absolutePath, cause),
+    });
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath: destination.relativePath };
+  });
+
+  const deleteEntry: WorkspaceFileSystem["Service"]["deleteEntry"] = Effect.fn(
+    "WorkspaceFileSystem.deleteEntry",
+  )(function* (input) {
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    yield* Effect.tryPromise({
+      try: () => NodeFSP.rm(target.absolutePath, { recursive: input.recursive }),
+      catch: (cause) =>
+        mutationError(input, target.absolutePath, "remove-entry", target.absolutePath, cause),
+    });
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath: target.relativePath };
+  });
+
+  return WorkspaceFileSystem.of({ createEntry, deleteEntry, moveEntry, readFile, writeFile });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

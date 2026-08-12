@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PairRouteImport } from './routes/pair'
+import { Route as FinderRouteImport } from './routes/finder'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as ChatRouteImport } from './routes/_chat'
@@ -44,6 +45,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const PairRoute = PairRouteImport.update({
   id: '/pair',
   path: '/pair',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FinderRoute = FinderRouteImport.update({
+  id: '/finder',
+  path: '/finder',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConnectRoute = ConnectRouteImport.update({
@@ -141,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/agents': typeof AgentsRoute
   '/connect': typeof ConnectRoute
+  '/finder': typeof FinderRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -162,6 +169,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/agents': typeof AgentsRoute
   '/connect': typeof ConnectRoute
+  '/finder': typeof FinderRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -186,6 +194,7 @@ export interface FileRoutesById {
   '/_chat': typeof ChatRouteWithChildren
   '/agents': typeof AgentsRoute
   '/connect': typeof ConnectRoute
+  '/finder': typeof FinderRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -211,6 +220,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents'
     | '/connect'
+    | '/finder'
     | '/pair'
     | '/settings'
     | '/usage'
@@ -232,6 +242,7 @@ export interface FileRouteTypes {
   to:
     | '/agents'
     | '/connect'
+    | '/finder'
     | '/pair'
     | '/settings'
     | '/usage'
@@ -255,6 +266,7 @@ export interface FileRouteTypes {
     | '/_chat'
     | '/agents'
     | '/connect'
+    | '/finder'
     | '/pair'
     | '/settings'
     | '/usage'
@@ -279,6 +291,7 @@ export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   AgentsRoute: typeof AgentsRoute
   ConnectRoute: typeof ConnectRoute
+  FinderRoute: typeof FinderRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   UsageRoute: typeof UsageRoute
@@ -307,6 +320,13 @@ declare module '@tanstack/react-router' {
       path: '/pair'
       fullPath: '/pair'
       preLoaderRoute: typeof PairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finder': {
+      id: '/finder'
+      path: '/finder'
+      fullPath: '/finder'
+      preLoaderRoute: typeof FinderRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/connect': {
@@ -486,6 +506,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   AgentsRoute: AgentsRoute,
   ConnectRoute: ConnectRoute,
+  FinderRoute: FinderRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
   UsageRoute: UsageRoute,

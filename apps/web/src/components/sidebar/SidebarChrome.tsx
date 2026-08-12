@@ -1,6 +1,13 @@
-import { ChartNoAxesColumnIcon, GitPullRequestIcon, SettingsIcon } from "lucide-react";
+import {
+  ChartNoAxesColumnIcon,
+  ChevronDownIcon,
+  Code2Icon,
+  FolderKanbanIcon,
+  GitPullRequestIcon,
+  SettingsIcon,
+} from "lucide-react";
 import { memo, useCallback } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 
 import { APP_EDITION_LABEL } from "../../branding";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -13,6 +20,7 @@ import {
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import {
   SidebarFooter,
   SidebarHeader,
@@ -72,25 +80,44 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+  const navigate = useNavigate();
   return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      <T3Wordmark />
-      <span
+    <Menu>
+      <MenuTrigger
+        aria-label="Switch T3 Code workspace mode"
         className={cn(
-          "truncate text-sm font-medium tracking-tight",
-          onBackdrop ? "text-white/70" : "text-muted-foreground",
+          "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md px-1 outline-hidden ring-ring hover:bg-white/10 focus-visible:ring-2",
+          onBackdrop ? "text-white" : "text-foreground",
         )}
       >
-        Code: {APP_EDITION_LABEL}
-      </span>
-    </Link>
+        <T3Wordmark />
+        <span
+          className={cn(
+            "truncate text-sm font-medium tracking-tight",
+            onBackdrop ? "text-white/70" : "text-muted-foreground",
+          )}
+        >
+          Code: {APP_EDITION_LABEL}
+        </span>
+        <ChevronDownIcon className="size-3 opacity-60" />
+      </MenuTrigger>
+      <MenuPopup align="start" className="w-56">
+        <MenuItem onClick={() => void navigate({ to: "/" })}>
+          <Code2Icon />
+          <span className="flex flex-col">
+            <span>T3 Code</span>
+            <span className="text-xs text-muted-foreground">Agents and conversations</span>
+          </span>
+        </MenuItem>
+        <MenuItem onClick={() => void navigate({ to: "/finder" })}>
+          <FolderKanbanIcon />
+          <span className="flex flex-col">
+            <span>Finder & IDE</span>
+            <span className="text-xs text-muted-foreground">Browse and edit project files</span>
+          </span>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 

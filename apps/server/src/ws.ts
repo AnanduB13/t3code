@@ -37,6 +37,7 @@ import {
   type ProjectFileFailure,
   type ProjectFileOperation,
   ProjectListEntriesError,
+  ProjectMutateEntryError,
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
@@ -1922,6 +1923,54 @@ const makeWsRpcLayer = (
               Effect.mapError(
                 (cause) =>
                   new ProjectWriteFileError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsCreateEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsCreateEntry,
+            workspaceFileSystem.createEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectMutateEntryError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsMoveEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsMoveEntry,
+            workspaceFileSystem.moveEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectMutateEntryError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsDeleteEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsDeleteEntry,
+            workspaceFileSystem.deleteEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectMutateEntryError({
                     cwd: input.cwd,
                     relativePath: input.relativePath,
                     ...projectFileFailureContext(cause),
