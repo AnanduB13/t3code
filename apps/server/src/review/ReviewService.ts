@@ -16,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
+import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
@@ -37,6 +38,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
+  const projects = yield* ProjectionProjectRepository;
 
   const canonicalizePath = (value: string) => {
     const resolvedPath = path.resolve(value);
@@ -66,13 +68,34 @@ export const make = Effect.gen(function* () {
     operation: "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents",
     cwd: string,
   ) {
-    const [candidate, workspaceRoot, worktreesRoot] = yield* Effect.all([
+    const [candidate, workspaceRoot, worktreesRoot, projectRows] = yield* Effect.all([
       canonicalizePath(cwd),
       canonicalizePath(config.cwd),
       canonicalizePath(config.worktreesDir),
+      projects.listAll().pipe(
+        Effect.mapError(
+          (cause) =>
+            new VcsRepositoryDetectionError({
+              operation: "ReviewService.assertWorkspaceBoundCwd.listProjects",
+              cwd,
+              detail: "Failed to load registered project roots while validating the review workspace.",
+              cause,
+            }),
+        ),
+      ),
     ]);
 
-    if (isWithinRoot(candidate, workspaceRoot) || isWithinRoot(candidate, worktreesRoot)) {
+    const projectRoots = yield* Effect.all(
+      projectRows
+        .filter((project) => project.deletedAt === null)
+        .map((project) => canonicalizePath(project.workspaceRoot)),
+    );
+
+    if (
+      isWithinRoot(candidate, workspaceRoot) ||
+      isWithinRoot(candidate, worktreesRoot) ||
+      projectRoots.some((projectRoot) => isWithinRoot(candidate, projectRoot))
+    ) {
       return;
     }
 
