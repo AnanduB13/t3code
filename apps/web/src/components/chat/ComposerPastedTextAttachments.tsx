@@ -15,7 +15,7 @@ import {
 
 interface ComposerPastedTextAttachmentsProps {
   pastedTexts: ReadonlyArray<ComposerPastedTextAttachment>;
-  onRemove: (id: string) => void;
+  onRemove?: (id: string) => void;
   className?: string;
 }
 
@@ -38,7 +38,10 @@ export function ComposerPastedTextAttachments({
           return (
             <div
               key={item.id}
-              className="group/paste relative flex h-16 min-w-40 max-w-56 items-center gap-2.5 rounded-lg border border-border/80 bg-background px-3 pr-9"
+              className={cn(
+                "group/paste relative flex h-16 min-w-40 max-w-56 items-center gap-2.5 rounded-lg border border-border/80 bg-background px-3",
+                onRemove && "pr-9",
+              )}
             >
               <button
                 type="button"
@@ -56,16 +59,18 @@ export function ComposerPastedTextAttachments({
                   </span>
                 </span>
               </button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
-                aria-label={`Remove ${label}`}
-                onClick={() => onRemove(item.id)}
-              >
-                <XIcon />
-              </Button>
+              {onRemove ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
+                  aria-label={`Remove ${label}`}
+                  onClick={() => onRemove(item.id)}
+                >
+                  <XIcon />
+                </Button>
+              ) : null}
             </div>
           );
         })}

@@ -484,6 +484,25 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("rounded-2xl bg-message p-3");
   });
 
+  it("renders sent pasted text as a compact attachment instead of inline content", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          buildUserTimelineEntry(
+            "Getting these issues, fix it please\n\n<pasted_text_1>\nprivate error details\n</pasted_text_1>",
+          ),
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Getting these issues, fix it please");
+    expect(markup).toContain("Pasted text #1");
+    expect(markup).toContain("21 characters");
+    expect(markup).not.toContain("private error details");
+    expect(markup).not.toContain("Show full message");
+  });
+
   it("renders inline terminal labels with the composer chip UI", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline

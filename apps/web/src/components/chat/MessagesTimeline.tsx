@@ -89,6 +89,8 @@ import {
   type TimelineLatestTurn,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import { ComposerPastedTextAttachments } from "./ComposerPastedTextAttachments";
+import { extractTrailingPastedTexts } from "./composerPastedText";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   deriveDisplayedUserMessageState,
@@ -978,7 +980,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const userImages = row.message.attachments ?? [];
-  const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
+  const pastedTextState = extractTrailingPastedTexts(row.message.text);
+  const displayedUserMessage = deriveDisplayedUserMessageState(pastedTextState.promptText);
   const terminalContexts = displayedUserMessage.contexts;
   const previewAnnotations: ParsedPreviewAnnotation[] = [];
   let visibleText = displayedUserMessage.visibleText;
@@ -1040,6 +1043,15 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             image={previewImages[index] ?? null}
           />
         ))}
+        <ComposerPastedTextAttachments
+          pastedTexts={pastedTextState.pastedTexts}
+          className={cn(
+            pastedTextState.pastedTexts.length > 0 &&
+              (regularImages.length > 0 || previewAnnotations.length > 0) &&
+              "mt-2",
+            pastedTextState.pastedTexts.length > 0 && "mb-2",
+          )}
+        />
         {elementContexts.length > 0 ? (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {elementContexts.map((context) => (
@@ -1069,9 +1081,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </Tooltip>
           <div className="flex items-center gap-0.5">
             {canRevertAgentWork && <RevertUserMessageButton messageId={row.message.id} />}
-            {displayedUserMessage.copyText && (
-              <MessageCopyButton text={displayedUserMessage.copyText} variant="ghost" />
-            )}
+            {row.message.text && <MessageCopyButton text={row.message.text} variant="ghost" />}
           </div>
         </div>
       </div>
