@@ -31,6 +31,9 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 
+import FileBrowserPanel from "~/components/files/FileBrowserPanel";
+import { FinderCodeEditor } from "./FinderCodeEditor";
+
 type FinderView = "list" | "grid";
 
 const FINDER_PERSISTENCE_KEY = "t3code:finder-state:v1";
@@ -131,6 +134,7 @@ export function FinderWorkspacePage() {
   const [history, setHistory] = useState<string[]>(() => [...(initialLocation?.history ?? [])]);
   const [selectedEntry, setSelectedEntry] = useState<FilesystemBrowseEntry | null>(null);
   const [openFilePath, setOpenFilePath] = useState<string | null>(null);
+  const [editorRootPath, setEditorRootPath] = useState<string | null>(null);
   const [contents, setContents] = useState("");
   const [savedContents, setSavedContents] = useState("");
   const [showHidden, setShowHidden] = useState(initialLocation?.showHidden ?? false);
@@ -196,12 +200,14 @@ export function FinderWorkspacePage() {
     setCurrentDirectory(home);
   }, [browse.data, currentDirectory, environmentId]);
 
-  const openRelativePath = rootPath && openFilePath ? relativePath(rootPath, openFilePath) : null;
+  const activeFileRoot = editorRootPath ?? rootPath;
+  const openRelativePath =
+    activeFileRoot && openFilePath ? relativePath(activeFileRoot, openFilePath) : null;
   const file = useProjectFileQuery(
     environmentId ?? ("" as EnvironmentId),
-    rootPath ?? "",
+    activeFileRoot ?? "",
     openRelativePath,
-    Boolean(environmentId && rootPath && openRelativePath),
+    Boolean(environmentId && activeFileRoot && openRelativePath),
   );
   useEffect(() => {
     if (!file.data || file.data.relativePath !== openRelativePath || dirty) return;
@@ -225,6 +231,7 @@ export function FinderWorkspacePage() {
   const clearFile = () => {
     setSelectedEntry(null);
     setOpenFilePath(null);
+    setEditorRootPath(null);
     setContents("");
     setSavedContents("");
   };
@@ -243,7 +250,15 @@ export function FinderWorkspacePage() {
       return;
     }
     if (!guardDirty()) return;
+    const projectRoot = projects
+      .toSorted((left, right) => right.workspaceRoot.length - left.workspaceRoot.length)
+      .find(
+        (project) =>
+          project.environmentId === environmentId &&
+          relativePath(project.workspaceRoot, entry.fullPath) !== null,
+      )?.workspaceRoot;
     setSelectedEntry(entry);
+    setEditorRootPath(projectRoot ?? currentDirectory);
     setOpenFilePath(entry.fullPath);
     setContents("");
     setSavedContents("");
@@ -363,10 +378,10 @@ export function FinderWorkspacePage() {
     });
   };
   const save = async () => {
-    if (!environmentId || !rootPath || !openRelativePath || file.data?.truncated) return;
+    if (!environmentId || !activeFileRoot || !openRelativePath || file.data?.truncated) return;
     const result = await writeFile({
       environmentId,
-      input: { cwd: rootPath, relativePath: openRelativePath, contents },
+      input: { cwd: activeFileRoot, relativePath: openRelativePath, contents },
     });
     if (result._tag !== "Success") {
       toastManager.add({ title: "Could not save file", type: "error" });
@@ -386,6 +401,13 @@ export function FinderWorkspacePage() {
   });
 
   const environmentProjects = projects.filter((project) => project.environmentId === environmentId);
+  const editorProjectName =
+    environmentProjects.find((project) => project.workspaceRoot === activeFileRoot)?.title ??
+    activeFileRoot
+      ?.replace(/[\\/]$/, "")
+      .split(/[\\/]/)
+      .at(-1) ??
+    "Files";
   const canGoUp = Boolean(rootPath && currentDirectory !== rootPath);
 
   return (
@@ -432,49 +454,73 @@ export function FinderWorkspacePage() {
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="w-56 shrink-0 overflow-auto border-r bg-sidebar/35 p-2">
-          <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Favorites
-          </p>
-          <button
-            type="button"
-            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm hover:bg-accent"
-            onClick={openHome}
-          >
-            <HomeIcon className="size-4 text-blue-400" />
-            Home
-          </button>
-          <button
-            type="button"
-            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm hover:bg-accent disabled:opacity-50"
-            disabled={environmentId === null || !homePaths[environmentId]}
-            onClick={openComputer}
-          >
-            <HardDriveIcon className="size-4 text-muted-foreground" />
-            Computer
-          </button>
-          <p className="mt-3 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Projects
-          </p>
-          {environmentProjects.map((project) => (
-            <button
-              key={project.id}
-              type="button"
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent"
-              onClick={() => openProject(project)}
-            >
-              <FolderIcon className="size-4 text-blue-400" />
-              <span className="truncate">{project.title}</span>
-            </button>
-          ))}
-          <label className="mt-4 flex cursor-pointer items-center gap-2 px-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={showHidden}
-              onChange={(event) => setShowHidden(event.target.checked)}
+        <aside className="flex w-56 shrink-0 flex-col overflow-hidden border-r bg-sidebar/35">
+          {openFilePath && activeFileRoot && openRelativePath && environmentId ? (
+            <FileBrowserPanel
+              environmentId={environmentId}
+              cwd={activeFileRoot}
+              projectName={editorProjectName}
+              selectedPath={openRelativePath}
+              selectedPathRevealId={0}
+              onOpenFile={(path) => {
+                if (!guardDirty()) return;
+                const fullPath = joinPath(activeFileRoot, path);
+                setSelectedEntry({
+                  name: path.split("/").at(-1) ?? path,
+                  fullPath,
+                  kind: "file",
+                });
+                setOpenFilePath(fullPath);
+                setContents("");
+                setSavedContents("");
+              }}
             />
-            Show hidden files
-          </label>
+          ) : (
+            <div className="overflow-auto p-2">
+              <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Favorites
+              </p>
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm hover:bg-accent"
+                onClick={openHome}
+              >
+                <HomeIcon className="size-4 text-blue-400" />
+                Home
+              </button>
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm hover:bg-accent disabled:opacity-50"
+                disabled={environmentId === null || !homePaths[environmentId]}
+                onClick={openComputer}
+              >
+                <HardDriveIcon className="size-4 text-muted-foreground" />
+                Computer
+              </button>
+              <p className="mt-3 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Projects
+              </p>
+              {environmentProjects.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent"
+                  onClick={() => openProject(project)}
+                >
+                  <FolderIcon className="size-4 text-blue-400" />
+                  <span className="truncate">{project.title}</span>
+                </button>
+              ))}
+              <label className="mt-4 flex cursor-pointer items-center gap-2 px-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={showHidden}
+                  onChange={(event) => setShowHidden(event.target.checked)}
+                />
+                Show hidden files
+              </label>
+            </div>
+          )}
         </aside>
         <section className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
@@ -552,13 +598,11 @@ export function FinderWorkspacePage() {
               <p className="max-w-md text-xs leading-5 text-muted-foreground">{file.error}</p>
             </div>
           ) : openFilePath ? (
-            <textarea
-              aria-label={`Edit ${selectedEntry?.name ?? "file"}`}
-              className="min-h-0 flex-1 resize-none bg-background p-5 font-mono text-[13px] leading-5 outline-none"
-              readOnly={file.data?.truncated}
-              spellCheck={false}
-              value={contents}
-              onChange={(event) => setContents(event.target.value)}
+            <FinderCodeEditor
+              fileName={openRelativePath ?? selectedEntry?.name ?? "file"}
+              contents={contents}
+              readOnly={Boolean(file.data?.truncated)}
+              onChange={setContents}
             />
           ) : (
             <div
