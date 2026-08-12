@@ -651,8 +651,8 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(result).toEqual({
           parentPath: cwd,
           entries: [
-            { name: "alpha", fullPath: path.join(cwd, "alpha") },
-            { name: "alpine", fullPath: path.join(cwd, "alpine") },
+            { name: "alpha", fullPath: path.join(cwd, "alpha"), kind: "directory" },
+            { name: "alpine", fullPath: path.join(cwd, "alpine"), kind: "directory" },
           ],
         });
       }),
@@ -677,7 +677,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(directoryResult.entries.map((entry) => entry.name)).toEqual([".config", "config"]);
         expect(hiddenPrefixResult).toEqual({
           parentPath: cwd,
-          entries: [{ name: ".config", fullPath: path.join(cwd, ".config") }],
+          entries: [{ name: ".config", fullPath: path.join(cwd, ".config"), kind: "directory" }],
         });
       }),
     );
@@ -696,8 +696,30 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
 
         expect(result).toEqual({
           parentPath: cwd,
-          entries: [{ name: "packages", fullPath: path.join(cwd, "packages") }],
+          entries: [{ name: "packages", fullPath: path.join(cwd, "packages"), kind: "directory" }],
         });
+      }),
+    );
+
+    it.effect("includes files and can hide dot entries for device browsing", () =>
+      Effect.gen(function* () {
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "t3code-device-browse-" });
+        yield* writeTextFile(cwd, "Documents/readme.md", "hello");
+        yield* writeTextFile(cwd, "notes.txt", "hello");
+        yield* writeTextFile(cwd, ".secret", "hidden");
+
+        const result = yield* workspaceEntries.browse({
+          partialPath: yield* appendSeparator(cwd),
+          includeFiles: true,
+          showHidden: false,
+        });
+
+        expect(result.entries).toEqual([
+          { name: "Documents", fullPath: path.join(cwd, "Documents"), kind: "directory" },
+          { name: "notes.txt", fullPath: path.join(cwd, "notes.txt"), kind: "file" },
+        ]);
       }),
     );
 

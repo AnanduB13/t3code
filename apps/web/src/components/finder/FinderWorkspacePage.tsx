@@ -1,94 +1,306 @@
-import { useEffect, useState } from "react";
-import { FolderPlusIcon, PencilIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
+import type { EnvironmentId, FilesystemBrowseEntry } from "@t3tools/contracts";
+import {
+  ArrowLeftIcon,
+  ArrowUpIcon,
+  ChevronRightIcon,
+  FileIcon,
+  FolderIcon,
+  FolderPlusIcon,
+  Grid2X2Icon,
+  HardDriveIcon,
+  HomeIcon,
+  ListIcon,
+  PencilIcon,
+  PlusIcon,
+  SaveIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { toastManager } from "~/components/ui/toast";
-import FileBrowserPanel from "~/components/files/FileBrowserPanel";
-import {
-  useProjectEntriesQuery,
-  useProjectFileQuery,
-} from "~/components/files/projectFilesQueryState";
-import { useProjects } from "~/state/entities";
+import { useProjectFileQuery } from "~/components/files/projectFilesQueryState";
 import { useEnvironments } from "~/state/environments";
+import { useProjects } from "~/state/entities";
+import { filesystemEnvironment } from "~/state/filesystem";
 import { projectEnvironment } from "~/state/projects";
+import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
+
+type FinderView = "list" | "grid";
+
+function separator(path: string): "/" | "\\" {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.includes("\\") ? "\\" : "/";
+}
+
+function directoryQuery(path: string): string {
+  const sep = separator(path);
+  return path.endsWith("/") || path.endsWith("\\") ? path : `${path}${sep}`;
+}
+
+function joinPath(parent: string, name: string): string {
+  return `${parent.replace(/[\\/]$/, "")}${separator(parent)}${name}`;
+}
+
+function parentPath(path: string): string {
+  const normalized = path.replace(/[\\/]$/, "");
+  const index = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  if (index <= 0) return normalized.slice(0, index + 1) || "/";
+  return normalized.slice(0, index);
+}
+
+function filesystemRoot(path: string): string {
+  const drive = /^[A-Za-z]:/.exec(path)?.[0];
+  return drive ? `${drive}\\` : "/";
+}
+
+function relativePath(root: string, fullPath: string): string | null {
+  const normalizedRoot = root.replace(/[\\/]$/, "");
+  if (fullPath === normalizedRoot) return null;
+  if (!fullPath.startsWith(`${normalizedRoot}/`) && !fullPath.startsWith(`${normalizedRoot}\\`)) {
+    return null;
+  }
+  return fullPath.slice(normalizedRoot.length + 1).replaceAll("\\", "/");
+}
+
+function FinderEntryIcon({
+  entry,
+  className,
+}: {
+  entry: FilesystemBrowseEntry;
+  className?: string;
+}) {
+  return (entry.kind ?? "directory") === "directory" ? (
+    <FolderIcon className={className ?? "size-4 text-blue-400"} fill="currentColor" />
+  ) : (
+    <FileIcon className={className ?? "size-4 text-muted-foreground"} />
+  );
+}
 
 export function FinderWorkspacePage() {
   const projects = useProjects();
   const { environments } = useEnvironments();
-  const environmentLabels = new Map(
-    environments.map((environment) => [environment.environmentId, environment.label] as const),
+  const connectedEnvironments = environments.filter(
+    (environment) => environment.connection.phase === "connected",
   );
-  const [projectKey, setProjectKey] = useState("");
-  const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [environmentId, setEnvironmentId] = useState<EnvironmentId | null>(null);
+  const [rootPath, setRootPath] = useState<string | null>(null);
+  const [homePaths, setHomePaths] = useState<Record<string, string>>({});
+  const [currentDirectory, setCurrentDirectory] = useState("~/");
+  const [history, setHistory] = useState<string[]>([]);
+  const [selectedEntry, setSelectedEntry] = useState<FilesystemBrowseEntry | null>(null);
+  const [openFilePath, setOpenFilePath] = useState<string | null>(null);
   const [contents, setContents] = useState("");
   const [savedContents, setSavedContents] = useState("");
-  const project =
-    projects.find((item) => `${item.environmentId}:${item.id}` === projectKey) ?? projects[0];
-  const entries = useProjectEntriesQuery(
-    project?.environmentId ?? ("" as never),
-    project?.workspaceRoot ?? "",
+  const [showHidden, setShowHidden] = useState(false);
+  const [view, setView] = useState<FinderView>("list");
+  const [filter, setFilter] = useState("");
+  const dirty = openFilePath !== null && contents !== savedContents;
+
+  useEffect(() => {
+    if (environmentId === null && connectedEnvironments[0]) {
+      setEnvironmentId(connectedEnvironments[0].environmentId);
+    }
+  }, [connectedEnvironments, environmentId]);
+
+  const browse = useEnvironmentQuery(
+    environmentId === null
+      ? null
+      : filesystemEnvironment.browse({
+          environmentId,
+          input: {
+            partialPath: directoryQuery(currentDirectory),
+            includeFiles: true,
+            showHidden,
+          },
+        }),
   );
+
+  useEffect(() => {
+    if (!browse.data || environmentId === null || currentDirectory !== "~/") return;
+    const home = browse.data.parentPath;
+    setHomePaths((paths) => ({ ...paths, [environmentId]: home }));
+    setRootPath(home);
+    setCurrentDirectory(home);
+  }, [browse.data, currentDirectory, environmentId]);
+
+  const openRelativePath = rootPath && openFilePath ? relativePath(rootPath, openFilePath) : null;
   const file = useProjectFileQuery(
-    project?.environmentId ?? ("" as never),
-    project?.workspaceRoot ?? "",
-    selectedPath,
-    Boolean(project && selectedPath),
+    environmentId ?? ("" as EnvironmentId),
+    rootPath ?? "",
+    openRelativePath,
+    Boolean(environmentId && rootPath && openRelativePath),
   );
+  useEffect(() => {
+    if (!file.data || file.data.relativePath !== openRelativePath || dirty) return;
+    setContents(file.data.contents);
+    setSavedContents(file.data.contents);
+  }, [dirty, file.data, openRelativePath]);
+
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
   const createEntry = useAtomCommand(projectEnvironment.createEntry);
   const moveEntry = useAtomCommand(projectEnvironment.moveEntry);
   const deleteEntry = useAtomCommand(projectEnvironment.deleteEntry);
-  const dirty = selectedPath !== null && contents !== savedContents;
 
-  useEffect(() => {
-    if (!projectKey && project) setProjectKey(`${project.environmentId}:${project.id}`);
-  }, [project, projectKey]);
-  useEffect(() => {
-    if (!file.data || file.data.relativePath !== selectedPath || dirty) return;
-    setContents(file.data.contents);
-    setSavedContents(file.data.contents);
-  }, [dirty, file.data, selectedPath]);
+  const entries = useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    return (browse.data?.entries ?? []).filter(
+      (entry) => query.length === 0 || entry.name.toLowerCase().includes(query),
+    );
+  }, [browse.data?.entries, filter]);
 
   const guardDirty = () => !dirty || window.confirm("Discard the unsaved changes in this file?");
-  const openFile = (path: string) => {
-    if (!guardDirty()) return false;
-    setSelectedEntryPath(path);
-    setSelectedPath(path);
+  const clearFile = () => {
+    setSelectedEntry(null);
+    setOpenFilePath(null);
     setContents("");
     setSavedContents("");
-    return true;
   };
-  const runMutation = async (action: () => Promise<{ readonly _tag: string }>) => {
-    try {
-      const result = await action();
-      if (result._tag !== "Success") throw new Error("The backend rejected this file operation.");
-      entries.refresh();
-    } catch (error) {
-      toastManager.add({
-        title: "File operation failed",
-        description: String(error),
-        type: "error",
-      });
+  const navigateTo = (path: string, remember = true) => {
+    if (!guardDirty()) return;
+    if (remember && currentDirectory !== "~/") {
+      setHistory((items) => [...items.slice(-49), currentDirectory]);
     }
+    setCurrentDirectory(path);
+    setFilter("");
+    clearFile();
   };
-  const save = async () => {
-    if (!project || !selectedPath || file.data?.truncated) return;
-    const result = await writeFile({
-      environmentId: project.environmentId,
-      input: { cwd: project.workspaceRoot, relativePath: selectedPath, contents },
-    });
+  const openEntry = (entry: FilesystemBrowseEntry) => {
+    if ((entry.kind ?? "directory") === "directory") {
+      navigateTo(entry.fullPath);
+      return;
+    }
+    if (!guardDirty()) return;
+    setSelectedEntry(entry);
+    setOpenFilePath(entry.fullPath);
+    setContents("");
+    setSavedContents("");
+  };
+  const selectEnvironment = (nextEnvironmentId: EnvironmentId) => {
+    if (!guardDirty()) return;
+    setEnvironmentId(nextEnvironmentId);
+    const home = homePaths[nextEnvironmentId];
+    setRootPath(home ?? null);
+    setCurrentDirectory(home ?? "~/");
+    setHistory([]);
+    clearFile();
+  };
+  const openHome = () => {
+    if (environmentId === null) return;
+    const home = homePaths[environmentId];
+    setRootPath(home ?? null);
+    navigateTo(home ?? "~/");
+  };
+  const openComputer = () => {
+    if (environmentId === null) return;
+    const home = homePaths[environmentId];
+    if (!home) return;
+    const root = filesystemRoot(home);
+    setRootPath(root);
+    navigateTo(root);
+  };
+  const openProject = (project: (typeof projects)[number]) => {
+    if (project.environmentId !== environmentId) selectEnvironment(project.environmentId);
+    setRootPath(project.workspaceRoot);
+    navigateTo(project.workspaceRoot);
+  };
+  const goBack = () => {
+    const destination = history.at(-1);
+    if (!destination || !guardDirty()) return;
+    setHistory((items) => items.slice(0, -1));
+    setCurrentDirectory(destination);
+    clearFile();
+  };
+  const goUp = () => {
+    if (!rootPath || currentDirectory === rootPath) return;
+    const destination = parentPath(currentDirectory);
+    if (relativePath(rootPath, destination) === null && destination !== rootPath) return;
+    navigateTo(destination);
+  };
+
+  const refresh = () => browse.refresh();
+  const runMutation = async (action: () => Promise<{ readonly _tag: string }>) => {
+    const result = await action();
     if (result._tag !== "Success") {
       toastManager.add({
-        title: "Could not save file",
-        description: "The backend rejected the save.",
+        title: "File operation failed",
+        description: "The backend rejected this operation.",
         type: "error",
       });
+      return false;
+    }
+    refresh();
+    return true;
+  };
+  const relativeInRoot = (absolutePath: string) =>
+    rootPath === null ? null : relativePath(rootPath, absolutePath);
+  const create = (kind: "file" | "directory") => {
+    if (!environmentId || !rootPath) return;
+    const name = window.prompt(`Name for the new ${kind}`)?.trim();
+    if (!name || name.includes("/") || name.includes("\\")) return;
+    const path = relativeInRoot(joinPath(currentDirectory, name));
+    if (!path) return;
+    void runMutation(() =>
+      createEntry({
+        environmentId,
+        input: { cwd: rootPath, relativePath: path, kind },
+      }),
+    );
+  };
+  const rename = () => {
+    if (!environmentId || !rootPath || !selectedEntry) return;
+    const name = window.prompt("Rename to", selectedEntry.name)?.trim();
+    if (!name || name.includes("/") || name.includes("\\")) return;
+    const source = relativeInRoot(selectedEntry.fullPath);
+    const destination = relativeInRoot(joinPath(currentDirectory, name));
+    if (!source || !destination) return;
+    void runMutation(() =>
+      moveEntry({
+        environmentId,
+        input: {
+          cwd: rootPath,
+          relativePath: source,
+          destinationPath: destination,
+        },
+      }),
+    ).then((success) => {
+      if (success) clearFile();
+    });
+  };
+  const remove = () => {
+    if (
+      !environmentId ||
+      !rootPath ||
+      !selectedEntry ||
+      !window.confirm(`Delete “${selectedEntry.name}”? This cannot be undone.`)
+    ) {
+      return;
+    }
+    const path = relativeInRoot(selectedEntry.fullPath);
+    if (!path) return;
+    void runMutation(() =>
+      deleteEntry({
+        environmentId,
+        input: { cwd: rootPath, relativePath: path, recursive: true },
+      }),
+    ).then((success) => {
+      if (success) clearFile();
+    });
+  };
+  const save = async () => {
+    if (!environmentId || !rootPath || !openRelativePath || file.data?.truncated) return;
+    const result = await writeFile({
+      environmentId,
+      input: { cwd: rootPath, relativePath: openRelativePath, contents },
+    });
+    if (result._tag !== "Success") {
+      toastManager.add({ title: "Could not save file", type: "error" });
       return;
     }
     setSavedContents(contents);
-    entries.refresh();
+    refresh();
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -100,91 +312,105 @@ export function FinderWorkspacePage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  const create = (kind: "file" | "directory") => {
-    if (!project) return;
-    const relativePath = window.prompt(`New ${kind} path, relative to ${project.title}`)?.trim();
-    if (!relativePath) return;
-    void runMutation(() =>
-      createEntry({
-        environmentId: project.environmentId,
-        input: { cwd: project.workspaceRoot, relativePath, kind },
-      }),
-    );
-  };
-  const rename = () => {
-    if (!project || !selectedEntryPath) return;
-    const destinationPath = window.prompt("Move or rename to", selectedEntryPath)?.trim();
-    if (!destinationPath || destinationPath === selectedEntryPath) return;
-    const previousPath = selectedEntryPath;
-    void runMutation(async () => {
-      const result = await moveEntry({
-        environmentId: project.environmentId,
-        input: { cwd: project.workspaceRoot, relativePath: previousPath, destinationPath },
-      });
-      if (result._tag !== "Success") return result;
-      setSelectedEntryPath(destinationPath);
-      if (selectedPath === previousPath) setSelectedPath(destinationPath);
-      return result;
-    });
-  };
-  const remove = () => {
-    if (
-      !project ||
-      !selectedEntryPath ||
-      !window.confirm(`Delete ${selectedEntryPath}? This cannot be undone.`)
-    )
-      return;
-    const pathToDelete = selectedEntryPath;
-    void runMutation(async () => {
-      const result = await deleteEntry({
-        environmentId: project.environmentId,
-        input: { cwd: project.workspaceRoot, relativePath: pathToDelete, recursive: true },
-      });
-      if (result._tag !== "Success") return result;
-      setSelectedEntryPath(null);
-      if (selectedPath === pathToDelete || selectedPath?.startsWith(`${pathToDelete}/`)) {
-        setSelectedPath(null);
-        setContents("");
-        setSavedContents("");
-      }
-      return result;
-    });
-  };
+  const environmentProjects = projects.filter((project) => project.environmentId === environmentId);
+  const canGoUp = Boolean(rootPath && currentDirectory !== rootPath);
 
-  if (!project)
-    return (
-      <main className="flex h-full items-center justify-center text-muted-foreground">
-        Add a project to an environment to use Finder.
-      </main>
-    );
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col bg-background" data-finder-workspace="">
-      <header className="flex h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3 border-b px-4">
-        <strong className="text-sm">Finder</strong>
+      <header className="flex h-[var(--workspace-topbar-height)] shrink-0 items-center gap-2 border-b px-3">
+        <strong className="mr-1 text-sm">Finder</strong>
         <select
-          className="h-7 max-w-64 rounded-md border bg-background px-2 text-sm"
-          value={`${project.environmentId}:${project.id}`}
-          onChange={(event) => {
-            if (!guardDirty()) return;
-            setProjectKey(event.target.value);
-            setSelectedEntryPath(null);
-            setSelectedPath(null);
-          }}
+          aria-label="Device"
+          className="h-7 max-w-56 rounded-md border bg-background px-2 text-sm"
+          value={environmentId ?? ""}
+          onChange={(event) => selectEnvironment(event.target.value as EnvironmentId)}
         >
-          {projects.map((item) => (
-            <option
-              key={`${item.environmentId}:${item.id}`}
-              value={`${item.environmentId}:${item.id}`}
-            >
-              {environmentLabels.get(item.environmentId) ?? "Environment"} / {item.title}
+          {connectedEnvironments.map((environment) => (
+            <option key={environment.environmentId} value={environment.environmentId}>
+              {environment.label}
             </option>
           ))}
         </select>
-        <span className="truncate text-xs text-muted-foreground">{project.workspaceRoot}</span>
+        <Button size="icon-xs" variant="ghost" disabled={history.length === 0} onClick={goBack}>
+          <ArrowLeftIcon />
+        </Button>
+        <Button size="icon-xs" variant="ghost" disabled={!canGoUp} onClick={goUp}>
+          <ArrowUpIcon />
+        </Button>
+        <div className="flex min-w-0 items-center gap-1 overflow-hidden text-xs text-muted-foreground">
+          <HomeIcon className="size-3.5 shrink-0" />
+          <span className="truncate">{browse.data?.parentPath ?? currentDirectory}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            size="icon-xs"
+            variant={view === "list" ? "secondary" : "ghost"}
+            onClick={() => setView("list")}
+          >
+            <ListIcon />
+          </Button>
+          <Button
+            size="icon-xs"
+            variant={view === "grid" ? "secondary" : "ghost"}
+            onClick={() => setView("grid")}
+          >
+            <Grid2X2Icon />
+          </Button>
+        </div>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col border-r bg-sidebar/40">
-          <div className="flex h-10 items-center justify-end gap-1 border-b px-2">
+        <aside className="w-56 shrink-0 overflow-auto border-r bg-sidebar/35 p-2">
+          <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Favorites
+          </p>
+          <button
+            type="button"
+            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm hover:bg-accent"
+            onClick={openHome}
+          >
+            <HomeIcon className="size-4 text-blue-400" />
+            Home
+          </button>
+          <button
+            type="button"
+            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm hover:bg-accent disabled:opacity-50"
+            disabled={environmentId === null || !homePaths[environmentId]}
+            onClick={openComputer}
+          >
+            <HardDriveIcon className="size-4 text-muted-foreground" />
+            Computer
+          </button>
+          <p className="mt-3 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Projects
+          </p>
+          {environmentProjects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent"
+              onClick={() => openProject(project)}
+            >
+              <FolderIcon className="size-4 text-blue-400" />
+              <span className="truncate">{project.title}</span>
+            </button>
+          ))}
+          <label className="mt-4 flex cursor-pointer items-center gap-2 px-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showHidden}
+              onChange={(event) => setShowHidden(event.target.checked)}
+            />
+            Show hidden files
+          </label>
+        </aside>
+        <section className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
+            <Input
+              className="h-7 max-w-64"
+              placeholder="Search this folder"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            />
             <Button
               size="icon-xs"
               variant="ghost"
@@ -201,29 +427,11 @@ export function FinderWorkspacePage() {
             >
               <FolderPlusIcon />
             </Button>
-          </div>
-          <FileBrowserPanel
-            environmentId={project.environmentId}
-            cwd={project.workspaceRoot}
-            projectName={project.title}
-            selectedPath={selectedPath}
-            selectedPathRevealId={0}
-            onOpenFile={openFile}
-            onSelectEntry={(path, kind) => {
-              if (kind === "directory") setSelectedEntryPath(path);
-            }}
-          />
-        </aside>
-        <section className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-10 items-center gap-1 border-b px-3">
-            <span className="min-w-0 flex-1 truncate text-xs">
-              {selectedPath ? `${selectedPath}${dirty ? " •" : ""}` : "Select a file"}
-            </span>
             <Button
               size="icon-xs"
               variant="ghost"
-              disabled={!selectedEntryPath}
-              aria-label="Rename or move"
+              disabled={!selectedEntry}
+              aria-label="Rename"
               onClick={rename}
             >
               <PencilIcon />
@@ -231,20 +439,48 @@ export function FinderWorkspacePage() {
             <Button
               size="icon-xs"
               variant="ghost"
-              disabled={!selectedEntryPath}
+              disabled={!selectedEntry}
               aria-label="Delete"
               onClick={remove}
             >
               <Trash2Icon />
             </Button>
-            <Button size="sm" disabled={!dirty || file.data?.truncated} onClick={() => void save()}>
-              <SaveIcon />
-              Save
-            </Button>
+            {openFilePath ? (
+              <>
+                <span className="ml-2 min-w-0 flex-1 truncate text-xs">
+                  {selectedEntry?.name}
+                  {dirty ? " •" : ""}
+                </span>
+                <Button
+                  size="sm"
+                  disabled={!dirty || file.data?.truncated}
+                  onClick={() => void save()}
+                >
+                  <SaveIcon />
+                  Save
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Close editor"
+                  onClick={() => {
+                    if (guardDirty()) clearFile();
+                  }}
+                >
+                  <XIcon />
+                </Button>
+              </>
+            ) : null}
           </div>
-          {selectedPath ? (
+          {openFilePath && file.error ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+              <FileIcon className="size-10 text-muted-foreground" />
+              <p className="text-sm font-medium">This file cannot be opened as text</p>
+              <p className="max-w-md text-xs leading-5 text-muted-foreground">{file.error}</p>
+            </div>
+          ) : openFilePath ? (
             <textarea
-              aria-label={`Edit ${selectedPath}`}
+              aria-label={`Edit ${selectedEntry?.name ?? "file"}`}
               className="min-h-0 flex-1 resize-none bg-background p-5 font-mono text-[13px] leading-5 outline-none"
               readOnly={file.data?.truncated}
               spellCheck={false}
@@ -252,16 +488,54 @@ export function FinderWorkspacePage() {
               onChange={(event) => setContents(event.target.value)}
             />
           ) : (
-            <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-              Choose a file from the project explorer.
+            <div
+              className={
+                view === "grid"
+                  ? "grid auto-rows-min grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2 overflow-auto p-4"
+                  : "overflow-auto p-2"
+              }
+            >
+              {entries.map((entry) => (
+                <button
+                  key={entry.fullPath}
+                  type="button"
+                  className={
+                    view === "grid"
+                      ? "flex h-24 flex-col items-center justify-center gap-2 rounded-lg p-2 text-xs hover:bg-accent focus:bg-accent"
+                      : "grid h-8 w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent focus:bg-accent"
+                  }
+                  onClick={() => setSelectedEntry(entry)}
+                  onDoubleClick={() => openEntry(entry)}
+                >
+                  <FinderEntryIcon
+                    entry={entry}
+                    {...(view === "grid" ? { className: "size-9 text-blue-400" } : {})}
+                  />
+                  <span className="truncate">{entry.name}</span>
+                  {view === "list" && (entry.kind ?? "directory") === "directory" ? (
+                    <ChevronRightIcon className="size-3 text-muted-foreground" />
+                  ) : null}
+                </button>
+              ))}
+              {!browse.isPending && entries.length === 0 ? (
+                <div className="p-8 text-center text-sm text-muted-foreground">
+                  This folder is empty.
+                </div>
+              ) : null}
             </div>
           )}
-          <footer className="flex h-7 items-center justify-between border-t px-3 text-[11px] text-muted-foreground">
-            <span>{selectedPath ?? project.title}</span>
+          <footer className="flex h-7 shrink-0 items-center justify-between border-t px-3 text-[11px] text-muted-foreground">
+            <span>{openFilePath ? openFilePath : `${entries.length} items`}</span>
             <span>
-              {file.data?.truncated
-                ? "Preview only · file exceeds 1 MB"
-                : `${contents.split("\n").length} lines · ${new TextEncoder().encode(contents).length} bytes`}
+              {openFilePath
+                ? file.data?.truncated
+                  ? "Preview only · file exceeds 1 MB"
+                  : `${contents.split("\n").length} lines · ${new TextEncoder().encode(contents).length} bytes`
+                : browse.isPending
+                  ? "Loading…"
+                  : environmentId
+                    ? "Connected"
+                    : "No connected environment"}
             </span>
           </footer>
         </section>

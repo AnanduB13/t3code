@@ -214,25 +214,34 @@ export const make = Effect.gen(function* () {
         ),
       );
 
-      const showHidden = endsWithSeparator || prefix.startsWith(".");
+      const showHidden = input.showHidden ?? (endsWithSeparator || prefix.startsWith("."));
       const lowerPrefix = prefix.toLowerCase();
-      const entries: Array<{ readonly name: string; readonly fullPath: string }> = [];
+      const entries: Array<{
+        readonly name: string;
+        readonly fullPath: string;
+        readonly kind: "file" | "directory";
+      }> = [];
       for (const dirent of dirents) {
         if (
-          dirent.isDirectory() &&
+          (dirent.isDirectory() || (input.includeFiles === true && dirent.isFile())) &&
           dirent.name.toLowerCase().startsWith(lowerPrefix) &&
           (showHidden || !dirent.name.startsWith("."))
         ) {
           entries.push({
             name: dirent.name,
             fullPath: path.join(parentPath, dirent.name),
+            kind: dirent.isDirectory() ? "directory" : "file",
           });
         }
       }
 
       return {
         parentPath,
-        entries: entries.toSorted((left, right) => left.name.localeCompare(right.name)),
+        entries: entries.toSorted(
+          (left, right) =>
+            Number(left.kind === "file") - Number(right.kind === "file") ||
+            left.name.localeCompare(right.name),
+        ),
       };
     },
   );
