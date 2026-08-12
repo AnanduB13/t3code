@@ -1,4 +1,5 @@
 import type { EnvironmentId, FilesystemBrowseEntry } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import {
   ArrowLeftIcon,
   ArrowUpIcon,
@@ -28,8 +29,29 @@ import { filesystemEnvironment } from "~/state/filesystem";
 import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 
 type FinderView = "list" | "grid";
+
+const FINDER_PERSISTENCE_KEY = "t3code:finder-state:v1";
+const FinderLocationSchema = Schema.Struct({
+  rootPath: Schema.NullOr(Schema.String),
+  homePath: Schema.NullOr(Schema.String),
+  currentDirectory: Schema.String,
+  history: Schema.Array(Schema.String),
+  showHidden: Schema.Boolean,
+  view: Schema.Literals(["list", "grid"]),
+});
+const FinderPersistenceSchema = Schema.Struct({
+  selectedEnvironmentId: Schema.NullOr(Schema.String),
+  locations: Schema.Record(Schema.String, FinderLocationSchema),
+});
+type FinderPersistence = typeof FinderPersistenceSchema.Type;
+
+const EMPTY_FINDER_PERSISTENCE: FinderPersistence = {
+  selectedEnvironmentId: null,
+  locations: {},
+};
 
 function separator(path: string): "/" | "\\" {
   return /^[A-Za-z]:[\\/]/.test(path) || path.includes("\\") ? "\\" : "/";
@@ -82,28 +104,76 @@ function FinderEntryIcon({
 export function FinderWorkspacePage() {
   const projects = useProjects();
   const { environments } = useEnvironments();
+  const [persistedFinder, setPersistedFinder] = useLocalStorage(
+    FINDER_PERSISTENCE_KEY,
+    EMPTY_FINDER_PERSISTENCE,
+    FinderPersistenceSchema,
+  );
   const connectedEnvironments = environments.filter(
     (environment) => environment.connection.phase === "connected",
   );
-  const [environmentId, setEnvironmentId] = useState<EnvironmentId | null>(null);
-  const [rootPath, setRootPath] = useState<string | null>(null);
-  const [homePaths, setHomePaths] = useState<Record<string, string>>({});
-  const [currentDirectory, setCurrentDirectory] = useState("~/");
-  const [history, setHistory] = useState<string[]>([]);
+  const initialEnvironmentId = persistedFinder.selectedEnvironmentId as EnvironmentId | null;
+  const initialLocation = initialEnvironmentId
+    ? persistedFinder.locations[initialEnvironmentId]
+    : undefined;
+  const [environmentId, setEnvironmentId] = useState<EnvironmentId | null>(initialEnvironmentId);
+  const [rootPath, setRootPath] = useState<string | null>(initialLocation?.rootPath ?? null);
+  const [homePaths, setHomePaths] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      Object.entries(persistedFinder.locations).flatMap(([id, location]) =>
+        location.homePath ? [[id, location.homePath]] : [],
+      ),
+    ),
+  );
+  const [currentDirectory, setCurrentDirectory] = useState(
+    initialLocation?.currentDirectory ?? "~/",
+  );
+  const [history, setHistory] = useState<string[]>(() => [...(initialLocation?.history ?? [])]);
   const [selectedEntry, setSelectedEntry] = useState<FilesystemBrowseEntry | null>(null);
   const [openFilePath, setOpenFilePath] = useState<string | null>(null);
   const [contents, setContents] = useState("");
   const [savedContents, setSavedContents] = useState("");
-  const [showHidden, setShowHidden] = useState(false);
-  const [view, setView] = useState<FinderView>("list");
+  const [showHidden, setShowHidden] = useState(initialLocation?.showHidden ?? false);
+  const [view, setView] = useState<FinderView>(initialLocation?.view ?? "list");
   const [filter, setFilter] = useState("");
   const dirty = openFilePath !== null && contents !== savedContents;
 
   useEffect(() => {
-    if (environmentId === null && connectedEnvironments[0]) {
-      setEnvironmentId(connectedEnvironments[0].environmentId);
-    }
+    if (
+      environmentId !== null &&
+      connectedEnvironments.some((environment) => environment.environmentId === environmentId)
+    )
+      return;
+    const fallback = connectedEnvironments[0];
+    if (fallback) selectEnvironment(fallback.environmentId);
   }, [connectedEnvironments, environmentId]);
+
+  useEffect(() => {
+    if (environmentId === null) return;
+    setPersistedFinder((state) => ({
+      selectedEnvironmentId: environmentId,
+      locations: {
+        ...state.locations,
+        [environmentId]: {
+          rootPath,
+          homePath: homePaths[environmentId] ?? null,
+          currentDirectory,
+          history: history.slice(-50),
+          showHidden,
+          view,
+        },
+      },
+    }));
+  }, [
+    currentDirectory,
+    environmentId,
+    history,
+    homePaths,
+    rootPath,
+    setPersistedFinder,
+    showHidden,
+    view,
+  ]);
 
   const browse = useEnvironmentQuery(
     environmentId === null
@@ -181,10 +251,13 @@ export function FinderWorkspacePage() {
   const selectEnvironment = (nextEnvironmentId: EnvironmentId) => {
     if (!guardDirty()) return;
     setEnvironmentId(nextEnvironmentId);
-    const home = homePaths[nextEnvironmentId];
-    setRootPath(home ?? null);
-    setCurrentDirectory(home ?? "~/");
-    setHistory([]);
+    const savedLocation = persistedFinder.locations[nextEnvironmentId];
+    const home = savedLocation?.homePath ?? homePaths[nextEnvironmentId];
+    setRootPath(savedLocation?.rootPath ?? home ?? null);
+    setCurrentDirectory(savedLocation?.currentDirectory ?? home ?? "~/");
+    setHistory([...(savedLocation?.history ?? [])]);
+    setShowHidden(savedLocation?.showHidden ?? false);
+    setView(savedLocation?.view ?? "list");
     clearFile();
   };
   const openHome = () => {
@@ -501,7 +574,7 @@ export function FinderWorkspacePage() {
                   type="button"
                   className={
                     view === "grid"
-                      ? "flex h-24 flex-col items-center justify-center gap-2 rounded-lg p-2 text-xs hover:bg-accent focus:bg-accent"
+                      ? "flex h-24 min-w-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-lg p-2 text-xs hover:bg-accent focus:bg-accent"
                       : "grid h-8 w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent focus:bg-accent"
                   }
                   onClick={() => setSelectedEntry(entry)}
@@ -511,7 +584,14 @@ export function FinderWorkspacePage() {
                     entry={entry}
                     {...(view === "grid" ? { className: "size-9 text-blue-400" } : {})}
                   />
-                  <span className="truncate">{entry.name}</span>
+                  <span
+                    className={
+                      view === "grid" ? "block w-full min-w-0 truncate text-center" : "truncate"
+                    }
+                    title={entry.name}
+                  >
+                    {entry.name}
+                  </span>
                   {view === "list" && (entry.kind ?? "directory") === "directory" ? (
                     <ChevronRightIcon className="size-3 text-muted-foreground" />
                   ) : null}
