@@ -341,10 +341,11 @@ export function ChatWorkspace({ routeThreadRef }: { readonly routeThreadRef: Sco
                 key={instanceKey}
                 className={
                   active
-                    ? `relative flex min-h-0 min-w-0 ${paneEntries.length > 1 ? "z-10 ring-1 ring-inset ring-info/60" : ""}`
-                    : "hidden min-h-0 min-w-0 md:flex"
+                    ? `relative isolate flex min-h-0 min-w-0 ${paneEntries.length > 1 ? "z-10 ring-1 ring-inset ring-info/70" : ""}`
+                    : "relative isolate hidden min-h-0 min-w-0 md:flex"
                 }
                 aria-label={`Chat pane ${index + 1} of ${paneEntries.length}`}
+                aria-current={active ? "true" : undefined}
                 data-chat-workspace-pane={index}
                 data-active={active ? "true" : "false"}
                 onPointerDownCapture={active ? undefined : () => activate(index, threadRef)}
@@ -366,6 +367,13 @@ export function ChatWorkspace({ routeThreadRef }: { readonly routeThreadRef: Sco
                     onSetLayout={setLayout}
                   />
                 )}
+                {!active ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 z-[100] bg-muted/40"
+                    data-chat-workspace-inactive-veil
+                  />
+                ) : null}
               </section>
             );
           })}
