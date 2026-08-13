@@ -263,6 +263,18 @@ describe("sortThreadsForListV2", () => {
 });
 
 describe("buildThreadListV2Items", () => {
+  it("keeps inactive threads active by default", () => {
+    const layout = buildThreadListV2Items({
+      threads: [makeThread({ id: ThreadId.make("inactive"), title: "Inactive" })],
+      environmentId: null,
+      searchQuery: "",
+      now: "2026-06-10T00:00:00.000Z",
+    });
+
+    expect(layout.items.map((item) => item.thread.id)).toEqual(["inactive"]);
+    expect(layout.settledCount).toBe(0);
+  });
+
   it("hides snoozed threads and counts them — visibility parity with web", () => {
     const layout = buildThreadListV2Items({
       threads: [
