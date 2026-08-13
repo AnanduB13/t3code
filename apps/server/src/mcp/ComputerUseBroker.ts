@@ -260,7 +260,7 @@ export const make = Effect.gen(function* () {
         reason:
           route.selectedId && route.connections.length === 0
             ? "The selected Computer Use device is disconnected or does not support this action."
-            : "No Computer Use host is connected. Open T3 Code Desktop on the target device and grant screen/accessibility permissions.",
+            : "No Computer Use host is connected. Open T3 Code Desktop on the target device, enable Computer Use on this device in Settings → General, and grant screen/accessibility permissions.",
       });
     }
     const cleanup = SynchronizedRef.update(state, (current) => {

@@ -507,6 +507,11 @@ type ChatViewProps =
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
       threadSyncPhase?: ThreadSyncPhase | null;
+      workspacePaneActive?: boolean;
+      chatPaneCount?: number;
+      chatLayoutColumns?: number;
+      onSetChatLayout?: (count: number, columns: number) => void;
+      withDiffWorkerPool?: boolean;
       routeKind: "server";
       draftId?: never;
     }
@@ -517,6 +522,11 @@ type ChatViewProps =
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
       threadSyncPhase?: never;
+      workspacePaneActive?: boolean;
+      chatPaneCount?: number;
+      chatLayoutColumns?: number;
+      onSetChatLayout?: (count: number, columns: number) => void;
+      withDiffWorkerPool?: boolean;
       routeKind: "draft";
       draftId: DraftId;
     };
@@ -1198,6 +1208,10 @@ function ChatViewContent(props: ChatViewProps) {
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
+    workspacePaneActive = true,
+    chatPaneCount,
+    chatLayoutColumns,
+    onSetChatLayout,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
@@ -1375,7 +1389,8 @@ function ChatViewContent(props: ChatViewProps) {
   >({});
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const shouldUseRightPanelSheet =
+    useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY) || (chatPaneCount ?? 1) > 1;
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
@@ -2782,8 +2797,9 @@ function ChatViewContent(props: ChatViewProps) {
   );
 
   const focusComposer = useCallback(() => {
+    if (!workspacePaneActive) return;
     composerRef.current?.focusAtEnd();
-  }, [composerRef]);
+  }, [composerRef, workspacePaneActive]);
   const scheduleComposerFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
       focusComposer();
@@ -3568,13 +3584,12 @@ function ChatViewContent(props: ChatViewProps) {
       },
     );
   }, []);
-  useEffect(
-    () =>
-      subscribePreviewAction((action) => {
-        if (action === "toggle-panel") togglePreviewPanel();
-      }),
-    [togglePreviewPanel],
-  );
+  useEffect(() => {
+    if (!workspacePaneActive) return;
+    return subscribePreviewAction((action) => {
+      if (action === "toggle-panel") togglePreviewPanel();
+    });
+  }, [togglePreviewPanel, workspacePaneActive]);
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
       threadId: ThreadId;
@@ -4690,6 +4705,7 @@ function ChatViewContent(props: ChatViewProps) {
   }, [activeThreadKey, focusComposer, terminalUiState.terminalOpen]);
 
   useEffect(() => {
+    if (!workspacePaneActive) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
@@ -4836,6 +4852,7 @@ function ChatViewContent(props: ChatViewProps) {
     toggleRightPanel,
     toggleTerminalVisibility,
     composerRef,
+    workspacePaneActive,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -6090,6 +6107,9 @@ function ChatViewContent(props: ChatViewProps) {
       onToggleTerminal={toggleTerminalVisibility}
       onToggleBrowser={togglePreviewPanel}
       onToggleRightPanel={toggleRightPanel}
+      chatPaneCount={chatPaneCount}
+      chatLayoutColumns={chatLayoutColumns}
+      onSetChatLayout={onSetChatLayout}
     />
   );
   const panelLayoutControls = (
@@ -6212,7 +6232,10 @@ function ChatViewContent(props: ChatViewProps) {
   ) : null;
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+    <div
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+      data-chat-workspace-pane-active={workspacePaneActive ? "true" : "false"}
+    >
       {rightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls : null}
       <div
         className={cn(
@@ -6694,6 +6717,7 @@ function ChatViewContent(props: ChatViewProps) {
 }
 
 export default function ChatView(props: ChatViewProps) {
+  if (props.withDiffWorkerPool === false) return <ChatViewContent {...props} />;
   return (
     <DiffWorkerPoolProvider>
       <ChatViewContent {...props} />

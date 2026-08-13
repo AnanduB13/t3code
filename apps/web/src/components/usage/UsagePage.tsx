@@ -20,6 +20,7 @@ import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadc
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { UsageChartLegend, UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_COLOR, PROVIDER_LABEL, PROVIDER_MARK, PROVIDER_ORDER } from "./usageProviders";
+import { describeUsageSources } from "./usageDeviceCoverage";
 
 const WINDOW_OPTIONS = [
   { days: 7, label: "7 days" },
@@ -61,6 +62,9 @@ export function UsagePage() {
   const dailyAverage = activeDays === 0 ? 0 : merged.totalTokens / activeDays;
   const observedInput = merged.uncachedInputTokens + merged.cachedInputTokens;
   const cachedShare = observedInput === 0 ? 0 : merged.cachedInputTokens / observedInput;
+  const t3Origin = merged.origins.find((origin) => origin.origin === "t3");
+  const terminalOrigin = merged.origins.find((origin) => origin.origin === "terminal");
+  const unknownOrigin = merged.origins.find((origin) => origin.origin === "unknown");
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
@@ -126,11 +130,37 @@ export function UsagePage() {
               </div>
             </div>
 
+            <UsageDeviceStrip environments={environments} />
+
+            {!settling ? (
+              <section className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-3">
+                <UsageOriginMetric
+                  label="All device usage"
+                  tokens={merged.totalTokens}
+                  costUsd={merged.costUsd}
+                  detail="T3 Code and terminal sessions"
+                />
+                <UsageOriginMetric
+                  label="T3 Code usage"
+                  tokens={t3Origin?.totalTokens ?? 0}
+                  costUsd={t3Origin?.costUsd ?? 0}
+                  detail={
+                    unknownOrigin
+                      ? `Plus ${formatTokens(unknownOrigin.totalTokens)} with unknown origin`
+                      : `${formatPercent(t3Origin?.tokenShare ?? 0)} of device tokens`
+                  }
+                />
+                <UsageOriginMetric
+                  label="Terminal usage"
+                  tokens={terminalOrigin?.totalTokens ?? 0}
+                  costUsd={terminalOrigin?.costUsd ?? 0}
+                  detail={`${formatPercent(terminalOrigin?.tokenShare ?? 0)} of device tokens`}
+                />
+              </section>
+            ) : null}
+
             {settling ? (
-              <>
-                {environments.length > 1 ? <UsageDeviceStrip environments={environments} /> : null}
-                <UsageSkeleton />
-              </>
+              <UsageSkeleton />
             ) : (
               <>
                 <UsageCoverageNotice
@@ -406,6 +436,33 @@ function Metric({
   );
 }
 
+function UsageOriginMetric({
+  label,
+  tokens,
+  costUsd,
+  detail,
+}: {
+  readonly label: string;
+  readonly tokens: number;
+  readonly costUsd: number;
+  readonly detail: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1 bg-background px-4 py-3">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <span className="text-xl font-medium text-foreground tabular-nums">
+          {formatTokens(tokens)}
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {formatUsd(costUsd)} API-equivalent
+        </span>
+      </div>
+      <span className="text-xs text-muted-foreground">{detail}</span>
+    </div>
+  );
+}
+
 /**
  * Says plainly when the totals are incomplete: an environment that failed, or
  * one whose transcripts another environment already reported. Environments
@@ -450,9 +507,9 @@ function UsageCoverageNotice({
 }
 
 /**
- * Per-device progress while the page waits for every environment to answer.
- * Only rendered with two or more devices; a lone device has nothing to
- * enumerate.
+ * Persistent per-device provenance for the totals. Usage comes from provider
+ * transcript directories on each environment host, including sessions driven
+ * by T3 Code and sessions driven directly from a terminal.
  */
 function UsageDeviceStrip({
   environments,
@@ -463,44 +520,62 @@ function UsageDeviceStrip({
     (environment) => environment.summary === null && environment.error === null,
   );
   return (
-    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border border-border px-3 py-2 text-xs">
-      {environments.map((environment) => {
-        if (environment.summary !== null) {
+    <div className="border border-border text-xs">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border px-3 py-2">
+        <span className="font-medium text-foreground">Device usage</span>
+        <span className="text-muted-foreground">
+          Includes T3 Code and terminal Codex or Claude Code sessions saved on each environment
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5">
+        {environments.length === 0 ? (
+          <span className="text-muted-foreground">No connected environments.</span>
+        ) : null}
+        {environments.map((environment) => {
+          if (environment.summary !== null) {
+            return (
+              <span key={environment.environmentId} className="flex items-start gap-1.5">
+                <CheckIcon
+                  className="mt-0.5 size-3 shrink-0 text-emerald-600 dark:text-emerald-300/90"
+                  aria-hidden
+                />
+                <span>
+                  <span className="text-foreground">{environment.label}</span>
+                  <span className="ms-1.5 text-muted-foreground">
+                    {describeUsageSources(environment.summary.sources)}
+                  </span>
+                </span>
+              </span>
+            );
+          }
+          if (environment.error !== null) {
+            return (
+              <span
+                key={environment.environmentId}
+                className="flex items-center gap-1.5 text-destructive"
+              >
+                <XIcon className="size-3" aria-hidden />
+                {environment.label} could not report device usage
+              </span>
+            );
+          }
           return (
             <span
               key={environment.environmentId}
-              className="flex items-center gap-1 text-foreground"
+              className="animate-status-pulse text-muted-foreground"
             >
-              <CheckIcon className="size-3 text-emerald-600 dark:text-emerald-300/90" aria-hidden />
-              {environment.label}
+              {environment.label} scanning local CLI history…
             </span>
           );
-        }
-        if (environment.error !== null) {
-          return (
-            <span
-              key={environment.environmentId}
-              className="flex items-center gap-1 text-destructive"
-            >
-              <XIcon className="size-3" aria-hidden />
-              {environment.label}
-            </span>
-          );
-        }
-        return (
-          <span
-            key={environment.environmentId}
-            className="animate-status-pulse text-muted-foreground"
-          >
-            {environment.label}…
+        })}
+        {scanning.length > 0 ? (
+          <span className="ms-auto text-muted-foreground">
+            {scanning.length === 1
+              ? "1 device still scanning"
+              : `${scanning.length} devices still scanning`}
           </span>
-        );
-      })}
-      <span className="ms-auto text-muted-foreground">
-        {scanning.length === 1
-          ? "1 device still scanning"
-          : `${scanning.length} devices still scanning`}
-      </span>
+        ) : null}
+      </div>
     </div>
   );
 }

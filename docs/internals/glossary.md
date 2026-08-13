@@ -11,8 +11,21 @@ This is a living glossary for T3 Code. It explains what common terms mean in thi
 - [Orchestration](#orchestration)
 - [Provider runtime](#provider-runtime)
 - [Checkpointing](#checkpointing)
+- [Visual automation](#visual-automation)
 
 ## Concepts
+
+### Visual automation
+
+#### Collaborative browser
+
+An environment-scoped browser tab that an agent can inspect and operate while the user sees the
+same surface in T3 Code. It is distinct from web search and from native Computer Use.
+
+#### Computer Use
+
+Permissioned control of native application windows on a specifically selected Desktop host. A
+shared graphical session uses the host's real focus, pointer, and keyboard.
 
 ### Project and workspace
 

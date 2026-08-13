@@ -41,34 +41,50 @@ export const ComputerUseDeviceList = Schema.Struct({
 export type ComputerUseDeviceList = typeof ComputerUseDeviceList.Type;
 
 export const ComputerUseSelectDeviceInput = Schema.Struct({ deviceId: ComputerUseDeviceId });
+const ComputerUseWindowId = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
+const ComputerUseObservationId = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
 export const ComputerUseAppTargetInput = Schema.Struct({
-  windowId: Schema.optional(TrimmedNonEmptyString),
-  app: Schema.optional(TrimmedNonEmptyString),
+  windowId: Schema.optional(ComputerUseWindowId),
+  app: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
 });
 const ComputerUseObservedWindowInput = {
-  windowId: TrimmedNonEmptyString,
-  observationId: TrimmedNonEmptyString,
+  windowId: ComputerUseWindowId,
+  observationId: ComputerUseObservationId,
 };
+const ComputerUsePointerTargetInput = {
+  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  x: Schema.optional(Schema.Finite),
+  y: Schema.optional(Schema.Finite),
+};
+const validatePointerTarget = Schema.makeFilter(
+  (input: {
+    readonly elementIndex?: number | undefined;
+    readonly x?: number | undefined;
+    readonly y?: number | undefined;
+  }) => {
+    const hasElement = input.elementIndex !== undefined;
+    const hasX = input.x !== undefined;
+    const hasY = input.y !== undefined;
+    if (hasX !== hasY) return "Coordinates require both x and y.";
+    return hasElement !== (hasX && hasY) || "Provide exactly one pointer target.";
+  },
+);
 export const ComputerUseClickInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
+  ...ComputerUsePointerTargetInput,
   mouseButton: Schema.optional(Schema.Literals(["left", "right", "middle"])),
   clickCount: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3 }))),
-});
+}).check(validatePointerTarget);
 export const ComputerUseMoveInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
-});
+  ...ComputerUsePointerTargetInput,
+}).check(validatePointerTarget);
 export const ComputerUseDragInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  fromX: Schema.Number,
-  fromY: Schema.Number,
-  toX: Schema.Number,
-  toY: Schema.Number,
+  fromX: Schema.Finite,
+  fromY: Schema.Finite,
+  toX: Schema.Finite,
+  toY: Schema.Finite,
 });
 export const ComputerUsePressKeyInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
@@ -77,18 +93,25 @@ export const ComputerUsePressKeyInput = Schema.Struct({
 });
 export const ComputerUseScrollInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
-  deltaX: Schema.optional(Schema.Number),
-  deltaY: Schema.optional(Schema.Number),
-});
+  x: Schema.optional(Schema.Finite),
+  y: Schema.optional(Schema.Finite),
+  deltaX: Schema.optional(Schema.Finite),
+  deltaY: Schema.optional(Schema.Finite),
+}).check(
+  Schema.makeFilter((input) => {
+    if ((input.x === undefined) !== (input.y === undefined)) {
+      return "Scroll coordinates require both x and y.";
+    }
+    return input.deltaX !== undefined || input.deltaY !== undefined || "Provide a scroll delta.";
+  }),
+);
 export const ComputerUseTypeTextInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  text: Schema.String,
+  text: Schema.String.check(Schema.isMaxLength(32_000)),
 });
 
 export const ComputerUseApp = Schema.Struct({
-  windowId: TrimmedNonEmptyString,
+  windowId: ComputerUseWindowId,
   index: Schema.Int,
   title: Schema.String,
   focused: Schema.Boolean,
@@ -120,8 +143,8 @@ export const ComputerUseElement = Schema.Struct({
 export type ComputerUseElement = typeof ComputerUseElement.Type;
 export const ComputerUseAppState = Schema.Struct({
   app: Schema.String,
-  windowId: TrimmedNonEmptyString,
-  observationId: TrimmedNonEmptyString,
+  windowId: ComputerUseWindowId,
+  observationId: ComputerUseObservationId,
   text: Schema.String,
   elements: Schema.Array(ComputerUseElement),
   navigation: Schema.Struct({

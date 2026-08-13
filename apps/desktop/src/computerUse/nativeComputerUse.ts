@@ -3,14 +3,22 @@ import type {
   ComputerUseDevice,
   ComputerUseOperation,
 } from "@t3tools/contracts";
-import { desktopCapturer, screen as electronScreen, systemPreferences } from "electron";
-import { randomUUID } from "node:crypto";
-import { hostname, arch, platform } from "node:os";
-import { performance } from "node:perf_hooks";
+import {
+  HostProcessArchitecture,
+  HostProcessEnvironment,
+  HostProcessHostname,
+  HostProcessPlatform,
+} from "@t3tools/shared/hostProcess";
+import { app, desktopCapturer, screen as electronScreen, systemPreferences } from "electron";
+import Store from "electron-store";
+import * as Effect from "effect/Effect";
+import * as NodeCrypto from "node:crypto";
+import * as NodePerfHooks from "node:perf_hooks";
 import * as NodeTimersPromises from "node:timers/promises";
 
 import {
   boundsMatch,
+  fitScreenshotSize,
   selectUniqueWindowByTitle,
   screenshotPointToScreen,
   type ComputerUseBounds,
@@ -22,14 +30,47 @@ import {
   summarizeNavigation,
 } from "./computerUseAccessibility.ts";
 
-const platformName = (): ComputerUseDevice["platform"] =>
-  platform() === "darwin" ? "macos" : platform() === "win32" ? "windows" : "linux";
+interface ComputerUseRuntime {
+  readonly platform: NodeJS.Platform;
+  readonly architecture: NodeJS.Architecture;
+  readonly hostname: string;
+  readonly environment: NodeJS.ProcessEnv;
+}
 
-const sessionIsolation = (): ComputerUseDevice["sessionIsolation"] =>
-  process.env.T3CODE_COMPUTER_USE_ISOLATED_SESSION === "1" ? "isolated" : "shared";
+const readRuntime = (): ComputerUseRuntime => ({
+  platform: Effect.runSync(HostProcessPlatform),
+  architecture: Effect.runSync(HostProcessArchitecture),
+  hostname: Effect.runSync(HostProcessHostname),
+  environment: Effect.runSync(HostProcessEnvironment),
+});
 
-const availability = (): { available: boolean; unavailableReason?: string } => {
-  if (platform() === "darwin") {
+const platformName = (runtime: ComputerUseRuntime): ComputerUseDevice["platform"] =>
+  runtime.platform === "darwin" ? "macos" : runtime.platform === "win32" ? "windows" : "linux";
+
+const sessionIsolation = (runtime: ComputerUseRuntime): ComputerUseDevice["sessionIsolation"] =>
+  runtime.environment.T3CODE_COMPUTER_USE_ISOLATED_SESSION === "1" ? "isolated" : "shared";
+
+interface ComputerUseStore {
+  readonly deviceId?: string;
+}
+
+let deviceStore: Store<ComputerUseStore> | undefined;
+const installationDeviceId = (): string => {
+  deviceStore ??= new Store<ComputerUseStore>({
+    name: "computer-use",
+    cwd: app.getPath("userData"),
+  });
+  const existing = deviceStore.get("deviceId");
+  if (existing) return existing;
+  const created = `desktop-${NodeCrypto.randomUUID()}`;
+  deviceStore.set("deviceId", created);
+  return created;
+};
+
+const availability = (
+  runtime: ComputerUseRuntime,
+): { available: boolean; unavailableReason?: string } => {
+  if (runtime.platform === "darwin") {
     if (!systemPreferences.isTrustedAccessibilityClient(false)) {
       return {
         available: false,
@@ -43,7 +84,7 @@ const availability = (): { available: boolean; unavailableReason?: string } => {
       };
     }
   }
-  if (platform() === "linux" && !process.env.DISPLAY) {
+  if (runtime.platform === "linux" && !runtime.environment.DISPLAY) {
     return {
       available: false,
       unavailableReason:
@@ -53,14 +94,14 @@ const availability = (): { available: boolean; unavailableReason?: string } => {
   return { available: true };
 };
 
-export const describeComputerUseDevice = (): ComputerUseDevice => ({
-  deviceId: `${hostname()}:${platform()}:${arch()}`,
-  label: hostname(),
-  platform: platformName(),
-  architecture: arch(),
-  kind: sessionIsolation() === "isolated" ? "remote-desktop" : "prompting-device",
-  sessionIsolation: sessionIsolation(),
-  ...availability(),
+export const describeComputerUseDevice = (runtime = readRuntime()): ComputerUseDevice => ({
+  deviceId: installationDeviceId(),
+  label: runtime.hostname,
+  platform: platformName(runtime),
+  architecture: runtime.architecture,
+  kind: sessionIsolation(runtime) === "isolated" ? "remote-desktop" : "prompting-device",
+  sessionIsolation: sessionIsolation(runtime),
+  ...availability(runtime),
   supportedOperations: [
     "listApps",
     "getAppState",
@@ -96,7 +137,7 @@ interface Observation {
 
 const windowIds = new Map<string, string>();
 const observations = new Map<string, Observation>();
-const OBSERVATION_TTL_MS = 120_000;
+const OBSERVATION_TTL_MS = 30_000;
 
 const windowBounds = async (window: NativeWindow): Promise<ComputerUseBounds> => {
   const region = await window.region;
@@ -126,7 +167,7 @@ const enumerateWindows = async (): Promise<WindowRecord[]> => {
       const nativeKey = await nativeWindowKey(window, title);
       let windowId = windowIds.get(nativeKey);
       if (!windowId) {
-        windowId = `window-${randomUUID()}`;
+        windowId = `window-${NodeCrypto.randomUUID()}`;
         windowIds.set(nativeKey, windowId);
       }
       return { windowId, nativeKey, window, title, bounds } satisfies WindowRecord;
@@ -149,7 +190,7 @@ const resolveWindow = async (input: { windowId?: string; app?: string }): Promis
       return selectUniqueWindowByTitle(windows, input.app);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(`${message} Use one exact windowId from computer_list_apps.`);
+      throw new Error(`${message} Use one exact windowId from computer_list_apps.`, { cause });
     }
   }
 
@@ -216,7 +257,13 @@ const captureWindow = async (bounds: ComputerUseBounds) => {
   };
   crop.width = Math.min(crop.width, displayImageSize.width - crop.x);
   crop.height = Math.min(crop.height, displayImageSize.height - crop.y);
-  const image = displayImage.crop(crop);
+  const croppedImage = displayImage.crop(crop);
+  const croppedSize = croppedImage.getSize();
+  const fittedSize = fitScreenshotSize(croppedSize.width, croppedSize.height);
+  const image =
+    fittedSize.width === croppedSize.width && fittedSize.height === croppedSize.height
+      ? croppedImage
+      : croppedImage.resize({ ...fittedSize, quality: "good" });
   const size = image.getSize();
   const coordinateSpace: ComputerUseCoordinateSpace = {
     ...bounds,
@@ -235,25 +282,20 @@ const captureWindow = async (bounds: ComputerUseBounds) => {
 };
 
 const captureSettledWindow = async (target: NativeWindow) => {
-  let previousData: string | undefined;
-  let latest: Awaited<ReturnType<typeof captureWindow>> | undefined;
-  let latestBounds: ComputerUseBounds | undefined;
-  // Two identical samples are a cheap and effective guard against capturing a
-  // menu half-open or a window mid-animation. Dynamic UIs still proceed after
-  // the bounded attempts, so clocks and carets cannot stall the agent.
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    latestBounds = await windowBounds(target);
-    latest = await captureWindow(latestBounds);
-    if (latest.screenshot.data === previousData) return { ...latest, bounds: latestBounds };
-    previousData = latest.screenshot.data;
-    if (attempt < 5) await NodeTimersPromises.setTimeout(160);
-  }
-  if (!latest || !latestBounds) throw new Error("The target window could not be captured.");
-  return { ...latest, bounds: latestBounds };
+  const firstBounds = await windowBounds(target);
+  const first = await captureWindow(firstBounds);
+  await NodeTimersPromises.setTimeout(120);
+  const latestBounds = await windowBounds(target);
+  const latest = await captureWindow(latestBounds);
+  // A second bounded sample avoids an obviously half-open menu without making
+  // dynamic clocks, carets, or video force six full PNG captures per observation.
+  return first.screenshot.data === latest.screenshot.data
+    ? { ...first, bounds: firstBounds }
+    : { ...latest, bounds: latestBounds };
 };
 
 const discardExpiredObservations = () => {
-  const cutoff = performance.now() - OBSERVATION_TTL_MS;
+  const cutoff = NodePerfHooks.performance.now() - OBSERVATION_TTL_MS;
   for (const [id, observation] of observations) {
     if (observation.createdAt < cutoff) observations.delete(id);
   }
@@ -271,11 +313,11 @@ const getAppState = async (input: {
     .getElements(1_000)
     .then((root) => flattenAccessibilityTree(root, coordinateSpace))
     .catch(() => []);
-  const observationId = `observation-${randomUUID()}`;
+  const observationId = `observation-${NodeCrypto.randomUUID()}`;
   observations.set(observationId, {
     observationId,
     windowId: target.windowId,
-    createdAt: performance.now(),
+    createdAt: NodePerfHooks.performance.now(),
     bounds,
     coordinateSpace,
     elements,
@@ -308,7 +350,10 @@ const requireFreshObservation = async (input: Record<string, unknown>) => {
   const observationId = String(input.observationId ?? "");
   const windowId = String(input.windowId ?? "");
   const observation = observations.get(observationId);
-  if (!observation || performance.now() - observation.createdAt > OBSERVATION_TTL_MS) {
+  if (
+    !observation ||
+    NodePerfHooks.performance.now() - observation.createdAt > OBSERVATION_TTL_MS
+  ) {
     observations.delete(observationId);
     throw new Error(
       "This observation is missing, expired, or already used. Observe the window again.",
@@ -402,8 +447,9 @@ const keyFromName = async (name: string) => {
   return key;
 };
 
-export async function executeComputerUse(operation: ComputerUseOperation, rawInput: unknown) {
-  const device = describeComputerUseDevice();
+async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: unknown) {
+  const runtime = readRuntime();
+  const device = describeComputerUseDevice(runtime);
   if (!device.available)
     throw new Error(device.unavailableReason ?? "Computer Use is unavailable.");
   const input = (rawInput ?? {}) as Record<string, unknown> & {
@@ -456,7 +502,7 @@ export async function executeComputerUse(operation: ComputerUseOperation, rawInp
         modifierNames.map((modifier) =>
           keyFromName(
             modifier === "Meta"
-              ? platform() === "darwin"
+              ? runtime.platform === "darwin"
                 ? "LeftCmd"
                 : "LeftMeta"
               : modifier === "Control"
@@ -492,4 +538,18 @@ export async function executeComputerUse(operation: ComputerUseOperation, rawInp
       await nut.keyboard.type(String(input.text ?? ""));
       return null;
   }
+}
+
+let executionTail: Promise<void> = Promise.resolve();
+
+export function executeComputerUse(operation: ComputerUseOperation, rawInput: unknown) {
+  const result = executionTail.then(
+    () => executeComputerUseNow(operation, rawInput),
+    () => executeComputerUseNow(operation, rawInput),
+  );
+  executionTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }

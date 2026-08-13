@@ -18,6 +18,7 @@ const FINDER_EDITOR_UNSAFE_CSS = `
 `;
 
 export function FinderCodeEditor(props: {
+  readonly cacheKey: string;
   readonly contents: string;
   readonly fileName: string;
   readonly readOnly: boolean;
@@ -48,7 +49,7 @@ export function FinderCodeEditor(props: {
         config={{ overscrollSize: 600, intersectionObserverMargin: 1200 }}
       >
         <File
-          file={{ name: props.fileName, contents: props.contents }}
+          file={{ name: props.fileName, contents: props.contents, cacheKey: props.cacheKey }}
           options={{
             disableFileHeader: true,
             overflow: "scroll",

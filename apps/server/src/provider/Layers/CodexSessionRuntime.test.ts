@@ -403,7 +403,7 @@ describe("Computer Use developer instructions", () => {
       NodeAssert.match(instructions, /Do not use shell DISPLAY checks/);
       NodeAssert.match(
         instructions,
-        /T3 Computer Use plugin must be installed and a T3 Desktop host must be connected/,
+        /T3 Computer Use plugin must be installed, Computer Use on this device must be enabled/,
       );
     }
   });

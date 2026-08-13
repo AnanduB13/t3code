@@ -4,8 +4,10 @@
 
 - [Install and first run](./user/install.md)
 - [Permission modes](./user/permission-modes.md)
+- [Browser and Computer Use](./user/computer-use.md)
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Organizing threads](./user/thread-sidebar.md)
+- [Usage and local CLI history](./user/usage.md)
 - [Customize a project icon](./user/project-settings.md)
 - [Remote access](./user/remote-access.md)
 - [Keeping app and server in sync](./user/updating.md)
@@ -32,6 +34,7 @@ policy in [CONTRIBUTING.md](../CONTRIBUTING.md); agent rules in [AGENTS.md](../A
 - [Server updates](./internals/server-updates.md)
 - [Resource telemetry](./internals/resource-telemetry.md)
 - [Environment auth](./internals/environment-auth.md)
+- [Visual automation architecture](./internals/computer-use.md)
 - [T3 Connect](./internals/t3-connect.md)
 - [CI gates](./internals/ci.md)
 

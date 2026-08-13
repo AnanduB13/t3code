@@ -9,6 +9,7 @@
 import type {
   EnvironmentId,
   UsageBucket,
+  UsageOrigin,
   UsageProviderKind,
   UsageSourceFingerprint,
   UsageSummary,
@@ -52,6 +53,15 @@ export interface CostQuality {
   readonly cacheSavingsUsd: number;
 }
 
+export interface OriginTotals {
+  readonly origin: UsageOrigin;
+  readonly costUsd: number;
+  readonly totalTokens: number;
+  readonly records: number;
+  readonly costShare: number;
+  readonly tokenShare: number;
+}
+
 export interface MergedUsage {
   readonly costUsd: number;
   readonly uncachedInputTokens: number;
@@ -64,6 +74,7 @@ export interface MergedUsage {
   readonly sessions: number;
   readonly providers: readonly ProviderTotals[];
   readonly models: readonly ModelTotals[];
+  readonly origins: readonly OriginTotals[];
   readonly daily: readonly DailyTotals[];
   readonly costQuality: CostQuality;
   /** Environments whose data was dropped as a duplicate of another's. */
@@ -167,6 +178,7 @@ const EMPTY_MERGED: MergedUsage = {
   sessions: 0,
   providers: [],
   models: [],
+  origins: [],
   daily: [],
   costQuality: {
     providerReportedShare: 0,
@@ -224,6 +236,10 @@ export function mergeUsage(
     string,
     { provider: UsageProviderKind; costUsd: number; totalTokens: number; records: number }
   >();
+  const originAccumulator = new Map<
+    UsageOrigin,
+    { costUsd: number; totalTokens: number; records: number }
+  >();
   const dailyAccumulator = new Map<
     string,
     {
@@ -278,6 +294,17 @@ export function mergeUsage(
       model.records += bucket.records;
       modelAccumulator.set(modelKey, model);
 
+      const bucketOrigin = bucket.origin ?? "unknown";
+      const origin = originAccumulator.get(bucketOrigin) ?? {
+        costUsd: 0,
+        totalTokens: 0,
+        records: 0,
+      };
+      origin.costUsd += bucket.costUsd;
+      origin.totalTokens += tokens;
+      origin.records += bucket.records;
+      originAccumulator.set(bucketOrigin, origin);
+
       const day = dailyAccumulator.get(bucket.day) ?? {
         costUsd: 0,
         totalTokens: 0,
@@ -326,6 +353,15 @@ export function mergeUsage(
     }))
     .sort((a, b) => a.day.localeCompare(b.day));
 
+  const origins: OriginTotals[] = [...originAccumulator.entries()]
+    .map(([origin, totals]) => ({
+      origin,
+      ...totals,
+      costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd,
+      tokenShare: totalTokens === 0 ? 0 : totals.totalTokens / totalTokens,
+    }))
+    .sort((a, b) => b.totalTokens - a.totalTokens);
+
   return {
     costUsd,
     uncachedInputTokens,
@@ -338,6 +374,7 @@ export function mergeUsage(
     sessions,
     providers,
     models,
+    origins,
     daily,
     costQuality: {
       providerReportedShare: records === 0 ? 0 : providerReportedRecords / records,

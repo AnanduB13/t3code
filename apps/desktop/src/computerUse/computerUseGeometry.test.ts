@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   absoluteBoundsToScreenshot,
   boundsMatch,
+  fitScreenshotSize,
   selectUniqueWindowByTitle,
   screenshotPointToScreen,
 } from "./computerUseGeometry.ts";
@@ -22,6 +23,20 @@ describe("Computer Use window coordinate mapping", () => {
       x: 520,
       y: 380,
     });
+  });
+
+  it("keeps mapped edge pixels inside the observed logical window", () => {
+    expect(
+      screenshotPointToScreen(
+        { x: 0, y: 0, width: 800, height: 600, screenshotWidth: 1600, screenshotHeight: 1200 },
+        { x: 1599, y: 1199 },
+      ),
+    ).toEqual({ x: 799, y: 599 });
+  });
+
+  it("bounds large screenshots while preserving their aspect ratio", () => {
+    expect(fitScreenshotSize(3_840, 2_160)).toEqual({ width: 1_600, height: 900 });
+    expect(fitScreenshotSize(1_200, 800)).toEqual({ width: 1_200, height: 800 });
   });
 
   it("maps accessibility bounds into the same screenshot coordinate space", () => {

@@ -10,7 +10,9 @@ T3 Code provides the `computer_*` tools through its authenticated, provider-scop
 ## Device routing
 
 1. Call `computer_list_devices` before the first desktop observation or action.
-2. If it returns no devices, explain that T3 Code Desktop must be open on the intended device and that its screen/accessibility permissions must be granted. Include the returned availability reason when present.
+2. If it returns no devices, explain that T3 Code Desktop must be open on the intended device,
+   **Settings → General → Computer Use on this device** must be enabled, and screen/accessibility
+   permissions must be granted. Include the returned availability reason when present.
 3. If exactly one available device is returned, use it. The broker selects it automatically for the current agent session.
 4. If `selectionRequired` is true, stop and ask the user which device should perform the task. Present the exact `label`, platform, and device ID for each choice. This is required even if one device appears to be the backend and another appears to be the prompting device.
 5. Only after the user chooses, call `computer_select_device` with the exact device ID. Never infer or silently choose a machine from its name.

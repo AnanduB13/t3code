@@ -14,6 +14,7 @@ function bucket(overrides: Partial<UsageBucket> = {}): UsageBucket {
   return {
     day: "2026-08-07" as UsageDay,
     provider: "claude",
+    origin: "terminal",
     model: "claude-fable-5",
     totals: {
       uncachedInputTokens: 100,
@@ -187,6 +188,27 @@ describe("mergeUsage", () => {
     expect(merged.providers[0]?.costShare).toBeCloseTo(0.75, 5);
     expect(merged.costQuality.unpricedShare).toBeCloseTo(0.5, 5);
     expect(merged.costQuality.cacheSavingsUsd).toBe(4);
+  });
+
+  it("separates T3 Code and terminal origins without changing device totals", () => {
+    const merged = mergeUsage(
+      [
+        environment(
+          "env-a",
+          summary(
+            [bucket({ origin: "t3", costUsd: 6 }), bucket({ origin: "terminal", costUsd: 4 })],
+            [{ provider: "claude", hostId: "mac", homePath: "/a/.claude" }],
+          ),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+
+    expect(merged.costUsd).toBe(10);
+    expect(merged.origins.map((origin) => [origin.origin, origin.costUsd])).toEqual([
+      ["t3", 6],
+      ["terminal", 4],
+    ]);
   });
 
   it("keeps two machines apart when hostname and home path collide", () => {

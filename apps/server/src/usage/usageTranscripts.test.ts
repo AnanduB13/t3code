@@ -40,6 +40,7 @@ describe("parseClaudeLine", () => {
 
     expect(record).not.toBeNull();
     expect(record?.provider).toBe("claude");
+    expect(record?.origin).toBe("unknown");
     expect(record?.model).toBe("claude-fable-5");
     expect(record?.totals).toEqual({
       uncachedInputTokens: 2,
@@ -71,7 +72,11 @@ describe("parseCodexLine", () => {
   const sessionMeta = JSON.stringify({
     type: "session_meta",
     timestamp: "2026-08-01T05:17:41.289Z",
-    payload: { type: "session_meta", id: "019fbbc1-b12c-7360-a685-28c181f0025f" },
+    payload: {
+      type: "session_meta",
+      id: "019fbbc1-b12c-7360-a685-28c181f0025f",
+      originator: "t3code_desktop",
+    },
   });
   const turnContext = JSON.stringify({
     type: "turn_context",
@@ -103,6 +108,7 @@ describe("parseCodexLine", () => {
     const record = parseCodexLine(tokenCount(19239, 11008, 299, 116), state);
 
     expect(record?.provider).toBe("codex");
+    expect(record?.origin).toBe("t3");
     expect(record?.model).toBe("gpt-5.6-sol");
     expect(record?.sessionId).toBe("019fbbc1-b12c-7360-a685-28c181f0025f");
     // Codex reports input_tokens inclusive of the cached portion.

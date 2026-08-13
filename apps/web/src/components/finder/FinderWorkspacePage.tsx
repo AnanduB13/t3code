@@ -650,6 +650,7 @@ export function FinderWorkspacePage() {
               />
             ) : (
               <FinderCodeEditor
+                cacheKey={`finder:${environmentId}:${openFilePath}`}
                 fileName={openRelativePath ?? selectedEntry?.name ?? "file"}
                 contents={contents}
                 readOnly={Boolean(file.data?.truncated)}

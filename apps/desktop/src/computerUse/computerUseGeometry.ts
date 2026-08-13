@@ -12,6 +12,22 @@ export interface ComputerUseCoordinateSpace extends ComputerUseBounds {
 
 const finitePositive = (value: number) => Number.isFinite(value) && value > 0;
 
+export const fitScreenshotSize = (
+  width: number,
+  height: number,
+  maximumWidth = 1_600,
+  maximumHeight = 900,
+): { readonly width: number; readonly height: number } => {
+  if (![width, height, maximumWidth, maximumHeight].every(finitePositive)) {
+    throw new Error("Screenshot dimensions must be positive finite numbers.");
+  }
+  const scale = Math.min(1, maximumWidth / width, maximumHeight / height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+};
+
 export const assertValidCoordinateSpace = (space: ComputerUseCoordinateSpace): void => {
   if (
     !Number.isFinite(space.x) ||
@@ -44,8 +60,20 @@ export const screenshotPointToScreen = (
     );
   }
   return {
-    x: Math.round(space.x + (point.x / space.screenshotWidth) * space.width),
-    y: Math.round(space.y + (point.y / space.screenshotHeight) * space.height),
+    x: Math.min(
+      Math.ceil(space.x + space.width) - 1,
+      Math.max(
+        Math.floor(space.x),
+        Math.round(space.x + (point.x / space.screenshotWidth) * space.width),
+      ),
+    ),
+    y: Math.min(
+      Math.ceil(space.y + space.height) - 1,
+      Math.max(
+        Math.floor(space.y),
+        Math.round(space.y + (point.y / space.screenshotHeight) * space.height),
+      ),
+    ),
   };
 };
 

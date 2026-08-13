@@ -77,6 +77,7 @@ import {
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
 import { primaryServerObservabilityAtom, primaryServerProvidersAtom } from "../../state/server";
+import { useComputerUseHostEnabled } from "../../state/computerUseHost";
 import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -1694,6 +1695,7 @@ export function GeneralSettingsPanel() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
+  const [computerUseHostEnabled, setComputerUseHostEnabled] = useComputerUseHostEnabled();
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
   );
@@ -1746,6 +1748,19 @@ export function GeneralSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection title="General">
+        {isElectron ? (
+          <SettingsRow
+            title="Computer Use on this device"
+            description="Allow agents in any environment connected to this Desktop app to capture and control local applications. This uses the real pointer and keyboard focus, and is off by default."
+            control={
+              <Switch
+                checked={computerUseHostEnabled}
+                onCheckedChange={(checked) => setComputerUseHostEnabled(Boolean(checked))}
+                aria-label="Allow Computer Use on this device"
+              />
+            }
+          />
+        ) : null}
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."

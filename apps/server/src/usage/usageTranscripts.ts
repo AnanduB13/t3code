@@ -6,10 +6,11 @@
  *
  * @module usageTranscripts
  */
-import type { UsageProviderKind, UsageTokenTotals } from "@t3tools/contracts";
+import type { UsageOrigin, UsageProviderKind, UsageTokenTotals } from "@t3tools/contracts";
 
 export interface UsageRecord {
   readonly provider: UsageProviderKind;
+  readonly origin: UsageOrigin;
   readonly timestampMs: number;
   readonly model: string;
   readonly sessionId: string;
@@ -120,6 +121,7 @@ export function parseClaudeLine(line: string): UsageRecord | null {
 
   return {
     provider: "claude",
+    origin: usageOrigin(record["originator"] ?? record["source"]),
     timestampMs,
     model,
     sessionId: typeof record["sessionId"] === "string" ? record["sessionId"] : "",
@@ -150,6 +152,7 @@ export function parseClaudeLine(line: string): UsageRecord | null {
 export interface CodexScanState {
   model: string;
   sessionId: string;
+  origin: UsageOrigin;
   lastUsageSignature: string | null;
   sawSessionMeta: boolean;
   /** While true, leading usage events are re-stamped copies of parent history. */
@@ -161,6 +164,7 @@ export function initialCodexScanState(): CodexScanState {
   return {
     model: "",
     sessionId: "",
+    origin: "unknown",
     lastUsageSignature: null,
     sawSessionMeta: false,
     suppressingForkCopies: false,
@@ -220,6 +224,7 @@ export function parseCodexLine(line: string, state: CodexScanState): UsageRecord
     state.sawSessionMeta = true;
     const id = payloadRecord["id"] ?? payloadRecord["session_id"];
     if (typeof id === "string") state.sessionId = id;
+    state.origin = usageOrigin(payloadRecord["originator"]);
     const metaTimestampMs = parseTimestampMs(record["timestamp"]);
     if (metaTimestampMs !== null && isForkedSessionMeta(payloadRecord)) {
       state.suppressingForkCopies = true;
@@ -285,6 +290,7 @@ export function parseCodexLine(line: string, state: CodexScanState): UsageRecord
 
   return {
     provider: "codex",
+    origin: state.origin,
     timestampMs,
     model: state.model,
     sessionId: state.sessionId,
@@ -295,6 +301,13 @@ export function parseCodexLine(line: string, state: CodexScanState): UsageRecord
     // rollout, so they need no global dedup.
     dedupeKey: null,
   };
+}
+
+function usageOrigin(value: unknown): UsageOrigin {
+  if (typeof value !== "string") return "unknown";
+  if (value.startsWith("t3code_")) return "t3";
+  if (value === "codex-tui" || value.includes("cli")) return "terminal";
+  return "unknown";
 }
 
 export { EMPTY_TOTALS };

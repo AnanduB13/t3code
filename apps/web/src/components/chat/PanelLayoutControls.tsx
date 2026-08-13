@@ -4,9 +4,11 @@ import {
   Minimize2Icon,
   PanelBottomIcon,
   PanelRightIcon,
+  PanelsTopLeftIcon,
 } from "lucide-react";
 import { memo } from "react";
 
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -25,6 +27,9 @@ interface PanelLayoutControlsProps {
   onToggleTerminal: () => void;
   onToggleBrowser: () => void;
   onToggleRightPanel: () => void;
+  chatPaneCount?: number | undefined;
+  chatLayoutColumns?: number | undefined;
+  onSetChatLayout?: ((count: number, columns: number) => void) | undefined;
 }
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
@@ -41,6 +46,9 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleTerminal,
   onToggleBrowser,
   onToggleRightPanel,
+  chatPaneCount,
+  chatLayoutColumns,
+  onSetChatLayout,
 }: PanelLayoutControlsProps) {
   return (
     <div
@@ -70,6 +78,45 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               : "Terminal drawer is unavailable"}
           </TooltipPopup>
         </Tooltip>
+      ) : null}
+      {onSetChatLayout ? (
+        <Menu>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <MenuTrigger
+                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm hover:bg-muted"
+                  aria-label={`Chat layout, ${chatPaneCount ?? 1} panes`}
+                >
+                  <PanelsTopLeftIcon className="size-3.5" />
+                </MenuTrigger>
+              }
+            />
+            <TooltipPopup side="bottom">Chat layout</TooltipPopup>
+          </Tooltip>
+          <MenuPopup align="end" className="w-52">
+            {[
+              { label: "Single chat", count: 1, columns: 1 },
+              { label: "Two side by side", count: 2, columns: 2 },
+              { label: "Two stacked", count: 2, columns: 1 },
+              { label: "Four chats", count: 4, columns: 2 },
+              { label: "Six chats", count: 6, columns: 3 },
+              { label: "Nine chats", count: 9, columns: 3 },
+              { label: "Twelve chats", count: 12, columns: 4 },
+              { label: "Sixteen chats", count: 16, columns: 4 },
+            ].map((layout) => (
+              <MenuItem
+                key={`${layout.count}:${layout.columns}`}
+                onClick={() => onSetChatLayout(layout.count, layout.columns)}
+              >
+                <span className="flex-1">{layout.label}</span>
+                {chatPaneCount === layout.count && chatLayoutColumns === layout.columns ? (
+                  <span className="text-xs text-muted-foreground">Active</span>
+                ) : null}
+              </MenuItem>
+            ))}
+          </MenuPopup>
+        </Menu>
       ) : null}
       <Tooltip>
         <TooltipTrigger

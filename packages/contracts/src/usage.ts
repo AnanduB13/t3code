@@ -12,6 +12,7 @@
  *
  * @module usage
  */
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -25,6 +26,9 @@ export const USAGE_CONTRACT_VERSION = 3 as const;
 
 export const UsageProviderKind = Schema.Literals(["claude", "codex"]);
 export type UsageProviderKind = typeof UsageProviderKind.Type;
+
+export const UsageOrigin = Schema.Literals(["t3", "terminal", "unknown"]);
+export type UsageOrigin = typeof UsageOrigin.Type;
 
 /**
  * A calendar day in the reporting time zone, formatted `YYYY-MM-DD`.
@@ -78,6 +82,14 @@ export type UsageTokenTotals = typeof UsageTokenTotals.Type;
 export const UsageBucket = Schema.Struct({
   day: UsageDay,
   provider: UsageProviderKind,
+  // Origin was added without changing the rest of the usage wire format. A
+  // default keeps version-3 servers and clients interoperable while they are
+  // upgraded independently; only the origin split is unavailable for legacy
+  // buckets.
+  origin: UsageOrigin.pipe(
+    Schema.optional,
+    Schema.withDecodingDefault(Effect.succeed("unknown" as const)),
+  ),
   model: TrimmedNonEmptyString,
   totals: UsageTokenTotals,
   costUsd: Schema.Number,

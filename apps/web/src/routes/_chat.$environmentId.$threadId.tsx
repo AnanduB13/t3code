@@ -1,12 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import ChatView from "../components/ChatView";
+import { ChatWorkspace } from "../components/chat/ChatWorkspace";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import { resolveThreadRouteRef, resolveThreadRouteRenderState } from "../threadRoutes";
-import { resolveThreadSyncPhase } from "../threadSync";
-import { SidebarInset } from "~/components/ui/sidebar";
 import {
   useEnvironmentThreadRefs,
   useThreadDetail,
@@ -49,11 +47,6 @@ function ChatThreadRouteView() {
     serverThreadDetailDeleted: serverThreadStatus === "deleted",
     draftThreadExists,
   });
-  const threadSyncPhase = resolveThreadSyncPhase({
-    detailExists: serverThreadDetail !== null,
-    shellExists: serverThreadShell !== null,
-    status: serverThreadStatus,
-  });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
 
@@ -78,18 +71,9 @@ function ChatThreadRouteView() {
     return null;
   }
 
-  return (
-    <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
-      {renderState === "ready" || (renderState === "loading" && serverThreadShell !== null) ? (
-        <ChatView
-          environmentId={threadRef.environmentId}
-          threadId={threadRef.threadId}
-          routeKind="server"
-          threadSyncPhase={threadSyncPhase}
-        />
-      ) : null}
-    </SidebarInset>
-  );
+  return renderState === "ready" || (renderState === "loading" && serverThreadShell !== null) ? (
+    <ChatWorkspace routeThreadRef={threadRef} />
+  ) : null;
 }
 
 export const Route = createFileRoute("/_chat/$environmentId/$threadId")({

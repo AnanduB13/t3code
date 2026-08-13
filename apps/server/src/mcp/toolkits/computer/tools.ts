@@ -43,6 +43,8 @@ const navigationAction = <T extends Tool.Any>(tool: T): T =>
     .annotate(Tool.OpenWorld, true)
     .annotate(Tool.Destructive, false)
     .annotate(Tool.Idempotent, true) as T;
+const observation = <T extends Tool.Any>(tool: T): T =>
+  tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, false) as T;
 
 export const ComputerListDevicesTool = readonly(
   Tool.make("computer_list_devices", {
@@ -77,7 +79,7 @@ export const ComputerListAppsTool = readonly(
   }).annotate(Tool.Title, "List desktop applications"),
 );
 
-export const ComputerGetAppStateTool = readonly(
+export const ComputerGetAppStateTool = observation(
   Tool.make("computer_get_app_state", {
     description:
       "Observe one exact window before acting. Pass windowId from computer_list_apps. Returns a cropped PNG, a fresh observationId, a hierarchical accessibility tree with parent/depth, focus, enabled and interactive state, screenshot-relative rectangles, and explicit coordinate scaling. Use role + label + ancestry to understand navigation. The app title fallback is only for a unique exact match.",
