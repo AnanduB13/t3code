@@ -11,6 +11,45 @@ export interface ChatWorkspaceLayout {
   readonly paneThreadKeys: readonly string[];
   readonly activePaneIndex: number;
   readonly columns: number;
+  readonly columnWeights: readonly number[];
+  readonly rowWeights: readonly number[];
+}
+
+export type ChatWorkspaceAxis = "columns" | "rows";
+
+export function normalizeChatWorkspaceWeights(
+  value: readonly number[] | undefined,
+  count: number,
+): number[] {
+  const normalizedCount = Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 1;
+  return Array.from({ length: normalizedCount }, (_, index) => {
+    const weight = value?.[index];
+    return typeof weight === "number" && Number.isFinite(weight) && weight > 0 ? weight : 1;
+  });
+}
+
+export function resizeAdjacentChatWorkspaceWeights(
+  weights: readonly number[],
+  dividerIndex: number,
+  delta: number,
+  minimumWeight: number,
+): number[] {
+  const next = [...weights];
+  const first = next[dividerIndex];
+  const second = next[dividerIndex + 1];
+  if (first === undefined || second === undefined || !Number.isFinite(delta)) return next;
+  const pairWeight = first + second;
+  const clampedMinimum = Math.min(
+    Math.max(0, minimumWeight),
+    Math.max(0, pairWeight / 2 - Number.EPSILON),
+  );
+  const resizedFirst = Math.min(
+    pairWeight - clampedMinimum,
+    Math.max(clampedMinimum, first + delta),
+  );
+  next[dividerIndex] = resizedFirst;
+  next[dividerIndex + 1] = pairWeight - resizedFirst;
+  return next;
 }
 
 export function normalizeChatWorkspaceLayout(
@@ -30,7 +69,14 @@ export function normalizeChatWorkspaceLayout(
     Math.max(1, Math.floor(value.columns ?? Math.ceil(Math.sqrt(panes.length)))),
     panes.length,
   );
-  return { paneThreadKeys: panes, activePaneIndex, columns };
+  const rows = Math.ceil(panes.length / columns);
+  return {
+    paneThreadKeys: panes,
+    activePaneIndex,
+    columns,
+    columnWeights: normalizeChatWorkspaceWeights(value.columnWeights, columns),
+    rowWeights: normalizeChatWorkspaceWeights(value.rowWeights, rows),
+  };
 }
 
 export function resizeChatWorkspaceLayout(
@@ -46,10 +92,16 @@ export function resizeChatWorkspaceLayout(
   const grew = nextCount > layout.paneThreadKeys.length;
   const activePaneIndex = Math.min(layout.activePaneIndex, nextCount - 1);
   if (!grew && layout.activePaneIndex >= nextCount) paneThreadKeys[activePaneIndex] = activeKey;
+  const nextColumns = Math.min(Math.max(1, Math.floor(columns)), nextCount);
   return {
     paneThreadKeys,
     activePaneIndex,
-    columns: Math.min(Math.max(1, Math.floor(columns)), nextCount),
+    columns: nextColumns,
+    columnWeights: normalizeChatWorkspaceWeights(layout.columnWeights, nextColumns),
+    rowWeights: normalizeChatWorkspaceWeights(
+      layout.rowWeights,
+      Math.ceil(nextCount / nextColumns),
+    ),
   };
 }
 
@@ -68,6 +120,7 @@ interface ChatWorkspaceLayoutStore extends ChatWorkspaceLayout {
   syncRoute: (threadRef: ScopedThreadRef) => void;
   activatePane: (index: number) => void;
   setLayout: (count: number, columns: number) => void;
+  setAxisWeights: (axis: ChatWorkspaceAxis, weights: readonly number[]) => void;
   reset: (threadRef: ScopedThreadRef) => void;
 }
 
@@ -77,6 +130,8 @@ export const useChatWorkspaceLayoutStore = create<ChatWorkspaceLayoutStore>()(
       paneThreadKeys: [],
       activePaneIndex: 0,
       columns: 1,
+      columnWeights: [1],
+      rowWeights: [1],
       syncRoute: (threadRef) =>
         set((state) => {
           const normalized = normalizeChatWorkspaceLayout(state, threadRef);
@@ -95,18 +150,39 @@ export const useChatWorkspaceLayoutStore = create<ChatWorkspaceLayoutStore>()(
         })),
       setLayout: (count, columns) =>
         set((state) => resizeChatWorkspaceLayout(state, count, columns)),
+      setAxisWeights: (axis, weights) =>
+        set((state) => {
+          const paneCount = Math.max(1, state.paneThreadKeys.length);
+          const columnCount = Math.min(Math.max(1, state.columns), paneCount);
+          return axis === "columns"
+            ? { columnWeights: normalizeChatWorkspaceWeights(weights, columnCount) }
+            : {
+                rowWeights: normalizeChatWorkspaceWeights(
+                  weights,
+                  Math.ceil(paneCount / columnCount),
+                ),
+              };
+        }),
       reset: (threadRef) =>
-        set({ paneThreadKeys: [scopedThreadKey(threadRef)], activePaneIndex: 0, columns: 1 }),
+        set({
+          paneThreadKeys: [scopedThreadKey(threadRef)],
+          activePaneIndex: 0,
+          columns: 1,
+          columnWeights: [1],
+          rowWeights: [1],
+        }),
     }),
     {
       name: "t3code:chat-workspace-layout:v1",
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
-      partialize: ({ paneThreadKeys, activePaneIndex, columns }) => ({
+      partialize: ({ paneThreadKeys, activePaneIndex, columns, columnWeights, rowWeights }) => ({
         paneThreadKeys,
         activePaneIndex,
         columns,
+        columnWeights,
+        rowWeights,
       }),
     },
   ),

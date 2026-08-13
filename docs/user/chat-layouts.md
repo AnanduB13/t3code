@@ -8,6 +8,10 @@ to open that thread in the selected pane. Keyboard shortcuts and typing are alwa
 active pane. Each pane keeps its own chat scroll position, composer, terminal drawer, and right
 panel.
 
+Drag the divider between chat columns or rows to give one side more room. T3 Code remembers split
+sizes across reloads. You can also focus a divider with the keyboard and adjust it with the arrow
+keys; hold Shift for a larger step.
+
 Choosing a smaller layout keeps the active chat. Choosing **Single chat** returns to the normal
 one-chat view. The selected layout is restored the next time the app opens. On narrow screens, T3
 Code shows only the active pane while retaining the desktop layout.
