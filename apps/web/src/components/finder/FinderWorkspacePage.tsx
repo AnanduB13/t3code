@@ -11,6 +11,7 @@ import {
   HardDriveIcon,
   HomeIcon,
   ListIcon,
+  LoaderCircleIcon,
   PencilIcon,
   PlusIcon,
   SaveIcon,
@@ -33,6 +34,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 
 import FileBrowserPanel from "~/components/files/FileBrowserPanel";
 import { FinderCodeEditor } from "./FinderCodeEditor";
+import { resolveFinderEditorContents } from "./finderEditorContents";
 import { FinderSpreadsheetEditor } from "./FinderSpreadsheetEditor";
 import { clearFinderRevealRequest, readFinderRevealRequest } from "./finderNavigation";
 
@@ -252,6 +254,12 @@ export function FinderWorkspacePage() {
     openRelativePath,
     Boolean(environmentId && activeFileRoot && openRelativePath),
   );
+  const editorContents = resolveFinderEditorContents({
+    requestedPath: openRelativePath,
+    file: file.data,
+    localContents: contents,
+    dirty,
+  });
   useEffect(() => {
     if (!file.data || file.data.relativePath !== openRelativePath || dirty) return;
     setContents(file.data.contents);
@@ -640,10 +648,10 @@ export function FinderWorkspacePage() {
               <p className="text-sm font-medium">This file cannot be opened as text</p>
               <p className="max-w-md text-xs leading-5 text-muted-foreground">{file.error}</p>
             </div>
-          ) : openFilePath ? (
+          ) : openFilePath && editorContents.ready ? (
             spreadsheetDelimiter ? (
               <FinderSpreadsheetEditor
-                contents={contents}
+                contents={editorContents.contents}
                 delimiter={spreadsheetDelimiter}
                 readOnly={Boolean(file.data?.truncated)}
                 onChange={setContents}
@@ -652,11 +660,15 @@ export function FinderWorkspacePage() {
               <FinderCodeEditor
                 cacheKey={`finder:${environmentId}:${openFilePath}`}
                 fileName={openRelativePath ?? selectedEntry?.name ?? "file"}
-                contents={contents}
+                contents={editorContents.contents}
                 readOnly={Boolean(file.data?.truncated)}
                 onChange={setContents}
               />
             )
+          ) : openFilePath ? (
+            <div className="flex flex-1 items-center justify-center text-muted-foreground">
+              <LoaderCircleIcon className="size-5 animate-spin" />
+            </div>
           ) : (
             <div
               className={
