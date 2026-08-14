@@ -113,17 +113,17 @@ describe("effectiveSettled", () => {
             running,
             pending,
             // Settled iff nothing blocks (pending work / live session) AND
-            // the override says settled, or (with no override) a merged PR
-            // or staleness auto-settles. The "active" pin suppresses both
-            // auto signals, and an open PR suppresses the inactivity path:
+            // the override says settled, or (with no override) staleness
+            // auto-settles. The "active" pin suppresses that auto signal,
+            // and an open PR suppresses the inactivity path:
             // a thread with a PR out for review is never done, however quiet.
             expected:
               pending === undefined &&
               !running &&
               (settledOverride === "settled" ||
                 (settledOverride === null &&
-                  (changeRequestState === "merged" ||
-                    (changeRequestState !== "open" && inactivity === "stale")))),
+                  changeRequestState !== "open" &&
+                  inactivity === "stale")),
           })),
         ),
       ),
@@ -154,27 +154,36 @@ describe("effectiveSettled", () => {
     },
   );
 
-  it("treats closed change requests like merged ones", () => {
-    const shell = makeShell({ activityAt: null });
-    expect(
-      effectiveSettled(shell, {
-        now: NOW,
-        autoSettleAfterDays: null,
-        changeRequestState: "closed",
-      }),
-    ).toBe(true);
-  });
-
-  it("settles immediately when a change request merges or closes", () => {
+  it("does not settle immediately when a change request merges or closes", () => {
     const recentlyActive = makeShell({ activityAt: "2026-04-09T23:59:59.999Z" });
     for (const changeRequestState of ["merged", "closed"] as const) {
       expect(
         effectiveSettled(recentlyActive, {
           now: NOW,
-          autoSettleAfterDays: null,
+          autoSettleAfterDays: 3,
+          changeRequestState,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("applies the normal inactivity setting after a change request merges or closes", () => {
+    const stale = makeShell({ activityAt: STALE });
+    for (const changeRequestState of ["merged", "closed"] as const) {
+      expect(
+        effectiveSettled(stale, {
+          now: NOW,
+          autoSettleAfterDays: 3,
           changeRequestState,
         }),
       ).toBe(true);
+      expect(
+        effectiveSettled(stale, {
+          now: NOW,
+          autoSettleAfterDays: null,
+          changeRequestState,
+        }),
+      ).toBe(false);
     }
   });
 

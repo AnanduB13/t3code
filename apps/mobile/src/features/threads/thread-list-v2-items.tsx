@@ -365,8 +365,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly canMovePinnedDown?: boolean;
   readonly onSwipeableWillOpen: (methods: SwipeableMethods) => void;
   readonly onSwipeableClose: (methods: SwipeableMethods) => void;
-  /** Reports this row's live PR state up so the partition can auto-settle
-      merged/closed work (mirrors web's onChangeRequestState). */
+  /** Reports this row's live PR state up so the partition can keep open-PR
+      work out of inactivity auto-settle (mirrors web's onChangeRequestState). */
   readonly onChangeRequestState?: (
     threadKey: string,
     state: "open" | "closed" | "merged" | null,
