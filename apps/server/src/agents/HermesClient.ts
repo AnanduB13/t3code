@@ -1,7 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off preferSchemaOverJson:off - This module is an HTTP boundary around an external non-Effect service.
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import {
   HermesAgentError,
@@ -23,6 +24,7 @@ interface HermesClientOptions {
   readonly envFile?: string;
   readonly configFile?: string;
   readonly cronJobsFile?: string;
+  readonly command?: (args: readonly string[]) => Promise<{ stdout: string; stderr: string }>;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -84,12 +86,18 @@ export function normalizeHermesCronJob(value: unknown): HermesCronJob {
   const id = nullableString(row.id)?.trim();
   if (!id) throw new Error("Hermes returned a cron job without an id.");
   const repeat = object(row.repeat);
+  const schedule = object(row.schedule);
   return {
     id,
     name: nullableString(row.name)?.trim() || `Scheduled task ${id}`,
     prompt: nullableString(row.prompt) ?? "",
-    scheduleDisplay:
-      nullableString(row.schedule_display) ?? nullableString(object(row.schedule).display),
+    schedule:
+      nullableString(schedule.expr) ??
+      nullableString(row.schedule_display) ??
+      nullableString(schedule.display),
+    scheduleDisplay: nullableString(row.schedule_display) ?? nullableString(schedule.display),
+    workdir: nullableString(row.workdir),
+    delivery: nullableString(row.deliver),
     enabled: row.enabled !== false,
     state: nullableString(row.state) ?? (row.enabled === false ? "paused" : "scheduled"),
     nextRunAt: timestampString(row.next_run_at),
@@ -151,6 +159,7 @@ export class HermesClient {
   readonly #envFile: string;
   readonly #configFile: string;
   readonly #cronJobsFile: string;
+  readonly #command: (args: readonly string[]) => Promise<{ stdout: string; stderr: string }>;
   #apiKeyPromise: Promise<string | undefined> | undefined;
   readonly #cronRunResponseCache = new Map<
     string,
@@ -166,16 +175,53 @@ export class HermesClient {
     this.#explicitApiKey =
       options.apiKey ?? process.env.HERMES_API_KEY ?? process.env.API_SERVER_KEY;
     this.#fetch = options.fetch ?? globalThis.fetch;
-    this.#envFile = options.envFile ?? join(homedir(), ".hermes", ".env");
-    this.#configFile = options.configFile ?? join(homedir(), ".hermes", "config.yaml");
-    this.#cronJobsFile = options.cronJobsFile ?? join(homedir(), ".hermes", "cron", "jobs.json");
+    this.#envFile = options.envFile ?? NodePath.join(NodeOS.homedir(), ".hermes", ".env");
+    this.#configFile =
+      options.configFile ?? NodePath.join(NodeOS.homedir(), ".hermes", "config.yaml");
+    this.#cronJobsFile =
+      options.cronJobsFile ?? NodePath.join(NodeOS.homedir(), ".hermes", "cron", "jobs.json");
+    this.#command =
+      options.command ??
+      ((args) =>
+        new Promise((resolve, reject) => {
+          NodeChildProcess.execFile(
+            process.env.HERMES_CLI_PATH ?? "hermes",
+            [...args],
+            { timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024, encoding: "utf8" },
+            (error, stdout, stderr) => {
+              if (error) {
+                reject(
+                  new Error(
+                    stderr.trim() || stdout.trim() || error.message || "Hermes command failed.",
+                  ),
+                );
+                return;
+              }
+              resolve({ stdout, stderr });
+            },
+          );
+        }));
+  }
+
+  async #timezone(): Promise<string> {
+    const [envContents, configContents] = await Promise.all([
+      NodeFSP.readFile(this.#envFile, "utf8").catch(() => ""),
+      NodeFSP.readFile(this.#configFile, "utf8").catch(() => ""),
+    ]);
+    return (
+      process.env.HERMES_TIMEZONE ??
+      parseEnvValue(envContents, "HERMES_TIMEZONE") ??
+      parseConfigValue(configContents, "timezone") ??
+      Intl.DateTimeFormat().resolvedOptions().timeZone ??
+      "UTC"
+    );
   }
 
   async #apiKey(): Promise<string | undefined> {
     if (this.#explicitApiKey) return this.#explicitApiKey;
     this.#apiKeyPromise ??= Promise.all([
-      readFile(this.#envFile, "utf8").catch(() => ""),
-      readFile(this.#configFile, "utf8").catch(() => ""),
+      NodeFSP.readFile(this.#envFile, "utf8").catch(() => ""),
+      NodeFSP.readFile(this.#configFile, "utf8").catch(() => ""),
     ]).then(
       ([envContents, configContents]) =>
         parseEnvValue(envContents, "API_SERVER_KEY") ??
@@ -246,6 +292,7 @@ export class HermesClient {
       return {
         available: true,
         endpoint: this.endpoint,
+        timezone: await this.#timezone(),
         ...(nullableString(health.version) ? { version: nullableString(health.version)! } : {}),
         ...(nullableString(firstModel.id) ? { model: nullableString(firstModel.id)! } : {}),
       };
@@ -284,13 +331,97 @@ export class HermesClient {
       const payload = await this.#request("/api/cron/jobs?profile=all");
       rows = Array.isArray(payload) ? payload : [];
     } catch (apiError) {
-      const filePayload = await readFile(this.#cronJobsFile, "utf8")
+      const filePayload = await NodeFSP.readFile(this.#cronJobsFile, "utf8")
         .then((contents) => object(JSON.parse(contents)))
         .catch(() => null);
       if (filePayload === null) throw apiError;
       rows = Array.isArray(filePayload.jobs) ? filePayload.jobs : [];
     }
     return { jobs: rows.map(normalizeHermesCronJob) };
+  }
+
+  async #cronCommand(operation: string, args: readonly string[]) {
+    try {
+      return await this.#command(["cron", ...args]);
+    } catch (cause) {
+      throw new HermesAgentError({
+        operation,
+        message: cause instanceof Error ? cause.message : "Hermes could not update the schedule.",
+      });
+    }
+  }
+
+  async #cronJob(jobId: string): Promise<HermesCronJob> {
+    const job = (await this.listCronJobs()).jobs.find((candidate) => candidate.id === jobId);
+    if (job) return job;
+    throw new HermesAgentError({
+      operation: "read cron job",
+      message: "Hermes updated the schedule but did not return the task.",
+    });
+  }
+
+  async createCronJob(input: {
+    name: string;
+    prompt: string;
+    schedule: string;
+    workdir?: string | undefined;
+  }): Promise<HermesCronJob> {
+    const args = ["create", "--name", input.name.trim(), "--deliver", "local"];
+    if (input.workdir?.trim()) args.push("--workdir", input.workdir.trim());
+    args.push(input.schedule.trim(), input.prompt.trim());
+    const { stdout } = await this.#cronCommand("create cron job", args);
+    const id = stdout.match(/Created job:\s*([A-Za-z0-9_-]+)/i)?.[1];
+    if (!id) {
+      throw new HermesAgentError({
+        operation: "create cron job",
+        message: "Hermes created the schedule but did not report its id.",
+      });
+    }
+    return this.#cronJob(id);
+  }
+
+  async updateCronJob(input: {
+    jobId: string;
+    name: string;
+    prompt: string;
+    schedule: string;
+    workdir?: string | undefined;
+  }): Promise<HermesCronJob> {
+    await this.#cronCommand("update cron job", [
+      "edit",
+      input.jobId,
+      "--name",
+      input.name.trim(),
+      "--prompt",
+      input.prompt.trim(),
+      "--schedule",
+      input.schedule.trim(),
+      "--deliver",
+      "local",
+      "--workdir",
+      input.workdir?.trim() ?? "",
+    ]);
+    return this.#cronJob(input.jobId);
+  }
+
+  async pauseCronJob(jobId: string): Promise<HermesCronJob> {
+    await this.#cronCommand("pause cron job", ["pause", jobId]);
+    return this.#cronJob(jobId);
+  }
+
+  async resumeCronJob(jobId: string): Promise<HermesCronJob> {
+    await this.#cronCommand("resume cron job", ["resume", jobId]);
+    return this.#cronJob(jobId);
+  }
+
+  async runCronJob(jobId: string): Promise<HermesCronJob> {
+    await this.#cronCommand("run cron job", ["run", jobId]);
+    return this.#cronJob(jobId);
+  }
+
+  async deleteCronJob(jobId: string) {
+    await this.#cronCommand("delete cron job", ["remove", jobId]);
+    return { jobId, deleted: true };
   }
 
   async #cronRunResponse(session: HermesSession) {

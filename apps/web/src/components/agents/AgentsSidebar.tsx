@@ -37,9 +37,11 @@ export function AgentsSidebar() {
   const section = useAgentsSidebarStore((state) => state.section);
   const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
   const selectedSessionId = useAgentsSidebarStore((state) => state.selectedSessionId);
+  const taskFilter = useAgentsSidebarStore((state) => state.taskFilter);
   const setSection = useAgentsSidebarStore((state) => state.setSection);
   const setSelectedTaskId = useAgentsSidebarStore((state) => state.setSelectedTaskId);
   const setSelectedSessionId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
+  const setTaskFilter = useAgentsSidebarStore((state) => state.setTaskFilter);
   const status = useEnvironmentQuery(
     environmentId ? hermesAgentEnvironment.status({ environmentId, input: {} }) : null,
   );
@@ -62,6 +64,13 @@ export function AgentsSidebar() {
   const grouped = useMemo(
     () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
     [cronJobs.data?.jobs, sessions.data?.sessions],
+  );
+  const visibleTasks = useMemo(
+    () =>
+      taskFilter === "active"
+        ? grouped.tasks.filter((task) => task.job?.enabled === true)
+        : grouped.tasks,
+    [grouped.tasks, taskFilter],
   );
   const refresh = () => {
     sessions.refresh();
@@ -88,7 +97,7 @@ export function AgentsSidebar() {
                 className="justify-center gap-1.5"
               >
                 <ListTodoIcon className="size-3.5" />
-                Tasks
+                Scheduled
                 {grouped.tasks.length ? (
                   <span className="text-[10px]">{grouped.tasks.length}</span>
                 ) : null}
@@ -111,7 +120,25 @@ export function AgentsSidebar() {
       >
         <SidebarGroup className="px-2 pb-3 pt-1">
           <div className="flex items-center justify-between px-2 py-2 text-xs font-medium text-sidebar-muted-foreground">
-            <span>{section === "tasks" ? "Scheduled tasks" : "Hermes chats"}</span>
+            {section === "tasks" ? (
+              <div className="flex rounded-md bg-sidebar-row-hover p-0.5">
+                {(["active", "all"] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setTaskFilter(filter)}
+                    className={cn(
+                      "rounded px-2 py-1 capitalize",
+                      taskFilter === filter && "bg-background text-foreground shadow-sm",
+                    )}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span>Hermes chats</span>
+            )}
             <button
               type="button"
               aria-label={`Refresh ${section}`}
@@ -130,7 +157,7 @@ export function AgentsSidebar() {
               Hermes isn’t reachable
             </p>
           ) : section === "tasks" ? (
-            grouped.tasks.map((task) => (
+            visibleTasks.map((task) => (
               <button
                 key={task.id}
                 type="button"
@@ -166,9 +193,13 @@ export function AgentsSidebar() {
             ))
           )}
           {connected &&
-          (section === "tasks" ? grouped.tasks.length === 0 : grouped.chats.length === 0) ? (
+          (section === "tasks" ? visibleTasks.length === 0 : grouped.chats.length === 0) ? (
             <p className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
-              {section === "tasks" ? "No scheduled tasks yet" : "No Hermes chats yet"}
+              {section === "tasks"
+                ? taskFilter === "active"
+                  ? "No active scheduled tasks"
+                  : "No scheduled tasks yet"
+                : "No Hermes chats yet"}
             </p>
           ) : null}
         </SidebarGroup>

@@ -18,7 +18,10 @@ const session = (values: Partial<HermesSession> & Pick<HermesSession, "id">): He
 const job = (values: Partial<HermesCronJob> & Pick<HermesCronJob, "id">): HermesCronJob => ({
   name: "",
   prompt: "",
+  schedule: null,
   scheduleDisplay: null,
+  workdir: null,
+  delivery: null,
   enabled: true,
   state: "scheduled",
   nextRunAt: null,

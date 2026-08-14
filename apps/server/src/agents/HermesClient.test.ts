@@ -69,7 +69,10 @@ describe("HermesClient", () => {
         id: "93fe4bee7e62",
         name: "GTA 6 Watch",
         prompt: "Check for news",
+        schedule: "every 60m",
         scheduleDisplay: "every 60m",
+        workdir: null,
+        delivery: null,
         enabled: true,
         state: "scheduled",
         nextRunAt: "2026-07-23T04:10:00Z",
@@ -194,6 +197,101 @@ describe("HermesClient", () => {
     const result = await client.listCronJobs();
     assert.strictEqual(result.jobs[0]?.name, "Daily brief");
     assert.strictEqual(result.jobs[0]?.scheduleDisplay, "every 24h");
+  });
+
+  it("creates local scheduled tasks with an optional project folder", async () => {
+    const commands: string[][] = [];
+    const client = new HermesClient({
+      endpoint: "http://hermes.test",
+      command: async (args) => {
+        commands.push([...args]);
+        return { stdout: "Created job: abcdef123456\n", stderr: "" };
+      },
+      fetch: async () =>
+        new Response(
+          JSON.stringify([
+            {
+              id: "abcdef123456",
+              name: "Daily health",
+              prompt: "Review the project",
+              schedule: { kind: "cron", expr: "0 9 * * *", display: "0 9 * * *" },
+              workdir: "/code/app",
+              deliver: "local",
+            },
+          ]),
+        ),
+    });
+
+    const job = await client.createCronJob({
+      name: "Daily health",
+      prompt: "Review the project",
+      schedule: "0 9 * * *",
+      workdir: "/code/app",
+    });
+
+    assert.deepStrictEqual(commands[0], [
+      "cron",
+      "create",
+      "--name",
+      "Daily health",
+      "--deliver",
+      "local",
+      "--workdir",
+      "/code/app",
+      "0 9 * * *",
+      "Review the project",
+    ]);
+    assert.strictEqual(job.id, "abcdef123456");
+    assert.strictEqual(job.schedule, "0 9 * * *");
+    assert.strictEqual(job.workdir, "/code/app");
+  });
+
+  it("edits and controls scheduled tasks through the Hermes CLI", async () => {
+    const commands: string[][] = [];
+    const client = new HermesClient({
+      endpoint: "http://hermes.test",
+      command: async (args) => {
+        commands.push([...args]);
+        return { stdout: "ok\n", stderr: "" };
+      },
+      fetch: async () =>
+        new Response(
+          JSON.stringify([{ id: "abcdef123456", name: "Review", prompt: "Review", enabled: true }]),
+        ),
+    });
+
+    await client.updateCronJob({
+      jobId: "abcdef123456",
+      name: "Weekly review",
+      prompt: "Review carefully",
+      schedule: "0 9 * * 1",
+    });
+    await client.pauseCronJob("abcdef123456");
+    await client.resumeCronJob("abcdef123456");
+    await client.runCronJob("abcdef123456");
+    await client.deleteCronJob("abcdef123456");
+
+    assert.deepStrictEqual(commands, [
+      [
+        "cron",
+        "edit",
+        "abcdef123456",
+        "--name",
+        "Weekly review",
+        "--prompt",
+        "Review carefully",
+        "--schedule",
+        "0 9 * * 1",
+        "--deliver",
+        "local",
+        "--workdir",
+        "",
+      ],
+      ["cron", "pause", "abcdef123456"],
+      ["cron", "resume", "abcdef123456"],
+      ["cron", "run", "abcdef123456"],
+      ["cron", "remove", "abcdef123456"],
+    ]);
   });
 
   it("falls back to the local Hermes cron store when the API lacks cron routes", async () => {

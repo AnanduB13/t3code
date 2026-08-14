@@ -211,6 +211,11 @@ import {
   HermesAgentError,
   HermesAgentStatus,
   HermesCronJobList,
+  HermesCronJob,
+  HermesCronJobIdInput,
+  HermesCreateCronJobInput,
+  HermesUpdateCronJobInput,
+  HermesDeleteCronJobResult,
   HermesCronRunList,
   HermesCronRunListInput,
   HermesCreateSessionInput,
@@ -320,6 +325,12 @@ export const WS_METHODS = {
   agentsHermesListSessions: "agents.hermes.sessions.list",
   agentsHermesListCronJobs: "agents.hermes.cron.list",
   agentsHermesListCronRuns: "agents.hermes.cron.runs.list",
+  agentsHermesCreateCronJob: "agents.hermes.cron.create",
+  agentsHermesUpdateCronJob: "agents.hermes.cron.update",
+  agentsHermesPauseCronJob: "agents.hermes.cron.pause",
+  agentsHermesResumeCronJob: "agents.hermes.cron.resume",
+  agentsHermesRunCronJob: "agents.hermes.cron.run",
+  agentsHermesDeleteCronJob: "agents.hermes.cron.delete",
   agentsHermesGetMessages: "agents.hermes.messages.list",
   agentsHermesCreateSession: "agents.hermes.sessions.create",
   agentsHermesUpdateSession: "agents.hermes.sessions.update",
@@ -384,6 +395,36 @@ export const WsHermesListCronJobsRpc = Rpc.make(WS_METHODS.agentsHermesListCronJ
 export const WsHermesListCronRunsRpc = Rpc.make(WS_METHODS.agentsHermesListCronRuns, {
   payload: HermesCronRunListInput,
   success: HermesCronRunList,
+  error: HermesRpcError,
+});
+export const WsHermesCreateCronJobRpc = Rpc.make(WS_METHODS.agentsHermesCreateCronJob, {
+  payload: HermesCreateCronJobInput,
+  success: HermesCronJob,
+  error: HermesRpcError,
+});
+export const WsHermesUpdateCronJobRpc = Rpc.make(WS_METHODS.agentsHermesUpdateCronJob, {
+  payload: HermesUpdateCronJobInput,
+  success: HermesCronJob,
+  error: HermesRpcError,
+});
+export const WsHermesPauseCronJobRpc = Rpc.make(WS_METHODS.agentsHermesPauseCronJob, {
+  payload: HermesCronJobIdInput,
+  success: HermesCronJob,
+  error: HermesRpcError,
+});
+export const WsHermesResumeCronJobRpc = Rpc.make(WS_METHODS.agentsHermesResumeCronJob, {
+  payload: HermesCronJobIdInput,
+  success: HermesCronJob,
+  error: HermesRpcError,
+});
+export const WsHermesRunCronJobRpc = Rpc.make(WS_METHODS.agentsHermesRunCronJob, {
+  payload: HermesCronJobIdInput,
+  success: HermesCronJob,
+  error: HermesRpcError,
+});
+export const WsHermesDeleteCronJobRpc = Rpc.make(WS_METHODS.agentsHermesDeleteCronJob, {
+  payload: HermesCronJobIdInput,
+  success: HermesDeleteCronJobResult,
   error: HermesRpcError,
 });
 export const WsHermesGetMessagesRpc = Rpc.make(WS_METHODS.agentsHermesGetMessages, {
@@ -1117,6 +1158,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsHermesListSessionsRpc,
   WsHermesListCronJobsRpc,
   WsHermesListCronRunsRpc,
+  WsHermesCreateCronJobRpc,
+  WsHermesUpdateCronJobRpc,
+  WsHermesPauseCronJobRpc,
+  WsHermesResumeCronJobRpc,
+  WsHermesRunCronJobRpc,
+  WsHermesDeleteCronJobRpc,
   WsHermesGetMessagesRpc,
   WsHermesCreateSessionRpc,
   WsHermesUpdateSessionRpc,

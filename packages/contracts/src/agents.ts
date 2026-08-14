@@ -8,6 +8,7 @@ export const HermesAgentStatus = Schema.Struct({
   version: Schema.optional(Schema.String),
   model: Schema.optional(Schema.String),
   message: Schema.optional(Schema.String),
+  timezone: Schema.optional(Schema.String),
 });
 export type HermesAgentStatus = typeof HermesAgentStatus.Type;
 
@@ -43,7 +44,10 @@ export const HermesCronJob = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: Schema.String,
   prompt: Schema.String,
+  schedule: Schema.optional(Schema.NullOr(Schema.String)),
   scheduleDisplay: Schema.NullOr(Schema.String),
+  workdir: Schema.optional(Schema.NullOr(Schema.String)),
+  delivery: Schema.optional(Schema.NullOr(Schema.String)),
   enabled: Schema.Boolean,
   state: Schema.String,
   nextRunAt: Schema.NullOr(Schema.String),
@@ -77,6 +81,28 @@ export const HermesCronRunList = Schema.Struct({
   runs: Schema.Array(HermesCronRun),
   total: Schema.Number,
   hasMore: Schema.Boolean,
+});
+
+export const HermesCreateCronJobInput = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  prompt: TrimmedNonEmptyString,
+  schedule: TrimmedNonEmptyString,
+  workdir: Schema.optional(TrimmedNonEmptyString),
+});
+
+export const HermesUpdateCronJobInput = Schema.Struct({
+  jobId: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  prompt: TrimmedNonEmptyString,
+  schedule: TrimmedNonEmptyString,
+  workdir: Schema.optional(Schema.String),
+});
+
+export const HermesCronJobIdInput = Schema.Struct({ jobId: TrimmedNonEmptyString });
+
+export const HermesDeleteCronJobResult = Schema.Struct({
+  jobId: TrimmedNonEmptyString,
+  deleted: Schema.Boolean,
 });
 
 export const HermesMessageList = Schema.Struct({

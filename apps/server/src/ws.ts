@@ -1505,6 +1505,42 @@ const makeWsRpcLayer = (
             hermesEffect("list cron runs", () => hermesClient.listCronRuns(jobId, limit)),
             { "rpc.aggregate": "agents", "agent.provider": "hermes" },
           ),
+        [WS_METHODS.agentsHermesCreateCronJob]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesCreateCronJob,
+            hermesEffect("create cron job", () => hermesClient.createCronJob(input)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesUpdateCronJob]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesUpdateCronJob,
+            hermesEffect("update cron job", () => hermesClient.updateCronJob(input)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesPauseCronJob]: ({ jobId }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesPauseCronJob,
+            hermesEffect("pause cron job", () => hermesClient.pauseCronJob(jobId)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesResumeCronJob]: ({ jobId }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesResumeCronJob,
+            hermesEffect("resume cron job", () => hermesClient.resumeCronJob(jobId)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesRunCronJob]: ({ jobId }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesRunCronJob,
+            hermesEffect("run cron job", () => hermesClient.runCronJob(jobId)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
+        [WS_METHODS.agentsHermesDeleteCronJob]: ({ jobId }) =>
+          observeRpcEffect(
+            WS_METHODS.agentsHermesDeleteCronJob,
+            hermesEffect("delete cron job", () => hermesClient.deleteCronJob(jobId)),
+            { "rpc.aggregate": "agents", "agent.provider": "hermes" },
+          ),
         [WS_METHODS.agentsHermesGetMessages]: ({ sessionId }) =>
           observeRpcEffect(
             WS_METHODS.agentsHermesGetMessages,

@@ -29,6 +29,30 @@ export const hermesAgentEnvironment = {
     tag: WS_METHODS.agentsHermesListCronRuns,
     staleTimeMs: 10_000,
   }),
+  createCronJob: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "hermes-agent:create-cron-job",
+    tag: WS_METHODS.agentsHermesCreateCronJob,
+  }),
+  updateCronJob: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "hermes-agent:update-cron-job",
+    tag: WS_METHODS.agentsHermesUpdateCronJob,
+  }),
+  pauseCronJob: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "hermes-agent:pause-cron-job",
+    tag: WS_METHODS.agentsHermesPauseCronJob,
+  }),
+  resumeCronJob: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "hermes-agent:resume-cron-job",
+    tag: WS_METHODS.agentsHermesResumeCronJob,
+  }),
+  runCronJob: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "hermes-agent:run-cron-job",
+    tag: WS_METHODS.agentsHermesRunCronJob,
+  }),
+  deleteCronJob: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "hermes-agent:delete-cron-job",
+    tag: WS_METHODS.agentsHermesDeleteCronJob,
+  }),
   messages: createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
     label: "web-hermes-agent-messages",
     tag: WS_METHODS.agentsHermesGetMessages,
