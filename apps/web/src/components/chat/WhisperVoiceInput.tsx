@@ -336,6 +336,8 @@ export function WhisperVoiceInput(props: {
       return;
     }
     try {
+      // Let model download and GPU initialization overlap microphone startup and permission UI.
+      preloadWhisper();
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -346,8 +348,6 @@ export function WhisperVoiceInput(props: {
         },
       });
       streamRef.current = stream;
-      // Start downloading/initializing the model while the user is speaking.
-      preloadWhisper();
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
       await audioContext.resume();
