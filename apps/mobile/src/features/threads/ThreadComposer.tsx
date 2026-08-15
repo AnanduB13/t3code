@@ -67,6 +67,7 @@ import { useComposerPathSearch } from "../../state/use-composer-path-search";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 import { ThreadSettingsSheet, threadSettingsSummaryLabel } from "./ThreadSettingsSheet";
 import { useThreadSettingsSheetPresentation } from "./use-thread-settings-sheet-presentation";
+import { SkillsSheet } from "./SkillsSheet";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -341,6 +342,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  const [isSkillsSheetVisible, setIsSkillsSheetVisible] = useState(false);
 
   // ── Trigger detection ────────────────────────────────────
   const [composerSelection, setComposerSelection] = useState(() => ({
@@ -381,6 +383,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     if (composerTrigger.kind === "slash-command") {
       const q = composerTrigger.query.toLowerCase();
       const allBuiltIn = [
+        {
+          id: "cmd:skills",
+          type: "slash-command" as const,
+          command: "skills",
+          label: "/skills",
+          description: "View and create skills",
+        },
         {
           id: "cmd:model",
           type: "slash-command" as const,
@@ -524,6 +533,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
 
   const handleSend = useCallback(async () => {
+    if (/^\/skills\s*$/i.test(props.draftMessage.trim())) {
+      props.onChangeDraftMessage("");
+      setComposerSelection({ start: 0, end: 0 });
+      setIsSkillsSheetVisible(true);
+      return;
+    }
     const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
     if (inFlightThreadIdsRef.current.has(threadKey)) return;
     inFlightThreadIdsRef.current.add(threadKey);
@@ -542,6 +557,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
   }, [
     onSendMessage,
+    props.draftMessage,
+    props.onChangeDraftMessage,
     props.environmentId,
     props.environmentLabel,
     props.selectedThread.id,
@@ -550,6 +567,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const handleCommandSelect = useCallback(
     (item: ComposerCommandItem) => {
       if (!composerTrigger) return;
+
+      if (item.type === "slash-command" && item.command === "skills") {
+        const result = replaceTextRange(
+          draftMessage,
+          composerTrigger.rangeStart,
+          composerTrigger.rangeEnd,
+          "",
+        );
+        setComposerSelection({ start: result.cursor, end: result.cursor });
+        onChangeDraftMessage(result.text);
+        setIsSkillsSheetVisible(true);
+        return;
+      }
 
       if (
         item.type === "slash-command" &&
@@ -847,6 +877,23 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         }
         runtimeMode={currentRuntimeMode}
         onUpdateRuntimeMode={props.onUpdateRuntimeMode}
+      />
+
+      <SkillsSheet
+        visible={isSkillsSheetVisible}
+        onClose={() => setIsSkillsSheetVisible(false)}
+        environmentId={props.environmentId}
+        cwd={props.projectCwd}
+        instanceId={currentModelSelection.instanceId}
+        provider={selectedProviderStatus}
+        onUseSkill={(skill) => {
+          const leadingSpace = props.draftMessage.length > 0 && !/\s$/.test(props.draftMessage);
+          const next = `${props.draftMessage}${leadingSpace ? " " : ""}$${skill.name} `;
+          props.onChangeDraftMessage(next);
+          setComposerSelection({ start: next.length, end: next.length });
+          setIsSkillsSheetVisible(false);
+          setTimeout(() => inputRef.current?.focus(), 50);
+        }}
       />
 
       <ImageViewing

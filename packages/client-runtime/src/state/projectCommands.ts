@@ -117,5 +117,15 @@ export function createProjectEnvironmentAtoms<R, E>(
       tag: WS_METHODS.projectsDeleteEntry,
       scheduler: fileScheduler,
     }),
+    createSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:create",
+      tag: WS_METHODS.skillsCreate,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.instanceId, input.name]),
+      },
+    }),
   };
 }

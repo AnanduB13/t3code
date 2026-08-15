@@ -68,6 +68,7 @@ import {
 } from "./orchestration.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import { ProviderUsageError, ProviderUsageResult } from "./providerUsage.ts";
+import { SkillCreateError, SkillCreateInput, SkillCreateResult } from "./skills.ts";
 import {
   ThreadGoalClearInput,
   ThreadGoalClearResult,
@@ -243,6 +244,9 @@ export const WS_METHODS = {
   projectsCreateEntry: "projects.createEntry",
   projectsMoveEntry: "projects.moveEntry",
   projectsDeleteEntry: "projects.deleteEntry",
+
+  // Skill methods
+  skillsCreate: "skills.create",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -809,6 +813,12 @@ export const WsProjectsDeleteEntryRpc = Rpc.make(WS_METHODS.projectsDeleteEntry,
   error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
 });
 
+export const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
+  payload: SkillCreateInput,
+  success: SkillCreateResult,
+  error: Schema.Union([SkillCreateError, EnvironmentAuthorizationError]),
+});
+
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -1221,6 +1231,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsCreateEntryRpc,
   WsProjectsMoveEntryRpc,
   WsProjectsDeleteEntryRpc,
+  WsSkillsCreateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAssetsCreateUrlRpc,

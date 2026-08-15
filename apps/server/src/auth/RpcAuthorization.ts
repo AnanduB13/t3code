@@ -97,6 +97,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.projectsCreateEntry]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsMoveEntry]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsDeleteEntry]: AuthOrchestrationOperateScope,
+  [WS_METHODS.skillsCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.shellOpenInEditor]: AuthOrchestrationOperateScope,
   [WS_METHODS.filesystemBrowse]: AuthOrchestrationReadScope,
   [WS_METHODS.assetsCreateUrl]: AuthOrchestrationReadScope,

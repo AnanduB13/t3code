@@ -236,6 +236,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 import { WhisperVoiceInput } from "./WhisperVoiceInput";
 import { insertTranscriptAtCursor } from "../../lib/whisperAudio";
+import { SkillsDialog } from "./SkillsDialog";
 
 const runtimeModeConfig: Record<
   RuntimeMode,
@@ -973,6 +974,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+  const [isSkillsDialogOpen, setIsSkillsDialogOpen] = useState(false);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
@@ -1085,6 +1087,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               },
             ]
           : []),
+        {
+          id: "slash:skills",
+          type: "slash-command",
+          command: "skills",
+          label: "/skills",
+          description: "View and create skills for this project",
+        },
         {
           id: "slash:model",
           type: "slash-command",
@@ -1754,6 +1763,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           if (applied) {
             setComposerHighlightedItemId(null);
             setIsComposerModelPickerOpen(true);
+          }
+          return;
+        }
+        if (item.command === "skills") {
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+            focusEditorAfterReplace: false,
+          });
+          if (applied) {
+            setComposerHighlightedItemId(null);
+            setIsSkillsDialogOpen(true);
           }
           return;
         }
@@ -2516,6 +2536,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     );
   };
 
+  const useSkillFromDialog = (skill: ServerProvider["skills"][number]) => {
+    const inserted = insertComposerTextAtEnd(`$${skill.name} `, {
+      ensureLeadingBoundary: true,
+    });
+    if (inserted) {
+      setIsSkillsDialogOpen(false);
+      scheduleComposerFocus();
+    }
+  };
+
   // File-tree drags land as mentions. Handled in the capture phase so the
   // editor never sees the drop; the load-bearing rules (native stop, "move"
   // effect, no eager focus) live in makeComposerMentionDragHandlers.
@@ -2743,6 +2773,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       className="mx-auto w-full min-w-0 max-w-3xl"
       data-chat-composer-form="true"
     >
+      <SkillsDialog
+        open={isSkillsDialogOpen}
+        onOpenChange={setIsSkillsDialogOpen}
+        environmentId={environmentId}
+        cwd={gitCwd}
+        instanceId={selectedInstanceId}
+        provider={selectedProvider}
+        skills={selectedProviderStatus?.skills ?? []}
+        onUseSkill={useSkillFromDialog}
+      />
       <div
         className={cn(
           "group rounded-[22px] p-px transition-colors duration-200",

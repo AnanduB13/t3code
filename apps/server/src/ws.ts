@@ -42,6 +42,7 @@ import {
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
+  SkillCreateError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
   type ServerSelfUpdateError,
@@ -84,6 +85,7 @@ import {
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
+import { createProjectSkill } from "./provider/SkillCreator.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -2014,6 +2016,27 @@ const makeWsRpcLayer = (
                   }),
               ),
             ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.skillsCreate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.skillsCreate,
+            Effect.gen(function* () {
+              const providers = yield* providerRegistry.getProviders;
+              const provider = providers.find(
+                (candidate) => candidate.instanceId === input.instanceId,
+              );
+              if (!provider) {
+                return yield* new SkillCreateError({
+                  failure: "provider_not_found",
+                  message: "The selected provider instance is unavailable.",
+                });
+              }
+              const result = yield* createProjectSkill(input, provider.driver);
+              yield* workspaceEntries.refresh(input.cwd);
+              yield* providerRegistry.refreshInstance(input.instanceId);
+              return result;
+            }),
             { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
