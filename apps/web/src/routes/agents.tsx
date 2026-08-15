@@ -6,7 +6,6 @@ import {
   CopyPlusIcon,
   LoaderCircleIcon,
   ListTodoIcon,
-  MessageSquareIcon,
   MessageSquarePlusIcon,
   PencilIcon,
   PauseIcon,
@@ -166,7 +165,9 @@ function HermesMessageView({ message }: { readonly message: HermesMessage }) {
   );
 }
 
-function AgentsRouteView() {
+export type HermesWorkspaceSection = "tasks" | "chats";
+
+export function HermesWorkspaceView({ section }: { readonly section: HermesWorkspaceSection }) {
   const environmentId = usePrimaryEnvironmentId();
   const selectedId = useAgentsSidebarStore((state) => state.selectedSessionId);
   const setSelectedId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
@@ -184,8 +185,6 @@ function AgentsRouteView() {
     readonly total: number;
     readonly hasMore: boolean;
   } | null>(null);
-  const section = useAgentsSidebarStore((state) => state.section);
-  const setSection = useAgentsSidebarStore((state) => state.setSection);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -210,7 +209,7 @@ function AgentsRouteView() {
       : null,
   );
   const cronJobs = useEnvironmentQuery(
-    environmentId && connected
+    environmentId && connected && section === "tasks"
       ? hermesAgentEnvironment.cronJobs({ environmentId, input: {} })
       : null,
   );
@@ -231,7 +230,7 @@ function AgentsRouteView() {
   );
   const visibleSessions = grouped.chats;
   const taskRuns = useEnvironmentQuery(
-    environmentId && connected && selectedTaskId
+    environmentId && connected && section === "tasks" && selectedTaskId
       ? hermesAgentEnvironment.cronRuns({
           environmentId,
           input: { jobId: selectedTaskId, limit: taskRunLimit },
@@ -430,7 +429,6 @@ function AgentsRouteView() {
     if (!environmentId) return;
     const result = await createSession({ environmentId, input: {} });
     if (AsyncResult.isSuccess(result)) {
-      setSection("chats");
       setSelectedId(result.value.id);
       sessions.refresh();
       return;
@@ -529,8 +527,14 @@ function AgentsRouteView() {
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
-          <BotIcon className="size-4" />
-          <span className="text-sm font-semibold">Agents</span>
+          {section === "tasks" ? (
+            <CalendarClockIcon className="size-4" />
+          ) : (
+            <BotIcon className="size-4" />
+          )}
+          <span className="text-sm font-semibold">
+            {section === "tasks" ? "Scheduled" : "Agents"}
+          </span>
           <Badge
             variant={connected ? "success" : connectionState === "error" ? "error" : "outline"}
           >
@@ -600,32 +604,6 @@ function AgentsRouteView() {
         ) : (
           <div className="flex min-h-0 flex-1">
             <aside className="hidden min-h-0 border-r border-border bg-muted/10">
-              <div className="grid grid-cols-2 gap-1 border-b border-border p-2">
-                <Button
-                  size="sm"
-                  variant={section === "tasks" ? "secondary" : "ghost"}
-                  onClick={() => setSection("tasks")}
-                >
-                  <ListTodoIcon className="size-3.5" /> Scheduled
-                  {grouped.tasks.length ? (
-                    <span className="text-[10px] text-muted-foreground">
-                      {grouped.tasks.length}
-                    </span>
-                  ) : null}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={section === "chats" ? "secondary" : "ghost"}
-                  onClick={() => setSection("chats")}
-                >
-                  <MessageSquareIcon className="size-3.5" /> Chats
-                  {grouped.chats.length ? (
-                    <span className="text-[10px] text-muted-foreground">
-                      {grouped.chats.length}
-                    </span>
-                  ) : null}
-                </Button>
-              </div>
               <div className="flex items-center justify-between px-3 py-3">
                 {section === "tasks" ? (
                   <div className="flex rounded-md bg-muted p-0.5">
@@ -1035,5 +1013,5 @@ export const Route = createFileRoute("/agents")({
       throw redirect({ to: "/pair", replace: true });
     }
   },
-  component: AgentsRouteView,
+  component: () => <HermesWorkspaceView section="chats" />,
 });

@@ -1,6 +1,6 @@
 # Scheduled tasks
 
-Scheduled tasks let Hermes run a prompt repeatedly without starting it by hand. Open **Agents**, select **Scheduled**, and choose **New scheduled task**.
+Scheduled tasks let Hermes run a prompt repeatedly without starting it by hand. Open **Scheduled** beneath Agents in the main sidebar, then choose **New scheduled task**.
 
 Each task has a title, an instruction, a schedule, and an optional project folder. You can schedule daily, weekly, or monthly work at a specific time, or enter a custom Hermes schedule. Selecting a project gives the agent that folder as its working directory and loads its project instructions; selecting the agent workspace runs without project context.
 

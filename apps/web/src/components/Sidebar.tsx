@@ -1609,8 +1609,9 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
-  const isAgentsRoute = useLocation({
-    select: (location) => location.pathname.startsWith("/agents"),
+  const isHermesRoute = useLocation({
+    select: (location) =>
+      location.pathname.startsWith("/agents") || location.pathname.startsWith("/scheduled"),
   });
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -3305,7 +3306,7 @@ export default function Sidebar() {
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     shortcutLabelForCommand(keybindings, "chat.newLocal");
-  if (isAgentsRoute) {
+  if (isHermesRoute) {
     return <AgentsSidebar />;
   }
   return (

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ScheduledRouteImport } from './routes/scheduled'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as FinderRouteImport } from './routes/finder'
 import { Route as ConnectRouteImport } from './routes/connect'
@@ -40,6 +41,11 @@ const UsageRoute = UsageRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScheduledRoute = ScheduledRouteImport.update({
+  id: '/scheduled',
+  path: '/scheduled',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -149,6 +155,7 @@ export interface FileRoutesByFullPath {
   '/connect': typeof ConnectRoute
   '/finder': typeof FinderRoute
   '/pair': typeof PairRoute
+  '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/pull-requests': typeof ChatPullRequestsRoute
@@ -171,6 +178,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/finder': typeof FinderRoute
   '/pair': typeof PairRoute
+  '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/pull-requests': typeof ChatPullRequestsRoute
@@ -196,6 +204,7 @@ export interface FileRoutesById {
   '/connect': typeof ConnectRoute
   '/finder': typeof FinderRoute
   '/pair': typeof PairRoute
+  '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/finder'
     | '/pair'
+    | '/scheduled'
     | '/settings'
     | '/usage'
     | '/pull-requests'
@@ -244,6 +254,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/finder'
     | '/pair'
+    | '/scheduled'
     | '/settings'
     | '/usage'
     | '/pull-requests'
@@ -268,6 +279,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/finder'
     | '/pair'
+    | '/scheduled'
     | '/settings'
     | '/usage'
     | '/_chat/pull-requests'
@@ -293,6 +305,7 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   FinderRoute: typeof FinderRoute
   PairRoute: typeof PairRoute
+  ScheduledRoute: typeof ScheduledRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   UsageRoute: typeof UsageRoute
   ConnectCallbackRoute: typeof ConnectCallbackRoute
@@ -313,6 +326,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scheduled': {
+      id: '/scheduled'
+      path: '/scheduled'
+      fullPath: '/scheduled'
+      preLoaderRoute: typeof ScheduledRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pair': {
@@ -508,6 +528,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectRoute: ConnectRoute,
   FinderRoute: FinderRoute,
   PairRoute: PairRoute,
+  ScheduledRoute: ScheduledRoute,
   SettingsRoute: SettingsRouteWithChildren,
   UsageRoute: UsageRoute,
   ConnectCallbackRoute: ConnectCallbackRoute,
