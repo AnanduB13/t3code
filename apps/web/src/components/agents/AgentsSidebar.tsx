@@ -18,7 +18,7 @@ import {
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import { isElectron } from "../../env";
 import { resolveHermesConnectionState } from "./Agents.logic";
-import { groupHermesTasks } from "./Agents.tasks";
+import { groupHermesTasks, localScheduledTasks } from "./Agents.tasks";
 import { useAgentsSidebarStore } from "./agentsSidebarStore";
 
 function sessionTitle(session: { readonly title: string | null }): string {
@@ -59,12 +59,13 @@ export function AgentsSidebar() {
     () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
     [cronJobs.data?.jobs, sessions.data?.sessions],
   );
+  const scheduledTasks = useMemo(() => localScheduledTasks(grouped.tasks), [grouped.tasks]);
   const visibleTasks = useMemo(
     () =>
       taskFilter === "active"
-        ? grouped.tasks.filter((task) => task.job?.enabled === true)
-        : grouped.tasks,
-    [grouped.tasks, taskFilter],
+        ? scheduledTasks.filter((task) => task.job?.enabled === true)
+        : scheduledTasks,
+    [scheduledTasks, taskFilter],
   );
   const refresh = () => {
     sessions.refresh();
@@ -126,7 +127,7 @@ export function AgentsSidebar() {
             </div>
           ) : !connected ? (
             <p className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
-              Hermes isn’t reachable
+              {section === "tasks" ? "Scheduler isn’t reachable" : "Hermes isn’t reachable"}
             </p>
           ) : section === "tasks" ? (
             visibleTasks.map((task) => (

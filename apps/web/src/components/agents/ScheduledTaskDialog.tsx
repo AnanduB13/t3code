@@ -122,7 +122,7 @@ export function ScheduledTaskDialog({
               {job ? "Edit scheduled task" : "New scheduled task"}
             </DialogTitle>
             <DialogDescription>
-              Hermes runs this task unattended and adds a new result in Agents after every run.
+              The scheduled agent runs this task unattended and adds a new result after every run.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-5">
@@ -266,7 +266,7 @@ export function ScheduledTaskDialog({
             </Label>
             <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
               Runs use the server’s <strong className="text-foreground">{timezone}</strong>{" "}
-              timezone. The server and Hermes gateway must be running at the scheduled time.
+              timezone. The server and scheduled task runner must be running at the scheduled time.
             </div>
           </DialogPanel>
           <DialogFooter>

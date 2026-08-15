@@ -8,6 +8,10 @@ export interface HermesTaskGroup {
   readonly latestRun: HermesSession | null;
 }
 
+export function localScheduledTasks(tasks: readonly HermesTaskGroup[]): readonly HermesTaskGroup[] {
+  return tasks.filter((task) => task.job?.delivery === "local");
+}
+
 const RUN_SUFFIX = /\s*·\s*[A-Z][a-z]{2}\s+\d{1,2}\s+\d{1,2}:\d{2}(?:\s+#\d+)?$/;
 
 function timestamp(session: HermesSession): number {

@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 
 import type { HermesCronJob, HermesCronRun, HermesSession } from "@t3tools/contracts";
-import { chronologicalCronRuns, groupHermesTasks } from "./Agents.tasks";
+import { chronologicalCronRuns, groupHermesTasks, localScheduledTasks } from "./Agents.tasks";
 
 const session = (values: Partial<HermesSession> & Pick<HermesSession, "id">): HermesSession => ({
   title: null,
@@ -75,6 +75,27 @@ describe("groupHermesTasks", () => {
     );
     assert.strictEqual(result.tasks[0]?.name, "Daily report");
     assert.isNull(result.tasks[0]?.job);
+  });
+});
+
+describe("localScheduledTasks", () => {
+  it("keeps T3 local tasks separate from unrelated Hermes deliveries", () => {
+    const grouped = groupHermesTasks(
+      [
+        job({ id: "local-task", name: "Daily project review", delivery: "local" }),
+        job({ id: "discord-task", name: "Discord news digest", delivery: "discord:123" }),
+      ],
+      [
+        session({ id: "local-run", cronJobId: "local-task" }),
+        session({ id: "discord-run", cronJobId: "discord-task" }),
+        session({ id: "archived-run", cronJobId: "deleted-task" }),
+      ],
+    );
+
+    assert.deepStrictEqual(
+      localScheduledTasks(grouped.tasks).map((task) => task.id),
+      ["local-task"],
+    );
   });
 });
 

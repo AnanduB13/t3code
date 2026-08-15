@@ -53,7 +53,11 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 import { resolveHermesConnectionState } from "../components/agents/Agents.logic";
-import { chronologicalCronRuns, groupHermesTasks } from "../components/agents/Agents.tasks";
+import {
+  chronologicalCronRuns,
+  groupHermesTasks,
+  localScheduledTasks,
+} from "../components/agents/Agents.tasks";
 import { useAgentsSidebarStore } from "../components/agents/agentsSidebarStore";
 import {
   ScheduledTaskDialog,
@@ -82,7 +86,7 @@ function TaskRunView({
   const response =
     run.response?.trim() === "[SILENT]"
       ? "No update was delivered for this run."
-      : run.response?.trim() || "Hermes did not record a response for this run.";
+      : run.response?.trim() || "The scheduled agent did not record a response for this run.";
 
   return (
     <article className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5">
@@ -217,16 +221,17 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
     () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
     [cronJobs.data?.jobs, sessions.data?.sessions],
   );
+  const scheduledTasks = useMemo(() => localScheduledTasks(grouped.tasks), [grouped.tasks]);
   const visibleTasks = useMemo(
     () =>
       taskFilter === "active"
-        ? grouped.tasks.filter((task) => task.job?.enabled === true)
-        : grouped.tasks,
-    [grouped.tasks, taskFilter],
+        ? scheduledTasks.filter((task) => task.job?.enabled === true)
+        : scheduledTasks,
+    [scheduledTasks, taskFilter],
   );
   const selectedTask = useMemo(
-    () => grouped.tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [grouped.tasks, selectedTaskId],
+    () => scheduledTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [scheduledTasks, selectedTaskId],
   );
   const visibleSessions = grouped.chats;
   const taskRuns = useEnvironmentQuery(
@@ -362,7 +367,7 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
       if (!isAtomCommandInterrupted(result)) {
         showError(
           "Couldn’t save scheduled task",
-          commandError(result, "Hermes rejected the schedule."),
+          commandError(result, "The scheduler rejected the schedule."),
         );
       }
       return false;
@@ -384,7 +389,9 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
       const job = selectedTask.job;
       if (
         action === "delete" &&
-        !window.confirm(`Delete “${job.name}”? Its previous result chats will remain in history.`)
+        !window.confirm(
+          `Delete “${job.name}”? Its previous result sessions will remain in history.`,
+        )
       )
         return;
       setTaskMutation(action);
@@ -406,7 +413,7 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
       } else if (!isAtomCommandInterrupted(result)) {
         showError(
           `Couldn’t ${action} scheduled task`,
-          commandError(result, "Hermes could not complete that action."),
+          commandError(result, "The scheduler could not complete that action."),
         );
       }
     },
@@ -550,9 +557,9 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
                       : "bg-muted-foreground",
               )}
             />
-            Hermes {connectionState}
+            {section === "tasks" ? "Scheduler" : "Hermes"} {connectionState}
           </Badge>
-          {status.data?.model ? (
+          {section === "chats" && status.data?.model ? (
             <span className="hidden text-xs text-muted-foreground sm:inline">
               {status.data.model}
             </span>
@@ -577,7 +584,11 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
           <div className="flex flex-1 items-center justify-center p-6">
             <div className="max-w-lg rounded-2xl border border-border bg-card p-7 text-center shadow-sm">
               <WifiOffIcon className="mx-auto size-8 text-muted-foreground" />
-              <h1 className="mt-4 text-lg font-semibold">Hermes API isn’t reachable</h1>
+              <h1 className="mt-4 text-lg font-semibold">
+                {section === "tasks"
+                  ? "Scheduled task runner isn’t reachable"
+                  : "Hermes API isn’t reachable"}
+              </h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 T3 looked for Hermes at{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5">
@@ -852,7 +863,7 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
                           <ListTodoIcon className="mx-auto size-8 text-muted-foreground" />
                           <h2 className="mt-4 font-semibold">No results yet</h2>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Hermes’ response will appear here after the first run.
+                            The scheduled agent’s response will appear here after the first run.
                           </p>
                         </div>
                       ) : null}
@@ -970,7 +981,7 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {section === "tasks"
-                        ? "Recurring Hermes jobs will appear here with their result history."
+                        ? "Your recurring tasks will appear here with their result history."
                         : "Chat, run tasks, and use the same agent capabilities you use from Discord."}
                     </p>
                     {section === "chats" ? (
