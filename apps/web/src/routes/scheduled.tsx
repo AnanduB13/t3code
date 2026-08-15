@@ -11,5 +11,5 @@ export const Route = createFileRoute("/scheduled")({
       throw redirect({ to: "/pair", replace: true });
     }
   },
-  component: () => <HermesWorkspaceView section="tasks" />,
+  component: () => <HermesWorkspaceView section="tasks" standaloneScheduled />,
 });

@@ -171,7 +171,13 @@ function HermesMessageView({ message }: { readonly message: HermesMessage }) {
 
 export type HermesWorkspaceSection = "tasks" | "chats";
 
-export function HermesWorkspaceView({ section }: { readonly section: HermesWorkspaceSection }) {
+export function HermesWorkspaceView({
+  section,
+  standaloneScheduled = false,
+}: {
+  readonly section: HermesWorkspaceSection;
+  readonly standaloneScheduled?: boolean;
+}) {
   const environmentId = usePrimaryEnvironmentId();
   const selectedId = useAgentsSidebarStore((state) => state.selectedSessionId);
   const setSelectedId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
@@ -213,7 +219,7 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
       : null,
   );
   const cronJobs = useEnvironmentQuery(
-    environmentId && connected && section === "tasks"
+    environmentId && connected
       ? hermesAgentEnvironment.cronJobs({ environmentId, input: {} })
       : null,
   );
@@ -221,7 +227,10 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
     () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
     [cronJobs.data?.jobs, sessions.data?.sessions],
   );
-  const scheduledTasks = useMemo(() => localScheduledTasks(grouped.tasks), [grouped.tasks]);
+  const scheduledTasks = useMemo(
+    () => (standaloneScheduled ? localScheduledTasks(grouped.tasks) : grouped.tasks),
+    [grouped.tasks, standaloneScheduled],
+  );
   const visibleTasks = useMemo(
     () =>
       taskFilter === "active"
@@ -534,13 +543,13 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
-          {section === "tasks" ? (
+          {standaloneScheduled ? (
             <CalendarClockIcon className="size-4" />
           ) : (
             <BotIcon className="size-4" />
           )}
           <span className="text-sm font-semibold">
-            {section === "tasks" ? "Scheduled" : "Agents"}
+            {standaloneScheduled ? "Scheduled" : "Agents"}
           </span>
           <Badge
             variant={connected ? "success" : connectionState === "error" ? "error" : "outline"}
@@ -557,9 +566,9 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
                       : "bg-muted-foreground",
               )}
             />
-            {section === "tasks" ? "Scheduler" : "Hermes"} {connectionState}
+            {standaloneScheduled ? "Scheduler" : "Hermes"} {connectionState}
           </Badge>
-          {section === "chats" && status.data?.model ? (
+          {!standaloneScheduled && status.data?.model ? (
             <span className="hidden text-xs text-muted-foreground sm:inline">
               {status.data.model}
             </span>
@@ -585,7 +594,7 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
             <div className="max-w-lg rounded-2xl border border-border bg-card p-7 text-center shadow-sm">
               <WifiOffIcon className="mx-auto size-8 text-muted-foreground" />
               <h1 className="mt-4 text-lg font-semibold">
-                {section === "tasks"
+                {standaloneScheduled
                   ? "Scheduled task runner isn’t reachable"
                   : "Hermes API isn’t reachable"}
               </h1>
@@ -981,7 +990,9 @@ export function HermesWorkspaceView({ section }: { readonly section: HermesWorks
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {section === "tasks"
-                        ? "Your recurring tasks will appear here with their result history."
+                        ? standaloneScheduled
+                          ? "Your recurring tasks will appear here with their result history."
+                          : "Recurring Hermes jobs will appear here with their result history."
                         : "Chat, run tasks, and use the same agent capabilities you use from Discord."}
                     </p>
                     {section === "chats" ? (
@@ -1024,5 +1035,10 @@ export const Route = createFileRoute("/agents")({
       throw redirect({ to: "/pair", replace: true });
     }
   },
-  component: () => <HermesWorkspaceView section="chats" />,
+  component: AgentsWorkspace,
 });
+
+function AgentsWorkspace() {
+  const section = useAgentsSidebarStore((state) => state.section);
+  return <HermesWorkspaceView section={section} />;
+}

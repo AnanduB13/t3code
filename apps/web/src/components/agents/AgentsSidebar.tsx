@@ -1,5 +1,12 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { BotIcon, FolderIcon, ListTodoIcon, LoaderCircleIcon, RefreshCwIcon } from "lucide-react";
+import {
+  BotIcon,
+  FolderIcon,
+  ListTodoIcon,
+  LoaderCircleIcon,
+  MessageSquareIcon,
+  RefreshCwIcon,
+} from "lucide-react";
 import { useMemo } from "react";
 
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -26,13 +33,16 @@ function sessionTitle(session: { readonly title: string | null }): string {
 }
 
 export function AgentsSidebar() {
-  const section = useLocation({
-    select: (location) => (location.pathname.startsWith("/scheduled") ? "tasks" : "chats"),
+  const standaloneScheduled = useLocation({
+    select: (location) => location.pathname.startsWith("/scheduled"),
   });
   const environmentId = usePrimaryEnvironmentId();
+  const agentsSection = useAgentsSidebarStore((state) => state.section);
+  const section = standaloneScheduled ? "tasks" : agentsSection;
   const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
   const selectedSessionId = useAgentsSidebarStore((state) => state.selectedSessionId);
   const taskFilter = useAgentsSidebarStore((state) => state.taskFilter);
+  const setSection = useAgentsSidebarStore((state) => state.setSection);
   const setSelectedTaskId = useAgentsSidebarStore((state) => state.setSelectedTaskId);
   const setSelectedSessionId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
   const setTaskFilter = useAgentsSidebarStore((state) => state.setTaskFilter);
@@ -51,7 +61,7 @@ export function AgentsSidebar() {
       : null,
   );
   const cronJobs = useEnvironmentQuery(
-    environmentId && connected && section === "tasks"
+    environmentId && connected
       ? hermesAgentEnvironment.cronJobs({ environmentId, input: {} })
       : null,
   );
@@ -59,7 +69,10 @@ export function AgentsSidebar() {
     () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
     [cronJobs.data?.jobs, sessions.data?.sessions],
   );
-  const scheduledTasks = useMemo(() => localScheduledTasks(grouped.tasks), [grouped.tasks]);
+  const scheduledTasks = useMemo(
+    () => (standaloneScheduled ? localScheduledTasks(grouped.tasks) : grouped.tasks),
+    [grouped.tasks, standaloneScheduled],
+  );
   const visibleTasks = useMemo(
     () =>
       taskFilter === "active"
@@ -80,14 +93,42 @@ export function AgentsSidebar() {
         fixedHeader={
           <SidebarGroup className="gap-1 p-[var(--sidebar-content-inset)]">
             <div className="flex h-8 items-center gap-2 px-2 text-sm font-semibold text-sidebar-foreground">
-              {section === "tasks" ? (
+              {standaloneScheduled ? (
                 <ListTodoIcon className="size-4" />
               ) : (
                 <BotIcon className="size-4" />
               )}
-              <span>{section === "tasks" ? "Scheduled" : "Agents"}</span>
+              <span>{standaloneScheduled ? "Scheduled" : "Agents"}</span>
               {connected ? <span className="size-1.5 rounded-full bg-success" /> : null}
             </div>
+            {!standaloneScheduled ? (
+              <div className="grid grid-cols-2 gap-1">
+                <SidebarMenuButton
+                  type="button"
+                  isActive={section === "tasks"}
+                  onClick={() => setSection("tasks")}
+                  className="justify-center gap-1.5"
+                >
+                  <ListTodoIcon className="size-3.5" />
+                  Scheduled
+                  {grouped.tasks.length ? (
+                    <span className="text-[10px]">{grouped.tasks.length}</span>
+                  ) : null}
+                </SidebarMenuButton>
+                <SidebarMenuButton
+                  type="button"
+                  isActive={section === "chats"}
+                  onClick={() => setSection("chats")}
+                  className="justify-center gap-1.5"
+                >
+                  <MessageSquareIcon className="size-3.5" />
+                  Chats
+                  {grouped.chats.length ? (
+                    <span className="text-[10px]">{grouped.chats.length}</span>
+                  ) : null}
+                </SidebarMenuButton>
+              </div>
+            ) : null}
           </SidebarGroup>
         }
       >
@@ -127,7 +168,7 @@ export function AgentsSidebar() {
             </div>
           ) : !connected ? (
             <p className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
-              {section === "tasks" ? "Scheduler isn’t reachable" : "Hermes isn’t reachable"}
+              {standaloneScheduled ? "Scheduler isn’t reachable" : "Hermes isn’t reachable"}
             </p>
           ) : section === "tasks" ? (
             visibleTasks.map((task) => (
@@ -192,7 +233,7 @@ export function AgentsSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link to="/agents" />}
-              isActive={section === "chats"}
+              isActive={!standaloneScheduled}
               className="gap-2 px-2 text-muted-foreground data-[active=true]:text-foreground"
             >
               <BotIcon className="size-4" />
@@ -202,7 +243,7 @@ export function AgentsSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link to="/scheduled" />}
-              isActive={section === "tasks"}
+              isActive={standaloneScheduled}
               className="gap-2 px-2 text-muted-foreground data-[active=true]:text-foreground"
             >
               <ListTodoIcon className="size-4" />
