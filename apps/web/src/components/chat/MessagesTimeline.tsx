@@ -1245,11 +1245,10 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
     <div className="min-w-0 px-1 py-0.5">
       <button
         type="button"
-        className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-0.5 py-0.5 text-left text-[12px] leading-5 transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="-mx-1 flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] leading-5 transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
       >
-        <Chevron className="size-3.5 shrink-0 text-muted-foreground/65" />
         {steps.length > 1 ? (
           <span aria-hidden className="flex shrink-0 items-center gap-0.5">
             {steps.map((step) => (
@@ -1270,7 +1269,9 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
         <span
           className={cn(
             "min-w-0 truncate",
-            allDone ? "text-muted-foreground/65" : "font-medium text-foreground/85",
+            allDone
+              ? "text-muted-foreground/65"
+              : "turn-plan-active-label font-medium text-foreground/85",
           )}
         >
           {label}
@@ -1280,40 +1281,61 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
             {completedCount}/{steps.length}
           </span>
         ) : null}
+        <Chevron
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground/65 transition-transform duration-300",
+            expanded && "rotate-90",
+          )}
+        />
       </button>
-      {expanded ? (
-        <div className="mt-0.5 space-y-px pl-6">
-          {steps.map((step) => (
-            <div key={step.step} className="flex items-baseline gap-2 text-[12px] leading-5">
-              <span
-                className={cn(
-                  "w-3 shrink-0 text-center font-mono text-[10px]",
-                  step.status === "completed"
-                    ? "text-success"
-                    : step.status === "inProgress"
-                      ? "text-primary"
-                      : "text-muted-foreground/40",
-                )}
-                aria-hidden
-              >
-                {step.status === "completed" ? "✓" : step.status === "inProgress" ? "●" : "○"}
-              </span>
-              <span
-                className={cn(
-                  "min-w-0",
-                  step.status === "completed"
-                    ? "text-muted-foreground/55"
-                    : step.status === "inProgress"
-                      ? "text-foreground/90"
-                      : "text-muted-foreground/70",
-                )}
-              >
-                {step.step}
-              </span>
+      <div
+        className="grid transition-[grid-template-rows,opacity] duration-300"
+        style={{
+          gridTemplateRows: expanded ? "1fr" : "0fr",
+          opacity: expanded ? 1 : 0,
+          transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
+        }}
+      >
+        <div className="overflow-hidden">
+          <div className="relative mt-1 ml-1.5 pl-4">
+            <span aria-hidden className="absolute top-3 bottom-3 left-[6px] w-px bg-border/70" />
+            <div className="flex flex-col gap-0.5 py-1">
+              {steps.map((step, index) => (
+                <div
+                  key={step.step}
+                  className="turn-plan-trace-row flex min-h-7 items-center gap-2 rounded-md px-1.5 py-0.5 text-[12.5px]"
+                  style={{ "--turn-plan-row-index": index } as React.CSSProperties}
+                >
+                  <span
+                    className="relative z-10 flex size-3.5 shrink-0 items-center justify-center bg-background"
+                    aria-hidden
+                  >
+                    {step.status === "completed" ? (
+                      <CheckIcon className="size-3.5 text-success" strokeWidth={2.5} />
+                    ) : step.status === "inProgress" ? (
+                      <span className="size-3 rounded-full border-[1.5px] border-muted-foreground/25 border-t-primary animate-spin" />
+                    ) : (
+                      <span className="size-2 rounded-full border border-muted-foreground/35" />
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      "min-w-0 leading-relaxed",
+                      step.status === "completed"
+                        ? "text-muted-foreground/55"
+                        : step.status === "inProgress"
+                          ? "font-medium text-foreground/90"
+                          : "text-muted-foreground/65",
+                    )}
+                  >
+                    {step.step}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 });

@@ -262,6 +262,47 @@ describe("MessagesTimeline", () => {
     expect(fadedMarkup).toContain("chat-timeline-scroll-fade");
   });
 
+  it("keeps plan progress segments and renders the expandable step trace", () => {
+    const turnId = TurnId.make("turn-with-plan");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "turn-plan:turn-with-plan",
+            kind: "turn-plan",
+            createdAt: MESSAGE_CREATED_AT,
+            turnPlan: {
+              id: "turn-plan:turn-with-plan",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId,
+              plan: {
+                createdAt: MESSAGE_CREATED_AT,
+                turnId,
+                steps: [
+                  { step: "Read the existing flow", status: "completed" },
+                  { step: "Implement the trace", status: "inProgress" },
+                  { step: "Verify the result", status: "pending" },
+                ],
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain("bg-success");
+    expect(markup).toContain("bg-primary");
+    expect(markup).toContain("bg-muted-foreground/25");
+    expect(markup).toContain("1/3");
+    expect(markup).toContain("Read the existing flow");
+    expect(markup).toContain("Implement the trace");
+    expect(markup).toContain("Verify the result");
+    expect(markup).toContain("animate-spin");
+    expect(markup).toContain("turn-plan-trace-row");
+  });
+
   it("keeps assistant changed-files headers sticky below the thread header", () => {
     const assistantMessageId = MessageId.make("message-assistant-with-files");
     const turnId = TurnId.make("turn-with-files");
