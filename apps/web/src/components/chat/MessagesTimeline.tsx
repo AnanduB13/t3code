@@ -58,6 +58,7 @@ import {
   MousePointerClickIcon,
   PaintbrushIcon,
   MinusIcon,
+  SparklesIcon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
@@ -1124,7 +1125,6 @@ function RevertUserMessageButton({ messageId }: { messageId: MessageId }) {
 
 function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-fold" }> }) {
   const ctx = use(TimelineRowCtx);
-  const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
 
   return (
     <div className="border-b border-border/60 pb-2 pt-1">
@@ -1133,10 +1133,17 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-xs text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="-mx-1.5 flex cursor-pointer select-none items-center gap-2 rounded-md px-1.5 py-1 text-xs text-muted-foreground tabular-nums transition-colors hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
-        <span>{row.label}</span>
-        <Icon className="size-3.5" />
+        <SparklesIcon className="size-3.5 shrink-0 fill-current opacity-75" aria-hidden />
+        <span className="font-medium">{row.label}</span>
+        <ChevronDownIcon
+          className={cn(
+            "size-3.5 shrink-0 opacity-70 transition-transform duration-300",
+            !row.expanded && "-rotate-90",
+          )}
+          aria-hidden
+        />
       </button>
     </div>
   );
@@ -1425,11 +1432,11 @@ const WorkGroupSection = memo(function WorkGroupSection({
   if (nonEmptyEntries.length === 0) return null;
 
   return (
-    <section className="-mx-1 space-y-0.5 px-1 py-0.5" aria-label={groupLabel}>
+    <section className="work-trace -mx-1 space-y-0.5 px-1 py-0.5" aria-label={groupLabel}>
       {!onlyToolEntries && (
         <p className="px-0.5 pb-0.5 font-medium text-secondary-label text-[11px]">{groupLabel}</p>
       )}
-      <div className="space-y-px">
+      <div className="relative ml-[5px] space-y-px border-s border-border/60 pl-4">
         {nonEmptyEntries.map((workEntry) => (
           <SimpleWorkEntryRow
             key={workEntry.id}
@@ -1459,11 +1466,11 @@ function WorkGroupToggleTimelineRow({
   return (
     <button
       type="button"
-      className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-[12px] leading-5 transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      className="work-trace-toggle -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] leading-5 transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-expanded={row.expanded}
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center text-icon-muted">
+      <span className="flex size-4 shrink-0 items-center justify-center text-icon-muted">
         <ChevronDownIcon
           className={cn(
             "size-3.5 shrink-0 opacity-70 transition-transform duration-200",
@@ -2327,6 +2334,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const showSuccessIndicator =
     workEntryIndicatesToolSuccess(workEntry) ||
     (turnSettled && workEntryIndicatesToolNeutralStatus(workEntry));
+  const showWorkingIndicator =
+    !turnSettled && !showFailedIndicator && !showSuccessIndicator && !showNeutralIndicator;
   const rowToggleProps = canExpand
     ? {
         role: "button" as const,
@@ -2345,13 +2354,13 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   return (
     <div
       className={cn(
-        "flex flex-col rounded-md px-0.5 py-0.5 transition-colors",
+        "work-trace-entry flex flex-col rounded-md px-1.5 py-0.5 transition-colors",
         canExpand &&
           "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
       )}
       {...rowToggleProps}
     >
-      <div className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
+      <div className="flex min-h-7 select-none items-center gap-2 transition-[opacity,translate] duration-200">
         <span className={iconWrapperClass}>
           <WorkEntryIconSvg
             name={entryIconName}
@@ -2412,6 +2421,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                   </TooltipTrigger>
                   <TooltipPopup>Completed</TooltipPopup>
                 </Tooltip>
+              ) : showWorkingIndicator ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<span className="flex size-4 items-center justify-center" />}
+                  >
+                    <span
+                      className="size-3 rounded-full border-[1.5px] border-border border-t-foreground/80 motion-safe:animate-spin"
+                      aria-label="Tool call running"
+                    />
+                  </TooltipTrigger>
+                  <TooltipPopup>Running</TooltipPopup>
+                </Tooltip>
               ) : showNeutralIndicator ? (
                 <Tooltip>
                   <TooltipTrigger
@@ -2426,17 +2447,26 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           </div>
         </div>
       </div>
-      {expanded && canExpand && expandedBody ? (
-        <div
-          className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
-          onClick={stopRowToggle}
-          onPointerDown={stopRowToggle}
-        >
-          <pre className="max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-[11px] leading-relaxed select-text">
-            {expandedBody}
-          </pre>
+      <div
+        className="grid transition-[grid-template-rows,opacity] duration-300"
+        style={{
+          gridTemplateRows: expanded && canExpand && expandedBody ? "1fr" : "0fr",
+          opacity: expanded && canExpand && expandedBody ? 1 : 0,
+          transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
+        }}
+      >
+        <div className="overflow-hidden">
+          <div
+            className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
+            onClick={stopRowToggle}
+            onPointerDown={stopRowToggle}
+          >
+            <pre className="max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-[11px] leading-relaxed select-text">
+              {expandedBody}
+            </pre>
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 });

@@ -632,6 +632,56 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Context compacted");
     expect(markup).toContain("Work Log");
+    expect(markup).toContain("work-trace");
+    expect(markup).toContain("work-trace-entry");
+  });
+
+  it("renders completed work behind the expandable thinking trace header", () => {
+    const turnId = TurnId.make("completed-turn");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        latestTurn={{
+          turnId,
+          state: "completed",
+          startedAt: "2026-03-17T19:12:28.000Z",
+          completedAt: "2026-03-17T19:12:32.000Z",
+        }}
+        timelineEntries={[
+          {
+            id: "entry-work",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Ran command",
+              detail: "vp test run MessagesTimeline.test.tsx",
+              tone: "tool",
+              turnId,
+            },
+          },
+          {
+            id: "entry-assistant",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.make("completed-assistant"),
+              role: "assistant",
+              text: "Done.",
+              turnId,
+              createdAt: "2026-03-17T19:12:32.000Z",
+              updatedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Worked for 4.0s");
+    expect(markup).toContain("lucide-sparkles");
+    expect(markup).toContain('aria-expanded="false"');
   });
 
   it("formats changed file paths from the workspace root", () => {
