@@ -2019,6 +2019,58 @@ label:has(> select#reasoning-effort) select {
   }
 }
 
+/* Compact long-running-work indicator. Opacity is stepped to avoid a
+   continuously repainted high-refresh animation while retaining the chevron
+   wavefront of the pixel-grid design. */
+@keyframes working-pixel-wave {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  38% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes working-label-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.working-pixel {
+  opacity: 0.15;
+  animation: working-pixel-wave 650ms steps(5, end) infinite;
+}
+
+.working-loader-label {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--muted-foreground) 68%, transparent) 35%,
+    var(--foreground) 50%,
+    color-mix(in oklab, var(--muted-foreground) 68%, transparent) 65%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  animation: working-label-shimmer 1.4s steps(10, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-pixel,
+  .working-loader-label {
+    animation: none;
+  }
+
+  .working-loader-label {
+    color: var(--muted-foreground);
+    background-image: none;
+  }
+}
+
 .provider-update-pill-progress {
   animation: provider-update-pill-countdown var(--provider-update-pill-dismiss-ms) linear forwards;
 }

@@ -161,6 +161,14 @@ const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
 const TimelineRowActivityCtx = createContext<TimelineRowActivityState>(null!);
 const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
 const TIMELINE_LIST_FADE_HEADER = <div className="h-10 sm:h-12" />;
+const WORKING_PIXELS = Array.from({ length: 9 }, (_, index) => {
+  const row = Math.floor(index / 3);
+  const column = index % 3;
+  return {
+    id: `working-pixel-${index}`,
+    delay: (column + Math.abs(row - 1)) * 90,
+  };
+});
 
 // Header row shown when older turns exist beyond the loaded window. Plain
 // button, no spinner animation; the label change is the loading indicator.
@@ -1314,26 +1322,27 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   const { workingStepLabel } = use(TimelineRowActivityCtx);
   return (
     <div className="py-0.5 pl-1.5">
-      <div className="flex min-w-0 items-center gap-2 pt-1 text-secondary-label text-[11px] tabular-nums">
-        <span className="inline-flex items-center gap-[3px]">
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse" />
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:200ms]" />
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:400ms]" />
+      <div
+        className="flex min-w-0 items-center gap-2.5 pt-1 text-secondary-label"
+        aria-label={row.phase === "starting" ? "Agent is starting" : "Agent is working"}
+      >
+        <span aria-hidden className="grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]">
+          {WORKING_PIXELS.map((pixel) => (
+            <span
+              key={pixel.id}
+              className="working-pixel size-1 rounded-[1px] bg-foreground"
+              style={{ animationDelay: `${pixel.delay}ms` }}
+            />
+          ))}
         </span>
-        <span className="shrink-0">
-          {row.createdAt ? (
-            <>
-              {row.phase === "starting" ? "Starting agent" : "Working"} for{" "}
-              <WorkingTimer createdAt={row.createdAt} />
-            </>
-          ) : row.phase === "starting" ? (
-            "Starting agent..."
-          ) : (
-            "Working..."
-          )}
+        <span className="working-loader-label shrink-0 text-[13px] font-medium">Churning</span>
+        <span className="shrink-0 font-mono text-[12px] text-muted-foreground/65 tabular-nums">
+          {row.createdAt ? <WorkingTimer createdAt={row.createdAt} /> : "0.0s"}
         </span>
         {workingStepLabel ? (
-          <span className="min-w-0 truncate text-muted-foreground/55">· {workingStepLabel}</span>
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground/55">
+            · {workingStepLabel}
+          </span>
         ) : null}
       </div>
     </div>
@@ -1345,7 +1354,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
 // does not create a React commit every second while a response is streaming.
 // ---------------------------------------------------------------------------
 
-/** Live "Working for Xs" label. */
+/** Live elapsed-work label. */
 function WorkingTimer({ createdAt }: { createdAt: string }) {
   const textRef = useRef<HTMLSpanElement>(null);
   const initialText = formatWorkingTimerNow(createdAt);
@@ -1357,7 +1366,7 @@ function WorkingTimer({ createdAt }: { createdAt: string }) {
       }
     };
     updateText();
-    const id = setInterval(updateText, 1000);
+    const id = setInterval(updateText, 100);
     return () => clearInterval(id);
   }, [createdAt]);
 
@@ -1949,24 +1958,22 @@ function formatWorkingTimer(startIso: string, endIso: string): string | null {
     return null;
   }
 
-  const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+  const elapsedSeconds = Math.max(0, endedAtMs - startedAtMs) / 1000;
   if (elapsedSeconds < 60) {
-    return `${elapsedSeconds}s`;
+    return `${elapsedSeconds.toFixed(1)}s`;
   }
 
   const hours = Math.floor(elapsedSeconds / 3600);
   const minutes = Math.floor((elapsedSeconds % 3600) / 60);
-  const seconds = elapsedSeconds % 60;
-
+  const seconds = (elapsedSeconds % 60).toFixed(1);
   if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+    return `${hours}h ${minutes}m ${seconds}s`;
   }
-
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
 }
 
 function formatWorkingTimerNow(startIso: string): string {
-  return formatWorkingTimer(startIso, new Date().toISOString()) ?? "0s";
+  return formatWorkingTimer(startIso, new Date().toISOString()) ?? "0.0s";
 }
 
 type WorkEntryIconName =
