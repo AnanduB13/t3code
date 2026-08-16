@@ -1,3 +1,4 @@
+import { CommandId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -6,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import {
   ProviderSessionReaper,
@@ -27,6 +29,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const providerService = yield* ProviderService;
     const directory = yield* ProviderSessionDirectory;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const orchestrationEngine = yield* OrchestrationEngineService;
 
     const inactivityThresholdMs = Math.max(
       1,
@@ -36,6 +39,13 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
     const sweep = Effect.gen(function* () {
       const bindings = yield* directory.listBindings();
+      // The directory is durable, while adapter sessions are process-local. A
+      // server restart can therefore leave a projected active turn pointing at
+      // a provider process that no longer exists. Keep this runtime snapshot
+      // separate from persisted bindings so those orphans can be identified.
+      const liveThreadIds = new Set(
+        (yield* providerService.listSessions()).map((session) => session.threadId),
+      );
       const now = yield* Clock.currentTimeMillis;
       let reapedCount = 0;
 
@@ -54,16 +64,57 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           continue;
         }
 
+        const thread = yield* projectionSnapshotQuery
+          .getThreadShellById(binding.threadId)
+          .pipe(Effect.map(Option.getOrUndefined));
+
+        const hasProjectedWork =
+          thread?.session?.activeTurnId != null || thread?.backgroundLiveness != null;
+        if (hasProjectedWork && !liveThreadIds.has(binding.threadId)) {
+          // Dispatching through orchestration is essential here: marking only
+          // the provider binding stopped leaves the read model (and its timer)
+          // running forever. Use the last projected activity as the end time so
+          // downtime after a crash is not reported as agent work.
+          const reconciled = yield* orchestrationEngine
+            .dispatch({
+              type: "thread.session.stop",
+              commandId: CommandId.make(
+                `server:provider-session-reaper:${binding.threadId}:${String(now)}`,
+              ),
+              threadId: binding.threadId,
+              createdAt: thread.updatedAt,
+            })
+            .pipe(
+              Effect.tap(() =>
+                Effect.logWarning("provider.session.reaper.reconciled-orphaned-work", {
+                  threadId: binding.threadId,
+                  provider: binding.provider,
+                  activeTurnId: thread.session?.activeTurnId ?? null,
+                  backgroundLiveness: thread.backgroundLiveness,
+                }),
+              ),
+              Effect.as(true),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("provider.session.reaper.reconcile-orphan-failed", {
+                  threadId: binding.threadId,
+                  provider: binding.provider,
+                  cause,
+                }).pipe(Effect.as(false)),
+              ),
+            );
+          if (reconciled) {
+            reapedCount += 1;
+          }
+          continue;
+        }
+
         const idleDurationMs = now - lastSeenMs;
         if (idleDurationMs < inactivityThresholdMs) {
           continue;
         }
 
-        const thread = yield* projectionSnapshotQuery
-          .getThreadShellById(binding.threadId)
-          .pipe(Effect.map(Option.getOrUndefined));
         if (thread?.session?.activeTurnId != null) {
-          yield* Effect.logDebug("provider.session.reaper.skipped-active-turn", {
+          yield* Effect.logDebug("provider.session.reaper.skipped-live-active-turn", {
             threadId: binding.threadId,
             activeTurnId: thread.session.activeTurnId,
             idleDurationMs,
@@ -76,7 +127,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         // provider process, so stopping the session would kill them silently,
         // and nothing bumps lastSeenAt between turns.
         if (thread?.backgroundLiveness != null) {
-          yield* Effect.logDebug("provider.session.reaper.skipped-background-work", {
+          yield* Effect.logDebug("provider.session.reaper.skipped-live-background-work", {
             threadId: binding.threadId,
             backgroundLiveness: thread.backgroundLiveness,
             idleDurationMs,
