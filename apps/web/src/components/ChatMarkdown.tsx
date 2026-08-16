@@ -96,6 +96,11 @@ import {
   BrowserPreviewUnavailableError,
 } from "../browser/openFileInPreview";
 import { requestFinderReveal } from "./finder/finderNavigation";
+import {
+  commonStreamingPrefixLength,
+  rehypeStreamingWords,
+  type StreamingTextRange,
+} from "../streaming-markdown";
 
 interface ChatMarkdownProps {
   text: string;
@@ -178,6 +183,8 @@ const CHAT_MARKDOWN_REHYPE_PLUGINS = [
   rehypeRaw,
   [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
 ] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+
+const STREAMING_WORD_RANGE_RETENTION_MS = 1_000;
 
 /** GitHub's own five alert kinds, in its colors: the glyph names the urgency, the title says it. */
 const GITHUB_ALERT_PRESENTATIONS: Record<
@@ -1346,6 +1353,35 @@ function ChatMarkdown({
   className,
   lineBreaks = false,
 }: ChatMarkdownProps) {
+  const streamingStateRef = useRef<{
+    text: string;
+    ranges: Array<StreamingTextRange & { addedAt: number }>;
+  }>({ text: "", ranges: [] });
+  const now = Date.now();
+  const previousStreamingState = streamingStateRef.current;
+  const retainedStreamingRanges = isStreaming
+    ? previousStreamingState.ranges.filter(
+        (range) => now - range.addedAt < STREAMING_WORD_RANGE_RETENTION_MS,
+      )
+    : [];
+  const newStreamingRangeStart = isStreaming
+    ? commonStreamingPrefixLength(previousStreamingState.text, text)
+    : text.length;
+  const streamingRanges =
+    isStreaming && newStreamingRangeStart < text.length
+      ? [
+          ...retainedStreamingRanges,
+          { start: newStreamingRangeStart, end: text.length, addedAt: now },
+        ]
+      : retainedStreamingRanges;
+
+  useEffect(() => {
+    streamingStateRef.current = {
+      text,
+      ranges: isStreaming ? streamingRanges : [],
+    };
+  }, [isStreaming, streamingRanges, text]);
+
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
@@ -1397,6 +1433,13 @@ function ChatMarkdown({
   const markdownUrlTransform = useCallback((href: string) => {
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);
+  const rehypePlugins = useMemo<NonNullable<ReactMarkdownOptions["rehypePlugins"]>>(
+    () =>
+      isStreaming
+        ? [...CHAT_MARKDOWN_REHYPE_PLUGINS, [rehypeStreamingWords, { ranges: streamingRanges }]]
+        : CHAT_MARKDOWN_REHYPE_PLUGINS,
+    [isStreaming, streamingRanges],
+  );
   const openChangeRequestLink = useOpenChangeRequestLink(threadRef);
   const openExternalLinkInPreview = useCallback(
     (url: string) => {
@@ -1713,7 +1756,7 @@ function ChatMarkdown({
         remarkPlugins={
           lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS
         }
-        rehypePlugins={CHAT_MARKDOWN_REHYPE_PLUGINS}
+        rehypePlugins={rehypePlugins}
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
