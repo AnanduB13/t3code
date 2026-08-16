@@ -361,6 +361,8 @@ export const OrchestrationLatestTurn = Schema.Struct({
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
 /** A follow-up message held server-side while a turn is running. */
+export const MAX_THREAD_QUEUED_MESSAGES = 50;
+
 export const OrchestrationQueuedMessage = Schema.Struct({
   messageId: MessageId,
   text: Schema.String,
@@ -897,6 +899,23 @@ const ThreadQueueRemoveCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadQueueUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.update"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
+  createdAt: IsoDateTime,
+});
+
+const ThreadQueueReorderCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.reorder"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId).check(Schema.isMaxLength(MAX_THREAD_QUEUED_MESSAGES)),
+  createdAt: IsoDateTime,
+});
+
 const ThreadApprovalRespondCommand = Schema.Struct({
   type: Schema.Literal("thread.approval.respond"),
   commandId: CommandId,
@@ -958,6 +977,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadTurnInterruptCommand,
   ThreadQueueSteerCommand,
   ThreadQueueRemoveCommand,
+  ThreadQueueUpdateCommand,
+  ThreadQueueReorderCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
@@ -988,6 +1009,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadTurnInterruptCommand,
   ThreadQueueSteerCommand,
   ThreadQueueRemoveCommand,
+  ThreadQueueUpdateCommand,
+  ThreadQueueReorderCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
@@ -1056,6 +1079,7 @@ const ThreadQueueDrainCommand = Schema.Struct({
   type: Schema.Literal("thread.queue.drain"),
   commandId: CommandId,
   threadId: ThreadId,
+  afterTurnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
 
@@ -1115,6 +1139,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.message-sent",
   "thread.message-queued",
   "thread.queued-message-removed",
+  "thread.queued-message-updated",
+  "thread.queued-messages-reordered",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
   "thread.approval-response-requested",
@@ -1303,6 +1329,19 @@ export const ThreadQueuedMessageRemovedPayload = Schema.Struct({
   messageId: MessageId,
   reason: ThreadQueuedMessageRemovedReason,
   removedAt: IsoDateTime,
+});
+
+export const ThreadQueuedMessageUpdatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadQueuedMessagesReorderedPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+  reorderedAt: IsoDateTime,
 });
 
 export const ThreadTurnStartRequestedPayload = Schema.Struct({
@@ -1501,6 +1540,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.queued-message-removed"),
     payload: ThreadQueuedMessageRemovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.queued-message-updated"),
+    payload: ThreadQueuedMessageUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.queued-messages-reordered"),
+    payload: ThreadQueuedMessagesReorderedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

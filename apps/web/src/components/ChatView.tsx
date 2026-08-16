@@ -1255,6 +1255,12 @@ function ChatViewContent(props: ChatViewProps) {
   const removeQueuedMessage = useAtomCommand(threadEnvironment.removeQueuedMessage, {
     reportFailure: false,
   });
+  const updateQueuedMessage = useAtomCommand(threadEnvironment.updateQueuedMessage, {
+    reportFailure: false,
+  });
+  const reorderQueuedMessages = useAtomCommand(threadEnvironment.reorderQueuedMessages, {
+    reportFailure: false,
+  });
   const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
     reportFailure: false,
   });
@@ -5434,6 +5440,42 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThread, environmentId, removeQueuedMessage],
   );
 
+  const onUpdateQueuedMessage = useCallback(
+    async (messageId: MessageId, text: string) => {
+      if (!activeThread) return;
+      const result = await updateQueuedMessage({
+        environmentId,
+        input: { threadId: activeThread.id, messageId, text },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to update queued prompt.",
+        );
+      }
+    },
+    [activeThread, environmentId, updateQueuedMessage],
+  );
+
+  const onReorderQueuedMessages = useCallback(
+    async (messageIds: ReadonlyArray<MessageId>) => {
+      if (!activeThread) return;
+      const result = await reorderQueuedMessages({
+        environmentId,
+        input: { threadId: activeThread.id, messageIds },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to reorder queued prompts.",
+        );
+      }
+    },
+    [activeThread, environmentId, reorderQueuedMessages],
+  );
+
   const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
       if (!activeThreadId) return;
@@ -6412,6 +6454,8 @@ function ChatViewContent(props: ChatViewProps) {
                     steerDisabled={phase !== "running"}
                     onSteer={onSteerQueuedMessage}
                     onRemove={onRemoveQueuedMessage}
+                    onUpdate={onUpdateQueuedMessage}
+                    onReorder={onReorderQueuedMessages}
                   />
                   <div
                     className="relative"

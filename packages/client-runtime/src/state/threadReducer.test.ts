@@ -568,6 +568,77 @@ describe("applyThreadDetailEvent", () => {
         MessageId.make("queued-2"),
       ]);
     });
+
+    it("updates queued message text without moving it", () => {
+      const threadWithQueue: OrchestrationThread = {
+        ...baseThread,
+        queuedMessages: [
+          { ...queuedPayload, messageId: MessageId.make("queued-1") },
+          { ...queuedPayload, messageId: MessageId.make("queued-2"), text: "Second" },
+        ],
+      };
+
+      const result = applyThreadDetailEvent(threadWithQueue, {
+        ...baseEventFields,
+        sequence: 9,
+        occurredAt: "2026-04-01T06:03:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.queued-message-updated",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("queued-1"),
+          text: "Edited first",
+          updatedAt: "2026-04-01T06:03:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(
+        result.thread.queuedMessages.map(({ messageId, text }) => ({ messageId, text })),
+      ).toEqual([
+        { messageId: MessageId.make("queued-1"), text: "Edited first" },
+        { messageId: MessageId.make("queued-2"), text: "Second" },
+      ]);
+    });
+
+    it("applies a complete queued message ordering", () => {
+      const threadWithQueue: OrchestrationThread = {
+        ...baseThread,
+        queuedMessages: [
+          { ...queuedPayload, messageId: MessageId.make("queued-1") },
+          { ...queuedPayload, messageId: MessageId.make("queued-2") },
+          { ...queuedPayload, messageId: MessageId.make("queued-3") },
+        ],
+      };
+
+      const result = applyThreadDetailEvent(threadWithQueue, {
+        ...baseEventFields,
+        sequence: 10,
+        occurredAt: "2026-04-01T06:04:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.queued-messages-reordered",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageIds: [
+            MessageId.make("queued-3"),
+            MessageId.make("queued-1"),
+            MessageId.make("queued-2"),
+          ],
+          reorderedAt: "2026-04-01T06:04:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread.queuedMessages.map((entry) => entry.messageId)).toEqual([
+        MessageId.make("queued-3"),
+        MessageId.make("queued-1"),
+        MessageId.make("queued-2"),
+      ]);
+    });
   });
 
   describe("thread.session-set", () => {

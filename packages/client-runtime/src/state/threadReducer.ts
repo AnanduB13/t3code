@@ -431,6 +431,35 @@ export function applyThreadDetailEvent(
         },
       };
 
+    case "thread.queued-message-updated":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedMessages: thread.queuedMessages.map((entry) =>
+            entry.messageId === event.payload.messageId
+              ? { ...entry, text: event.payload.text }
+              : entry,
+          ),
+          updatedAt: event.occurredAt,
+        },
+      };
+
+    case "thread.queued-messages-reordered": {
+      const queuedById = new Map(thread.queuedMessages.map((entry) => [entry.messageId, entry]));
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          queuedMessages: event.payload.messageIds.flatMap((messageId) => {
+            const queuedMessage = queuedById.get(messageId);
+            return queuedMessage ? [queuedMessage] : [];
+          }),
+          updatedAt: event.occurredAt,
+        },
+      };
+    }
+
     // ── Session ─────────────────────────────────────────────────────
     case "thread.session-set": {
       // Leaving the "running" session status is the turn-end signal: settle a

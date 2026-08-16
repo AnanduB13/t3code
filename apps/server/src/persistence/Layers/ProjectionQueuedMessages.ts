@@ -13,6 +13,8 @@ import {
   ListProjectionQueuedMessagesInput,
   ProjectionQueuedMessage,
   ProjectionQueuedMessageRepository,
+  ReorderProjectionQueuedMessagesInput,
+  UpdateProjectionQueuedMessageTextInput,
   type ProjectionQueuedMessageRepositoryShape,
 } from "../Services/ProjectionQueuedMessages.ts";
 
@@ -26,10 +28,9 @@ const ProjectionQueuedMessageDbRowSchema = ProjectionQueuedMessage.mapFields(
 const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  // Replace-then-insert (not ON CONFLICT UPDATE) so a re-queued messageId
-  // gets a fresh rowid and moves to the queue tail — the same semantics as
-  // the in-memory projector. Drain order is rowid order: a monotonic
-  // insertion sequence that never ties, unlike queued_at timestamps.
+  // A newly queued item is assigned the next per-thread position. Explicit
+  // edit and reorder operations update in place so message identity, queue
+  // position, and attachment ownership stay stable.
   const upsertProjectionQueuedMessageRow = SqlSchema.void({
     Request: ProjectionQueuedMessage,
     execute: (row) => sql`
@@ -41,7 +42,8 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         model_selection_json,
         source_proposed_plan_thread_id,
         source_proposed_plan_id,
-        queued_at
+        queued_at,
+        queue_position
       )
       VALUES (
         ${row.messageId},
@@ -51,7 +53,12 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         ${row.modelSelection !== null ? JSON.stringify(row.modelSelection) : null},
         ${row.sourceProposedPlanThreadId},
         ${row.sourceProposedPlanId},
-        ${row.queuedAt}
+        ${row.queuedAt},
+        COALESCE((
+          SELECT MAX(queue_position) + 1
+          FROM projection_queued_messages
+          WHERE thread_id = ${row.threadId}
+        ), 0)
       )
     `,
   });
@@ -71,7 +78,7 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         queued_at AS "queuedAt"
       FROM projection_queued_messages
       WHERE thread_id = ${threadId}
-      ORDER BY rowid ASC
+      ORDER BY queue_position ASC, rowid ASC
     `,
   });
 
@@ -90,6 +97,28 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
       WHERE thread_id = ${threadId}
     `,
   });
+
+  const updateProjectionQueuedMessageText = SqlSchema.void({
+    Request: UpdateProjectionQueuedMessageTextInput,
+    execute: ({ threadId, messageId, text }) => sql`
+      UPDATE projection_queued_messages
+      SET text = ${text}
+      WHERE thread_id = ${threadId} AND message_id = ${messageId}
+    `,
+  });
+
+  const reorderProjectionQueuedMessages = (input: ReorderProjectionQueuedMessagesInput) =>
+    sql.withTransaction(
+      Effect.forEach(
+        input.messageIds,
+        (messageId, queuePosition) => sql`
+          UPDATE projection_queued_messages
+          SET queue_position = ${queuePosition}
+          WHERE thread_id = ${input.threadId} AND message_id = ${messageId}
+        `,
+        { concurrency: 1, discard: true },
+      ),
+    );
 
   const upsert: ProjectionQueuedMessageRepositoryShape["upsert"] = (row) =>
     upsertProjectionQueuedMessageRow(row).pipe(
@@ -117,11 +146,23 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
       ),
     );
 
+  const updateText: ProjectionQueuedMessageRepositoryShape["updateText"] = (input) =>
+    updateProjectionQueuedMessageText(input).pipe(
+      Effect.mapError(toPersistenceSqlError("ProjectionQueuedMessageRepository.updateText:query")),
+    );
+
+  const reorder: ProjectionQueuedMessageRepositoryShape["reorder"] = (input) =>
+    reorderProjectionQueuedMessages(input).pipe(
+      Effect.mapError(toPersistenceSqlError("ProjectionQueuedMessageRepository.reorder:query")),
+    );
+
   return {
     upsert,
     listByThreadId,
     deleteByMessageId,
     deleteByThreadId,
+    updateText,
+    reorder,
   } satisfies ProjectionQueuedMessageRepositoryShape;
 });
 

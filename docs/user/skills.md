@@ -16,3 +16,13 @@ Open `/skills`, choose **Add new skill**, and provide:
 
 New skills are saved in the current project and become available immediately. Skill creation is
 supported for Codex and Claude. T3 Code refuses to overwrite an existing skill with the same name.
+
+## Manage global skills in Settings
+
+Open **Settings → Skills** to browse the skills available on each connected device and provider
+instance. Select a skill to inspect its `SKILL.md` file.
+
+User-owned global skills can be edited and saved directly. Built-in, plugin-managed, and project
+skills remain visible but read-only so their owning installation or repository stays authoritative.
+Use **New global skill** to add a skill to the selected Codex or Claude instance's global skills
+directory.

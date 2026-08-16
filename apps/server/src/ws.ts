@@ -43,6 +43,7 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   SkillCreateError,
+  SkillDocumentError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
   type ServerSelfUpdateError,
@@ -85,7 +86,12 @@ import {
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
-import { createProjectSkill } from "./provider/SkillCreator.ts";
+import {
+  createGlobalSkill,
+  createProjectSkill,
+  readSkillDocument,
+  updateSkillDocument,
+} from "./provider/SkillCreator.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -286,6 +292,8 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
       | "thread.message-sent"
       | "thread.message-queued"
       | "thread.queued-message-removed"
+      | "thread.queued-message-updated"
+      | "thread.queued-messages-reordered"
       | "thread.proposed-plan-upserted"
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
@@ -297,6 +305,8 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
     event.type === "thread.message-sent" ||
     event.type === "thread.message-queued" ||
     event.type === "thread.queued-message-removed" ||
+    event.type === "thread.queued-message-updated" ||
+    event.type === "thread.queued-messages-reordered" ||
     event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
@@ -2034,6 +2044,108 @@ const makeWsRpcLayer = (
               }
               const result = yield* createProjectSkill(input, provider.driver);
               yield* workspaceEntries.refresh(input.cwd);
+              yield* providerRegistry.refreshInstance(input.instanceId);
+              return result;
+            }),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.skillsCreateGlobal]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.skillsCreateGlobal,
+            Effect.gen(function* () {
+              const providers = yield* providerRegistry.getProviders;
+              const provider = providers.find(
+                (candidate) => candidate.instanceId === input.instanceId,
+              );
+              if (!provider) {
+                return yield* new SkillCreateError({
+                  failure: "provider_not_found",
+                  message: "The selected provider instance is unavailable.",
+                });
+              }
+              const settings = yield* serverSettings.getSettings.pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new SkillCreateError({
+                      failure: "write_failed",
+                      message: "Could not resolve the selected provider's global skill folder.",
+                      cause,
+                    }),
+                ),
+              );
+              const result = yield* createGlobalSkill(
+                input,
+                provider.driver,
+                settings.providerInstances[input.instanceId],
+              );
+              yield* providerRegistry.refreshInstance(input.instanceId);
+              return result;
+            }),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.skillsRead]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.skillsRead,
+            Effect.gen(function* () {
+              const providers = yield* providerRegistry.getProviders;
+              const provider = providers.find(
+                (candidate) => candidate.instanceId === input.instanceId,
+              );
+              if (!provider) {
+                return yield* new SkillDocumentError({
+                  failure: "provider_not_found",
+                  message: "The selected provider instance is unavailable.",
+                });
+              }
+              const settings = yield* serverSettings.getSettings.pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new SkillDocumentError({
+                      failure: "read_failed",
+                      message: "Could not resolve the selected provider's skill settings.",
+                      cause,
+                    }),
+                ),
+              );
+              return yield* readSkillDocument(
+                input,
+                provider.driver,
+                provider.skills,
+                settings.providerInstances[input.instanceId],
+              );
+            }),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.skillsUpdate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.skillsUpdate,
+            Effect.gen(function* () {
+              const providers = yield* providerRegistry.getProviders;
+              const provider = providers.find(
+                (candidate) => candidate.instanceId === input.instanceId,
+              );
+              if (!provider) {
+                return yield* new SkillDocumentError({
+                  failure: "provider_not_found",
+                  message: "The selected provider instance is unavailable.",
+                });
+              }
+              const settings = yield* serverSettings.getSettings.pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new SkillDocumentError({
+                      failure: "write_failed",
+                      message: "Could not resolve the selected provider's skill settings.",
+                      cause,
+                    }),
+                ),
+              );
+              const result = yield* updateSkillDocument(
+                input,
+                provider.driver,
+                provider.skills,
+                settings.providerInstances[input.instanceId],
+              );
               yield* providerRegistry.refreshInstance(input.instanceId);
               return result;
             }),

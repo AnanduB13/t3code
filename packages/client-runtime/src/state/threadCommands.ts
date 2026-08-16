@@ -8,6 +8,7 @@ import {
   type DeleteThreadInput,
   type InterruptThreadTurnInput,
   type RemoveQueuedMessageInput,
+  type ReorderQueuedMessagesInput,
   type RespondToThreadApprovalInput,
   type RespondToThreadUserInputInput,
   type RevertThreadCheckpointInput,
@@ -25,11 +26,13 @@ import {
   type UnsettleThreadInput,
   type UnsnoozeThreadInput,
   type UpdateThreadMetadataInput,
+  type UpdateQueuedMessageInput,
   archiveThread,
   createThread,
   deleteThread,
   interruptThreadTurn,
   removeQueuedMessage,
+  reorderQueuedMessages,
   respondToThreadApproval,
   respondToThreadUserInput,
   revertThreadCheckpoint,
@@ -47,6 +50,7 @@ import {
   unsettleThread,
   unsnoozeThread,
   updateThreadMetadata,
+  updateQueuedMessage,
 } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
@@ -56,6 +60,7 @@ export type {
   DeleteThreadInput,
   InterruptThreadTurnInput,
   RemoveQueuedMessageInput,
+  ReorderQueuedMessagesInput,
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
   RevertThreadCheckpointInput,
@@ -73,6 +78,7 @@ export type {
   UnsettleThreadInput,
   UnsnoozeThreadInput,
   UpdateThreadMetadataInput,
+  UpdateQueuedMessageInput,
 } from "../operations/commands.ts";
 
 export function createThreadEnvironmentAtoms<R, E>(
@@ -190,6 +196,18 @@ export function createThreadEnvironmentAtoms<R, E>(
     removeQueuedMessage: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:remove-queued-message",
       execute: (input: RemoveQueuedMessageInput) => removeQueuedMessage(input),
+      scheduler,
+      concurrency,
+    }),
+    updateQueuedMessage: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:update-queued-message",
+      execute: (input: UpdateQueuedMessageInput) => updateQueuedMessage(input),
+      scheduler,
+      concurrency,
+    }),
+    reorderQueuedMessages: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:reorder-queued-messages",
+      execute: (input: ReorderQueuedMessagesInput) => reorderQueuedMessages(input),
       scheduler,
       concurrency,
     }),

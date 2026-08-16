@@ -949,6 +949,7 @@ const make = Effect.gen(function* () {
         type: "thread.queue.drain",
         commandId: yield* providerCommandId(event, "queue-drain"),
         threadId,
+        ...(toTurnId(event.turnId) !== undefined ? { afterTurnId: toTurnId(event.turnId) } : {}),
         createdAt: now,
       })
       .pipe(
@@ -1678,14 +1679,15 @@ const make = Effect.gen(function* () {
             createdAt: now,
           });
 
-          // Auto-drain queued follow-ups only on natural completion —
-          // never after an interrupt (the user stopped the agent to take
-          // control) or a failure. The dispatch happens after the
-          // assistant-finalization block below so the drained user message
-          // sequences after the assistant text it follows up on.
+          // An interrupt stops only the active turn, not the durable prompt
+          // queue. Drain its next item after either a natural completion or
+          // an acknowledged abort; failures remain paused for user review.
+          // Dispatch after assistant finalization so the queued user message
+          // sequences after the response it follows up on.
           drainQueueAfterTurnFinalize =
-            event.type === "turn.completed" &&
-            normalizeRuntimeTurnState(event.payload.state) === "completed";
+            event.type === "turn.aborted" ||
+            (event.type === "turn.completed" &&
+              normalizeRuntimeTurnState(event.payload.state) === "completed");
         }
       }
 

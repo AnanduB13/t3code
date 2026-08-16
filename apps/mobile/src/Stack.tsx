@@ -48,6 +48,7 @@ import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteSc
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import { SettingsProjectGroupingRouteScreen } from "./features/settings/SettingsProjectGroupingRouteScreen";
+import { SettingsSkillsRouteScreen } from "./features/settings/SettingsSkillsRouteScreen";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
 import { ShowcaseCaptureCoordinator } from "./features/showcase/ShowcaseCaptureCoordinator";
@@ -182,6 +183,13 @@ const SettingsSheetStack = createNativeStackNavigator({
       linking: "project-grouping",
       options: {
         title: "Project Grouping",
+      },
+    }),
+    SettingsSkills: createNativeStackScreen({
+      screen: SettingsSkillsRouteScreen,
+      linking: "skills",
+      options: {
+        title: "Skills",
       },
     }),
     SettingsClientStorage: createNativeStackScreen({

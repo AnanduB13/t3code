@@ -40,6 +40,20 @@ export const DeleteProjectionQueuedMessagesInput = Schema.Struct({
 });
 export type DeleteProjectionQueuedMessagesInput = typeof DeleteProjectionQueuedMessagesInput.Type;
 
+export const UpdateProjectionQueuedMessageTextInput = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String,
+});
+export type UpdateProjectionQueuedMessageTextInput =
+  typeof UpdateProjectionQueuedMessageTextInput.Type;
+
+export const ReorderProjectionQueuedMessagesInput = Schema.Struct({
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+});
+export type ReorderProjectionQueuedMessagesInput = typeof ReorderProjectionQueuedMessagesInput.Type;
+
 export interface ProjectionQueuedMessageRepositoryShape {
   readonly upsert: (
     queuedMessage: ProjectionQueuedMessage,
@@ -52,6 +66,12 @@ export interface ProjectionQueuedMessageRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly deleteByThreadId: (
     input: DeleteProjectionQueuedMessagesInput,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly updateText: (
+    input: UpdateProjectionQueuedMessageTextInput,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly reorder: (
+    input: ReorderProjectionQueuedMessagesInput,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 

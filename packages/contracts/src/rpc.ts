@@ -68,7 +68,17 @@ import {
 } from "./orchestration.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import { ProviderUsageError, ProviderUsageResult } from "./providerUsage.ts";
-import { SkillCreateError, SkillCreateInput, SkillCreateResult } from "./skills.ts";
+import {
+  SkillCreateError,
+  SkillCreateGlobalInput,
+  SkillCreateInput,
+  SkillCreateResult,
+  SkillDocumentError,
+  SkillDocumentInput,
+  SkillDocumentResult,
+  SkillUpdateInput,
+  SkillUpdateResult,
+} from "./skills.ts";
 import {
   ThreadGoalClearInput,
   ThreadGoalClearResult,
@@ -247,6 +257,9 @@ export const WS_METHODS = {
 
   // Skill methods
   skillsCreate: "skills.create",
+  skillsCreateGlobal: "skills.createGlobal",
+  skillsRead: "skills.read",
+  skillsUpdate: "skills.update",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -819,6 +832,24 @@ export const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
   error: Schema.Union([SkillCreateError, EnvironmentAuthorizationError]),
 });
 
+export const WsSkillsCreateGlobalRpc = Rpc.make(WS_METHODS.skillsCreateGlobal, {
+  payload: SkillCreateGlobalInput,
+  success: SkillCreateResult,
+  error: Schema.Union([SkillCreateError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsReadRpc = Rpc.make(WS_METHODS.skillsRead, {
+  payload: SkillDocumentInput,
+  success: SkillDocumentResult,
+  error: Schema.Union([SkillDocumentError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsUpdateRpc = Rpc.make(WS_METHODS.skillsUpdate, {
+  payload: SkillUpdateInput,
+  success: SkillUpdateResult,
+  error: Schema.Union([SkillDocumentError, EnvironmentAuthorizationError]),
+});
+
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -1232,6 +1263,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsMoveEntryRpc,
   WsProjectsDeleteEntryRpc,
   WsSkillsCreateRpc,
+  WsSkillsCreateGlobalRpc,
+  WsSkillsReadRpc,
+  WsSkillsUpdateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAssetsCreateUrlRpc,

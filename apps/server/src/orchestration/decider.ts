@@ -5,6 +5,7 @@ import {
   type OrchestrationQueuedMessage,
   type OrchestrationReadModel,
   type OrchestrationThread,
+  MAX_THREAD_QUEUED_MESSAGES,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@t3tools/contracts";
@@ -196,8 +197,6 @@ function queuedMessagesForThread(
   const queuedMessages = (thread as { readonly queuedMessages?: unknown }).queuedMessages;
   return Array.isArray(queuedMessages) ? (queuedMessages as OrchestrationQueuedMessage[]) : [];
 }
-
-const MAX_THREAD_QUEUED_MESSAGES = 50;
 
 interface TurnStartMessageInput {
   readonly messageId: OrchestrationQueuedMessage["messageId"];
@@ -1260,6 +1259,79 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.queue.update": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queuedMessage = queuedMessagesForThread(thread).find(
+        (entry) => entry.messageId === command.messageId,
+      );
+      if (!queuedMessage) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      if (command.text.trim().length === 0 && queuedMessage.attachments.length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' cannot be empty.`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.queued-message-updated",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          text: command.text,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.queue.reorder": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queuedMessages = queuedMessagesForThread(thread);
+      const currentIds = new Set(queuedMessages.map((entry) => entry.messageId));
+      const requestedIds = new Set(command.messageIds);
+      const isExactPermutation =
+        command.messageIds.length === queuedMessages.length &&
+        requestedIds.size === command.messageIds.length &&
+        command.messageIds.every((messageId) => currentIds.has(messageId));
+      if (!isExactPermutation) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queue reorder for thread '${command.threadId}' must contain every queued message exactly once.`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.queued-messages-reordered",
+        payload: {
+          threadId: command.threadId,
+          messageIds: command.messageIds,
+          reorderedAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.queue.drain": {
       const thread = yield* requireThread({
         readModel,
@@ -1273,7 +1345,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Thread '${command.threadId}' has no queued messages to drain.`,
         });
       }
-      if (isThreadTurnActive(thread) || thread.pendingTurnStart !== null) {
+      const drainsJustFinalizedTurn =
+        command.afterTurnId !== undefined && thread.session?.activeTurnId === command.afterTurnId;
+      if (
+        (isThreadTurnActive(thread) && !drainsJustFinalizedTurn) ||
+        thread.pendingTurnStart !== null
+      ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Thread '${command.threadId}' is busy; queued messages drain on turn completion.`,

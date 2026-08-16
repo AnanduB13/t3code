@@ -127,5 +127,29 @@ export function createProjectEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.cwd, input.instanceId, input.name]),
       },
     }),
+    createGlobalSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:create-global",
+      tag: WS_METHODS.skillsCreateGlobal,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.instanceId, input.name]),
+      },
+    }),
+    readSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:read",
+      tag: WS_METHODS.skillsRead,
+    }),
+    updateSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:update",
+      tag: WS_METHODS.skillsUpdate,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.instanceId, input.path]),
+      },
+    }),
   };
 }

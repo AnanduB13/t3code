@@ -384,6 +384,26 @@ describe("ProviderRuntimeIngestion", () => {
         thread.session?.status === "running" && thread.session.activeTurnId === "turn-aborted",
     );
 
+    await harness.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.make("cmd-queue-after-abort"),
+      threadId: asThreadId("thread-1"),
+      message: {
+        messageId: asMessageId("message-queued-after-abort"),
+        role: "user",
+        text: "Continue with the next task",
+        attachments: [],
+      },
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      createdAt: now,
+    });
+    await waitForThread(harness.readModel, (thread) =>
+      thread.queuedMessages.some(
+        (message) => message.messageId === asMessageId("message-queued-after-abort"),
+      ),
+    );
+
     harness.emit({
       type: "turn.aborted",
       eventId: asEventId("evt-turn-aborted"),
@@ -396,9 +416,15 @@ describe("ProviderRuntimeIngestion", () => {
 
     const thread = await waitForThread(
       harness.readModel,
-      (entry) => entry.session?.status === "interrupted" && entry.session.activeTurnId === null,
+      (entry) =>
+        entry.messages.some(
+          (message) => message.id === asMessageId("message-queued-after-abort"),
+        ) && entry.queuedMessages.length === 0,
     );
+    expect(thread.session?.status).toBe("interrupted");
+    expect(thread.session?.activeTurnId).toBeNull();
     expect(thread.session?.lastError).toBeNull();
+    expect(thread.queuedMessages).toEqual([]);
   });
 
   it("applies provider session.state.changed transitions directly", async () => {

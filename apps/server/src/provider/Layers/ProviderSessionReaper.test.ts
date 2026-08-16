@@ -342,7 +342,67 @@ describe("ProviderSessionReaper", () => {
     );
 
     await startReaper();
-    await waitFor(() => harness.dispatchedCommands.length === 1);
+    await Effect.runPromise(drainFibers);
+
+    expect(harness.stopSession).not.toHaveBeenCalled();
+    expect(harness.dispatchedCommands[0]).toMatchObject({
+      type: "thread.session.stop",
+      threadId,
+      createdAt: now,
+    });
+  });
+
+  it("reconciles a projected active turn when a live session no longer owns it", async () => {
+    const threadId = ThreadId.make("thread-reaper-detached-active-turn");
+    const turnId = TurnId.make("turn-reaper-detached-active");
+    const now = "2026-01-01T00:00:00.000Z";
+    const harness = await createHarness({
+      readModel: makeReadModel([
+        {
+          id: threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "claudeAgent",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: now,
+          },
+        },
+      ]),
+      liveSessions: [
+        {
+          provider: ProviderDriverKind.make("claudeAgent"),
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          status: "ready",
+          runtimeMode: "full-access",
+          threadId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: DateTime.formatIso(await Effect.runPromise(DateTime.now)),
+        resumeCursor: { opaque: "resume-detached-active-turn" },
+        runtimePayload: null,
+      }),
+    );
+
+    await startReaper();
+    await Effect.runPromise(drainFibers);
 
     expect(harness.stopSession).not.toHaveBeenCalled();
     expect(harness.dispatchedCommands[0]).toMatchObject({

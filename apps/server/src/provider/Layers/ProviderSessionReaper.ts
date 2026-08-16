@@ -41,11 +41,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       const bindings = yield* directory.listBindings();
       // The directory is durable, while adapter sessions are process-local. A
       // server restart can therefore leave a projected active turn pointing at
-      // a provider process that no longer exists. Keep this runtime snapshot
-      // separate from persisted bindings so those orphans can be identified.
-      const liveThreadIds = new Set(
-        (yield* providerService.listSessions()).map((session) => session.threadId),
-      );
+      // a process that is gone, or at a newly restored session that does not
+      // own that turn. Keep this runtime snapshot separate from persisted
+      // bindings so ownership can be checked using the exact turn id.
+      const liveSessions = yield* providerService.listSessions();
       const now = yield* Clock.currentTimeMillis;
       let reapedCount = 0;
 
@@ -68,9 +67,21 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           .getThreadShellById(binding.threadId)
           .pipe(Effect.map(Option.getOrUndefined));
 
-        const hasProjectedWork =
-          thread?.session?.activeTurnId != null || thread?.backgroundLiveness != null;
-        if (hasProjectedWork && !liveThreadIds.has(binding.threadId)) {
+        const projectedActiveTurnId = thread?.session?.activeTurnId ?? null;
+        const threadLiveSessions = liveSessions.filter(
+          (session) => session.threadId === binding.threadId,
+        );
+        const providerOwnsProjectedTurn =
+          projectedActiveTurnId === null ||
+          threadLiveSessions.some(
+            (session) =>
+              session.status === "running" && session.activeTurnId === projectedActiveTurnId,
+          );
+        const providerOwnsBackgroundWork =
+          thread?.backgroundLiveness == null || threadLiveSessions.length > 0;
+        const hasOrphanedProjectedWork = !providerOwnsProjectedTurn || !providerOwnsBackgroundWork;
+
+        if (hasOrphanedProjectedWork) {
           // Dispatching through orchestration is essential here: marking only
           // the provider binding stopped leaves the read model (and its timer)
           // running forever. Use the last projected activity as the end time so
@@ -82,15 +93,19 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
                 `server:provider-session-reaper:${binding.threadId}:${String(now)}`,
               ),
               threadId: binding.threadId,
-              createdAt: thread.updatedAt,
+              createdAt: thread?.updatedAt ?? binding.lastSeenAt,
             })
             .pipe(
               Effect.tap(() =>
                 Effect.logWarning("provider.session.reaper.reconciled-orphaned-work", {
                   threadId: binding.threadId,
                   provider: binding.provider,
-                  activeTurnId: thread.session?.activeTurnId ?? null,
-                  backgroundLiveness: thread.backgroundLiveness,
+                  activeTurnId: projectedActiveTurnId,
+                  liveSessionStatuses: threadLiveSessions.map((session) => session.status),
+                  liveActiveTurnIds: threadLiveSessions.map(
+                    (session) => session.activeTurnId ?? null,
+                  ),
+                  backgroundLiveness: thread?.backgroundLiveness ?? null,
                 }),
               ),
               Effect.as(true),

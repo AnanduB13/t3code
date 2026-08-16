@@ -7,6 +7,7 @@
 - [Browser and Computer Use](./user/computer-use.md)
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Organizing threads](./user/thread-sidebar.md)
+- [Queuing follow-up prompts](./user/prompt-queue.md)
 - [Usage and local CLI history](./user/usage.md)
 - [Customize a project icon](./user/project-settings.md)
 - [Remote access](./user/remote-access.md)

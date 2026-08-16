@@ -390,6 +390,69 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
     }),
   );
 
+  it.effect("updates queued text without changing its position", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const suffix of ["edit-first", "edit-second"]) {
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({ command: turnStartCommand(suffix), readModel }),
+        );
+      }
+
+      const planned = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.queue.update",
+          commandId: asCommandId("cmd-update-queued"),
+          threadId: THREAD_ID,
+          messageId: asMessageId("message-edit-first"),
+          text: "Edited first prompt",
+          createdAt: NOW,
+        },
+        readModel,
+      });
+      const projected = yield* applyPlanned(readModel, planned);
+      const queue = projected.threads.find((entry) => entry.id === THREAD_ID)?.queuedMessages;
+      expect(queue?.map((entry) => [entry.messageId, entry.text])).toEqual([
+        [asMessageId("message-edit-first"), "Edited first prompt"],
+        [asMessageId("message-edit-second"), "Follow up edit-second"],
+      ]);
+    }),
+  );
+
+  it.effect("reorders the complete durable queue", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const suffix of ["order-first", "order-second", "order-third"]) {
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({ command: turnStartCommand(suffix), readModel }),
+        );
+      }
+      const reorderedIds = [
+        asMessageId("message-order-third"),
+        asMessageId("message-order-first"),
+        asMessageId("message-order-second"),
+      ];
+      const planned = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.queue.reorder",
+          commandId: asCommandId("cmd-reorder-queued"),
+          threadId: THREAD_ID,
+          messageIds: reorderedIds,
+          createdAt: NOW,
+        },
+        readModel,
+      });
+      const projected = yield* applyPlanned(readModel, planned);
+      expect(
+        projected.threads
+          .find((entry) => entry.id === THREAD_ID)
+          ?.queuedMessages.map((entry) => entry.messageId),
+      ).toEqual(reorderedIds);
+    }),
+  );
+
   it.effect("steer and remove reject unknown queued messages", () =>
     Effect.gen(function* () {
       const readModel = yield* seedReadModel;

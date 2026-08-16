@@ -857,6 +857,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "thread.message-sent":
         case "thread.message-queued":
         case "thread.queued-message-removed":
+        case "thread.queued-message-updated":
+        case "thread.queued-messages-reordered":
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
         case "thread.approval-response-requested":
@@ -1087,6 +1089,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
           return;
         }
+
+        case "thread.queued-message-updated":
+          yield* projectionQueuedMessageRepository.updateText({
+            threadId: event.payload.threadId,
+            messageId: event.payload.messageId,
+            text: event.payload.text,
+          });
+          return;
+
+        case "thread.queued-messages-reordered":
+          yield* projectionQueuedMessageRepository.reorder({
+            threadId: event.payload.threadId,
+            messageIds: event.payload.messageIds,
+          });
+          return;
 
         case "thread.deleted":
           yield* projectionQueuedMessageRepository.deleteByThreadId({

@@ -13,6 +13,8 @@ import {
   MessageSentPayloadSchema,
   ThreadMessageQueuedPayload,
   ThreadQueuedMessageRemovedPayload,
+  ThreadQueuedMessageUpdatedPayload,
+  ThreadQueuedMessagesReorderedPayload,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
@@ -614,6 +616,54 @@ export function projectEvent(
               queuedMessages: thread.queuedMessages.filter(
                 (entry) => entry.messageId !== payload.messageId,
               ),
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.queued-message-updated":
+      return decodeForEvent(
+        ThreadQueuedMessageUpdatedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queuedMessages: thread.queuedMessages.map((entry) =>
+                entry.messageId === payload.messageId ? { ...entry, text: payload.text } : entry,
+              ),
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.queued-messages-reordered":
+      return decodeForEvent(
+        ThreadQueuedMessagesReorderedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          const queuedById = new Map(
+            thread.queuedMessages.map((entry) => [entry.messageId, entry]),
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queuedMessages: payload.messageIds.flatMap((messageId) => {
+                const queuedMessage = queuedById.get(messageId);
+                return queuedMessage ? [queuedMessage] : [];
+              }),
               updatedAt: event.occurredAt,
             }),
           };

@@ -588,7 +588,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           source_proposed_plan_id AS "sourceProposedPlanId",
           queued_at AS "queuedAt"
         FROM projection_queued_messages
-        ORDER BY thread_id ASC, rowid ASC
+        ORDER BY thread_id ASC, queue_position ASC, rowid ASC
       `,
   });
 
@@ -1052,7 +1052,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           queued_at AS "queuedAt"
         FROM projection_queued_messages
         WHERE thread_id = ${threadId}
-        ORDER BY rowid ASC
+        ORDER BY queue_position ASC, rowid ASC
       `,
   });
 

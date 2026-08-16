@@ -3,6 +3,7 @@ export type SettingsSheetTarget =
   | "SettingsArchive"
   | "SettingsAppearance"
   | "SettingsProjectGrouping"
+  | "SettingsSkills"
   | "SettingsClientStorage"
   | "SettingsUsage";
 
