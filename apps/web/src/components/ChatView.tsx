@@ -2205,7 +2205,16 @@ function ChatViewContent(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
-  const turnPlans = useMemo(() => deriveTurnPlans(threadActivities), [threadActivities]);
+  const activePlanTurnId =
+    activeThread?.session?.status === "running"
+      ? activeThread.session.activeTurnId
+      : activeThread?.session == null && activeThread?.latestTurn?.state === "running"
+        ? activeThread.latestTurn.turnId
+        : null;
+  const turnPlans = useMemo(
+    () => deriveTurnPlans(threadActivities, activePlanTurnId),
+    [activePlanTurnId, threadActivities],
+  );
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).

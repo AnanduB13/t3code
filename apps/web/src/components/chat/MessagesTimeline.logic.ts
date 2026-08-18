@@ -692,7 +692,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       const bp = b as typeof a;
       // Plans rewrite in place: compare the snapshot's identity fields so an
       // unchanged plan keeps its row reference (virtualization stability).
-      return a.createdAt === bp.createdAt && a.turnPlan.plan === bp.turnPlan.plan;
+      return (
+        a.createdAt === bp.createdAt &&
+        a.turnPlan.plan === bp.turnPlan.plan &&
+        a.turnPlan.isActive === bp.turnPlan.isActive
+      );
     }
 
     case "work":

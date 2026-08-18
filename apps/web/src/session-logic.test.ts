@@ -454,9 +454,29 @@ describe("deriveTurnPlans", () => {
       id: "turn-plan:turn-1",
       createdAt: "2026-02-23T00:00:01.000Z",
       turnId: "turn-1",
+      isActive: false,
     });
     expect(turnPlans[0]?.plan.steps).toEqual([{ step: "Inspect code", status: "completed" }]);
     expect(turnPlans[1]?.plan.steps).toEqual([{ step: "Ship it", status: "pending" }]);
+  });
+
+  it("marks only the currently running turn's plan as active", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "plan-running",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+        turnId: "turn-running",
+        payload: {
+          plan: [{ step: "Inspect code", status: "inProgress" }],
+        },
+      }),
+    ];
+
+    expect(deriveTurnPlans(activities, TurnId.make("turn-running"))[0]?.isActive).toBe(true);
+    expect(deriveTurnPlans(activities, null)[0]?.isActive).toBe(false);
   });
 
   it("skips activities without parseable steps", () => {

@@ -608,6 +608,8 @@ export interface TurnPlanEntry {
   /** Anchor timestamp: the turn's FIRST plan activity, so the chip renders where planning began. */
   createdAt: string;
   turnId: TurnId | null;
+  /** True only while the provider still reports this plan's owning turn as running. */
+  isActive: boolean;
   plan: ActivePlanState;
 }
 
@@ -618,6 +620,7 @@ export interface TurnPlanEntry {
  */
 export function deriveTurnPlans(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  activeTurnId: TurnId | null = null,
 ): TurnPlanEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const byTurn = new Map<string, TurnPlanEntry>();
@@ -641,11 +644,15 @@ export function deriveTurnPlans(
         id: `turn-plan:${key}`,
         createdAt: activity.createdAt,
         turnId: activity.turnId,
+        isActive: activity.turnId !== null && activity.turnId === activeTurnId,
         plan,
       });
     }
   }
-  return [...byTurn.values()];
+  return [...byTurn.values()].map((entry) => ({
+    ...entry,
+    isActive: entry.turnId !== null && entry.turnId === activeTurnId,
+  }));
 }
 
 export function findLatestProposedPlan(

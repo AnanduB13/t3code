@@ -1237,6 +1237,7 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const { steps } = row.turnPlan.plan;
+  const planActive = row.turnPlan.isActive;
   const completedCount = steps.filter((step) => step.status === "completed").length;
   const allDone = completedCount === steps.length;
   // Label priority: the in-progress step, else the next pending step (plan
@@ -1265,7 +1266,7 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
                   "h-[3px] w-2.5 rounded-full",
                   step.status === "completed"
                     ? "bg-success"
-                    : step.status === "inProgress"
+                    : step.status === "inProgress" && planActive
                       ? "bg-primary"
                       : "bg-muted-foreground/25",
                 )}
@@ -1278,7 +1279,9 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
             "min-w-0 truncate",
             allDone
               ? "text-muted-foreground/65"
-              : "turn-plan-active-label font-medium text-foreground/85",
+              : planActive
+                ? "turn-plan-active-label font-medium text-foreground/85"
+                : "text-muted-foreground/65",
           )}
         >
           {label}
@@ -1319,7 +1322,7 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
                   >
                     {step.status === "completed" ? (
                       <CheckIcon className="size-3.5 text-success" strokeWidth={2.5} />
-                    ) : step.status === "inProgress" ? (
+                    ) : step.status === "inProgress" && planActive ? (
                       <span className="size-3 rounded-full border-[1.5px] border-muted-foreground/25 border-t-primary animate-spin" />
                     ) : (
                       <span className="size-2 rounded-full border border-muted-foreground/35" />
@@ -1330,7 +1333,7 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
                       "min-w-0 leading-relaxed",
                       step.status === "completed"
                         ? "text-muted-foreground/55"
-                        : step.status === "inProgress"
+                        : step.status === "inProgress" && planActive
                           ? "font-medium text-foreground/90"
                           : "text-muted-foreground/65",
                     )}

@@ -276,6 +276,7 @@ describe("MessagesTimeline", () => {
               id: "turn-plan:turn-with-plan",
               createdAt: MESSAGE_CREATED_AT,
               turnId,
+              isActive: true,
               plan: {
                 createdAt: MESSAGE_CREATED_AT,
                 turnId,
@@ -301,6 +302,42 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Verify the result");
     expect(markup).toContain("animate-spin");
     expect(markup).toContain("turn-plan-trace-row");
+  });
+
+  it("renders an interrupted in-progress plan without an active spinner", () => {
+    const turnId = TurnId.make("turn-with-interrupted-plan");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "turn-plan:turn-with-interrupted-plan",
+            kind: "turn-plan",
+            createdAt: MESSAGE_CREATED_AT,
+            turnPlan: {
+              id: "turn-plan:turn-with-interrupted-plan",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId,
+              isActive: false,
+              plan: {
+                createdAt: MESSAGE_CREATED_AT,
+                turnId,
+                steps: [
+                  { step: "Inspect code", status: "inProgress" },
+                  { step: "Implement fix", status: "pending" },
+                ],
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Inspect code");
+    expect(markup).toContain("0/2");
+    expect(markup).not.toContain("animate-spin");
+    expect(markup).not.toContain("turn-plan-active-label");
+    expect(markup).not.toContain("bg-primary");
   });
 
   it("keeps assistant changed-files headers sticky below the thread header", () => {
