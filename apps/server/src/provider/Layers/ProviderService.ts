@@ -216,6 +216,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  // Adapter session timestamps describe lifecycle transitions, not ongoing
+  // turn activity. Keep a process-local heartbeat from canonical turn events
+  // so the reaper can distinguish a live, progressing turn from a runtime
+  // that still claims a turn id after its event stream has wedged.
+  const lastTurnActivityAtByThread = new Map<ThreadId, string>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
@@ -292,6 +297,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     event: ProviderRuntimeEvent,
   ): Effect.Effect<void> =>
     Effect.sync(() => correlateRuntimeEventWithInstance(source, event)).pipe(
+      Effect.tap((canonicalEvent) =>
+        canonicalEvent.turnId !== undefined
+          ? Effect.sync(() => {
+              lastTurnActivityAtByThread.set(canonicalEvent.threadId, canonicalEvent.createdAt);
+            })
+          : Effect.void,
+      ),
       Effect.flatMap((canonicalEvent) =>
         increment(providerRuntimeEventsTotal, {
           provider: canonicalEvent.provider,
@@ -977,9 +989,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const sessions: ProviderSession[] = [];
       for (const session of activeSessions) {
+        const lastTurnActivityAt = lastTurnActivityAtByThread.get(session.threadId);
+        const activityAwareSession =
+          lastTurnActivityAt !== undefined && lastTurnActivityAt > session.updatedAt
+            ? { ...session, updatedAt: lastTurnActivityAt }
+            : session;
         const binding = bindingsByThreadId.get(session.threadId);
         if (!binding) {
-          sessions.push(session);
+          sessions.push(activityAwareSession);
           continue;
         }
 
@@ -1012,7 +1029,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (binding.runtimeMode !== undefined) {
           overrides.runtimeMode = binding.runtimeMode;
         }
-        sessions.push(Object.assign({}, session, overrides));
+        sessions.push(Object.assign({}, activityAwareSession, overrides));
       }
       return sessions;
     },

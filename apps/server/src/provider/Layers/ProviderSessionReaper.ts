@@ -1,5 +1,6 @@
 import { CommandId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -71,21 +72,33 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         const threadLiveSessions = liveSessions.filter(
           (session) => session.threadId === binding.threadId,
         );
+        const projectedTurnSession =
+          projectedActiveTurnId === null
+            ? undefined
+            : threadLiveSessions.find(
+                (session) =>
+                  session.status === "running" && session.activeTurnId === projectedActiveTurnId,
+              );
         const providerOwnsProjectedTurn =
-          projectedActiveTurnId === null ||
-          threadLiveSessions.some(
-            (session) =>
-              session.status === "running" && session.activeTurnId === projectedActiveTurnId,
-          );
+          projectedActiveTurnId === null || projectedTurnSession !== undefined;
         const providerOwnsBackgroundWork =
           thread?.backgroundLiveness == null || threadLiveSessions.length > 0;
+        const projectedTurnLastActivityMs = projectedTurnSession
+          ? Date.parse(projectedTurnSession.updatedAt)
+          : Number.NaN;
+        const hasStalledProjectedTurn =
+          projectedTurnSession !== undefined &&
+          !Number.isNaN(projectedTurnLastActivityMs) &&
+          now - projectedTurnLastActivityMs >= inactivityThresholdMs;
         const hasOrphanedProjectedWork = !providerOwnsProjectedTurn || !providerOwnsBackgroundWork;
 
-        if (hasOrphanedProjectedWork) {
+        if (hasOrphanedProjectedWork || hasStalledProjectedTurn) {
           // Dispatching through orchestration is essential here: marking only
           // the provider binding stopped leaves the read model (and its timer)
-          // running forever. Use the last projected activity as the end time so
-          // downtime after a crash is not reported as agent work.
+          // running forever. Orphans end at their last projected activity so
+          // downtime is not reported as work; a live runtime that stalls ends
+          // when the watchdog detects it so the visible elapsed timer and the
+          // final interruption duration stay consistent.
           const reconciled = yield* orchestrationEngine
             .dispatch({
               type: "thread.session.stop",
@@ -93,7 +106,9 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
                 `server:provider-session-reaper:${binding.threadId}:${String(now)}`,
               ),
               threadId: binding.threadId,
-              createdAt: thread?.updatedAt ?? binding.lastSeenAt,
+              createdAt: hasStalledProjectedTurn
+                ? DateTime.formatIso(DateTime.makeUnsafe(now))
+                : (thread?.updatedAt ?? binding.lastSeenAt),
             })
             .pipe(
               Effect.tap(() =>
@@ -106,6 +121,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
                     (session) => session.activeTurnId ?? null,
                   ),
                   backgroundLiveness: thread?.backgroundLiveness ?? null,
+                  reason: hasStalledProjectedTurn
+                    ? "active_turn_inactivity_threshold"
+                    : "orphaned_projected_work",
+                  lastTurnActivityAt: projectedTurnSession?.updatedAt ?? null,
                 }),
               ),
               Effect.as(true),

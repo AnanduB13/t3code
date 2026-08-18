@@ -416,6 +416,7 @@ describe("ProviderSessionReaper", () => {
     const threadId = ThreadId.make("thread-reaper-live-active-turn");
     const turnId = TurnId.make("turn-reaper-live-active");
     const now = "2026-01-01T00:00:00.000Z";
+    const recentActivityAt = DateTime.formatIso(await Effect.runPromise(DateTime.now));
     const harness = await createHarness({
       readModel: makeReadModel([
         {
@@ -440,7 +441,7 @@ describe("ProviderSessionReaper", () => {
           threadId,
           activeTurnId: turnId,
           createdAt: now,
-          updatedAt: now,
+          updatedAt: recentActivityAt,
         },
       ],
     });
@@ -467,6 +468,71 @@ describe("ProviderSessionReaper", () => {
 
     expect(harness.dispatchedCommands).toEqual([]);
     expect(harness.stopSession).not.toHaveBeenCalled();
+  });
+
+  it("reconciles an active turn whose provider event stream has stalled", async () => {
+    const threadId = ThreadId.make("thread-reaper-stalled-active-turn");
+    const turnId = TurnId.make("turn-reaper-stalled-active");
+    const staleAt = "2026-01-01T00:00:00.000Z";
+    const harness = await createHarness({
+      readModel: makeReadModel([
+        {
+          id: threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "claudeAgent",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: staleAt,
+          },
+        },
+      ]),
+      liveSessions: [
+        {
+          provider: ProviderDriverKind.make("claudeAgent"),
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          status: "running",
+          runtimeMode: "full-access",
+          threadId,
+          activeTurnId: turnId,
+          createdAt: staleAt,
+          updatedAt: staleAt,
+        },
+      ],
+    });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: staleAt,
+        resumeCursor: { opaque: "resume-stalled-active-turn" },
+        runtimePayload: null,
+      }),
+    );
+
+    await startReaper();
+    await Effect.runPromise(drainFibers);
+
+    expect(harness.stopSession).not.toHaveBeenCalled();
+    expect(harness.dispatchedCommands[0]).toMatchObject({
+      type: "thread.session.stop",
+      threadId,
+    });
+    const dispatched = harness.dispatchedCommands[0];
+    if (dispatched?.type !== "thread.session.stop") {
+      throw new Error("Expected the stalled provider turn to be reconciled.");
+    }
+    expect(Date.parse(dispatched.createdAt)).toBeGreaterThan(Date.parse(staleAt));
   });
 
   it("skips stale sessions while background work is still live", async () => {

@@ -1737,6 +1737,25 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           },
         });
 
+        // A later stop receipt must replace any earlier terminal/checkpoint
+        // marker so elapsed time reflects when the user actually stopped.
+        yield* appendAndProject({
+          type: "thread.turn-interrupt-requested",
+          eventId: EventId.make("evt-conflict-3b"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-conflict"),
+          occurredAt: "2026-02-26T13:00:02.500Z",
+          commandId: CommandId.make("cmd-conflict-3b"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-conflict-3b"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-conflict"),
+            turnId: TurnId.make("turn-interrupted"),
+            createdAt: "2026-02-26T13:00:02.500Z",
+          },
+        });
+
         yield* appendAndProject({
           type: "thread.message-sent",
           eventId: EventId.make("evt-conflict-4"),
@@ -1785,11 +1804,13 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           readonly turnId: string;
           readonly checkpointTurnCount: number | null;
           readonly status: string;
+          readonly completedAt: string | null;
         }>`
         SELECT
           turn_id AS "turnId",
           checkpoint_turn_count AS "checkpointTurnCount",
-          state AS "status"
+          state AS "status",
+          completed_at AS "completedAt"
         FROM projection_turns
         WHERE thread_id = 'thread-conflict'
         ORDER BY
@@ -1801,8 +1822,18 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requested_at ASC
       `;
         assert.deepEqual(turnRows, [
-          { turnId: "turn-completed", checkpointTurnCount: 1, status: "completed" },
-          { turnId: "turn-interrupted", checkpointTurnCount: null, status: "interrupted" },
+          {
+            turnId: "turn-completed",
+            checkpointTurnCount: 1,
+            status: "completed",
+            completedAt: "2026-02-26T13:00:04.000Z",
+          },
+          {
+            turnId: "turn-interrupted",
+            checkpointTurnCount: null,
+            status: "interrupted",
+            completedAt: "2026-02-26T13:00:02.500Z",
+          },
         ]);
       }),
   );

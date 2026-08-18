@@ -1460,7 +1460,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* projectionTurnRepository.upsertByTurnId({
               ...existingTurn.value,
               state: "interrupted",
-              completedAt: existingTurn.value.completedAt ?? event.payload.createdAt,
+              // Mid-turn checkpoint/diff events may temporarily populate
+              // completedAt while the provider turn is still running. Stop
+              // must replace that marker with the real interruption time or
+              // a multi-hour run collapses to the last checkpoint duration.
+              completedAt: event.payload.createdAt,
               startedAt: existingTurn.value.startedAt ?? event.payload.createdAt,
               requestedAt: existingTurn.value.requestedAt ?? event.payload.createdAt,
             });

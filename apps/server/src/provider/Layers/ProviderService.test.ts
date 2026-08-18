@@ -1299,6 +1299,49 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("reports canonical turn activity as the live session heartbeat", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-runtime-heartbeat");
+      const turnId = asTurnId("turn-runtime-heartbeat");
+      const activityAt = "2026-01-01T00:10:00.000Z";
+
+      yield* provider.startSession(threadId, {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      routing.codex.updateSession(threadId, (session) => ({
+        ...session,
+        status: "running",
+        activeTurnId: turnId,
+      }));
+      yield* advanceTestClock(50);
+      routing.codex.emit({
+        type: "item.completed",
+        eventId: asEventId("evt-runtime-heartbeat"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: activityAt,
+        threadId,
+        turnId,
+        itemId: "item-runtime-heartbeat",
+        payload: {
+          itemType: "commandExecution",
+          status: "completed",
+          title: "Ran command",
+        },
+      });
+      yield* advanceTestClock(10);
+
+      const sessions = yield* provider.listSessions();
+      assert.equal(
+        sessions.find((session) => session.threadId === threadId)?.updatedAt,
+        activityAt,
+      );
+    }),
+  );
+
   it.effect("persists runtime status transitions in provider_session_runtime", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
