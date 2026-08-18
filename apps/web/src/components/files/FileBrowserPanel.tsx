@@ -106,7 +106,7 @@ export default function FileBrowserPanel({
   selectedPath,
   selectedPathRevealId,
   onOpenFile,
-  initialExpansion = 1,
+  initialExpansion = 0,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
