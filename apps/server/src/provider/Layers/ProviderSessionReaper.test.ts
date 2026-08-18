@@ -352,6 +352,55 @@ describe("ProviderSessionReaper", () => {
     });
   });
 
+  it("reconciles a projected active turn whose durable runtime is already stopped", async () => {
+    const threadId = ThreadId.make("thread-reaper-stopped-runtime-active-turn");
+    const turnId = TurnId.make("turn-reaper-stopped-runtime-active");
+    const projectedAt = "2026-01-01T00:00:00.000Z";
+    const harness = await createHarness({
+      readModel: makeReadModel([
+        {
+          id: threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: projectedAt,
+          },
+        },
+      ]),
+    });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "codex",
+        providerInstanceId: null,
+        adapterKey: "codex",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: DateTime.formatIso(await Effect.runPromise(DateTime.now)),
+        resumeCursor: { threadId: "provider-thread-stopped-runtime" },
+        runtimePayload: null,
+      }),
+    );
+
+    await startReaper();
+    await Effect.runPromise(drainFibers);
+
+    expect(harness.stopSession).not.toHaveBeenCalled();
+    expect(harness.dispatchedCommands[0]).toMatchObject({
+      type: "thread.session.stop",
+      threadId,
+      createdAt: projectedAt,
+    });
+  });
+
   it("reconciles a projected active turn when a live session no longer owns it", async () => {
     const threadId = ThreadId.make("thread-reaper-detached-active-turn");
     const turnId = TurnId.make("turn-reaper-detached-active");

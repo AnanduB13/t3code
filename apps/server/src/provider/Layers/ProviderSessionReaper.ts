@@ -50,10 +50,6 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       let reapedCount = 0;
 
       for (const binding of bindings) {
-        if (binding.status === "stopped") {
-          continue;
-        }
-
         const lastSeenMs = Date.parse(binding.lastSeenAt);
         if (Number.isNaN(lastSeenMs)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {
@@ -139,6 +135,15 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           if (reconciled) {
             reapedCount += 1;
           }
+          continue;
+        }
+
+        // A stopped runtime normally needs no cleanup, but it can still have
+        // a projected running turn after a provider exit or server restart.
+        // Reconcile that mismatch above before skipping idle-session reaping;
+        // otherwise clients retain a working indicator forever even though no
+        // process owns the turn.
+        if (binding.status === "stopped") {
           continue;
         }
 
