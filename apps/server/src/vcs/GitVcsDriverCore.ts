@@ -39,6 +39,7 @@ import {
 import { ServerConfig } from "../config.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const PUSH_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
 const OUTPUT_TRUNCATED_MARKER = "\n\n[truncated]";
 const PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES = 49_000;
@@ -97,6 +98,27 @@ const NON_REPOSITORY_REMOTE_STATUS_DETAILS = Object.freeze<GitVcsDriver.GitRemot
   behindCount: 0,
   aheadOfDefaultCount: 0,
 });
+
+function gitPushFailureDetail(stderr: string): string {
+  const normalized = stderr.toLowerCase();
+  if (
+    normalized.includes("large files detected") ||
+    normalized.includes("exceeds github's file size limit")
+  ) {
+    return "The remote rejected this push because a committed file exceeds its size limit. Remove the file from the commit history or store it with Git LFS.";
+  }
+  if (normalized.includes("non-fast-forward") || normalized.includes("fetch first")) {
+    return "The remote branch has newer commits. Pull or rebase the branch, then push again.";
+  }
+  if (
+    normalized.includes("authentication failed") ||
+    normalized.includes("permission denied") ||
+    normalized.includes("could not read username")
+  ) {
+    return "The remote rejected Git authentication. Reconnect the repository credentials and try again.";
+  }
+  return "Git push exited with a non-zero status.";
+}
 
 type TraceTailState = {
   processedChars: number;
@@ -907,6 +929,30 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     allowNonZeroExit = false,
   ): Effect.Effect<void, GitCommandError> =>
     executeGit(operation, cwd, args, { allowNonZeroExit }).pipe(Effect.asVoid);
+
+  const runGitPush = (
+    operation: string,
+    cwd: string,
+    args: readonly string[],
+  ): Effect.Effect<void, GitCommandError> =>
+    executeGit(operation, cwd, args, {
+      allowNonZeroExit: true,
+      timeoutMs: PUSH_TIMEOUT_MS,
+    }).pipe(
+      Effect.flatMap((result) =>
+        result.exitCode === 0
+          ? Effect.void
+          : Effect.fail(
+              new GitCommandError({
+                ...gitCommandContext({ operation, cwd, args }),
+                detail: gitPushFailureDetail(result.stderr),
+                ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+                stdoutLength: result.stdout.length,
+                stderrLength: result.stderr.length,
+              }),
+            ),
+      ),
+    );
 
   const runGitStdout = (
     operation: string,
@@ -1904,7 +1950,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const requestedRemoteName = options?.remoteName?.trim() || null;
     if (requestedRemoteName) {
       const publishBranch = yield* resolvePublishBranchName(cwd, branch);
-      yield* runGit("GitVcsDriver.pushCurrentBranch.pushWithRequestedRemote", cwd, [
+      yield* runGitPush("GitVcsDriver.pushCurrentBranch.pushWithRequestedRemote", cwd, [
         "push",
         "-u",
         requestedRemoteName,
@@ -1967,7 +2013,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         });
       }
       const publishBranch = yield* resolvePublishBranchName(cwd, branch);
-      yield* runGit("GitVcsDriver.pushCurrentBranch.pushWithUpstream", cwd, [
+      yield* runGitPush("GitVcsDriver.pushCurrentBranch.pushWithUpstream", cwd, [
         "push",
         "-u",
         publishRemoteName,
@@ -1985,7 +2031,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.orElseSucceed(() => null),
     );
     if (currentUpstream) {
-      yield* runGit("GitVcsDriver.pushCurrentBranch.pushUpstream", cwd, [
+      yield* runGitPush("GitVcsDriver.pushCurrentBranch.pushUpstream", cwd, [
         "push",
         currentUpstream.remoteName,
         `HEAD:refs/heads/${currentUpstream.branchName}`,
@@ -1998,7 +2044,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       };
     }
 
-    yield* runGit("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"]);
+    yield* runGitPush("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"]);
     return {
       status: "pushed" as const,
       branch,

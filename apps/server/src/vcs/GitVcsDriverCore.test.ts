@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it, describe } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
@@ -1627,6 +1628,91 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           });
           assert.notEqual(badBranch.exitCode, 0);
         }),
+    );
+
+    it.effect("allows network pushes to exceed the generic command timeout", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-slow-push-remote-");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* driver.pushCurrentBranch(cwd, null);
+        yield* writeTextFile(cwd, "slow-push.txt", "slow push\n");
+        yield* driver.prepareCommitContext(cwd);
+        yield* driver.commit(cwd, "Add slow push fixture", "");
+
+        const slowPushStarted = yield* Deferred.make<void>();
+        const slowPushSpawner = ChildProcessSpawner.make((command) =>
+          Effect.gen(function* () {
+            if (
+              ChildProcess.isStandardCommand(command) &&
+              command.command === "git" &&
+              command.args[0] === "push"
+            ) {
+              yield* Deferred.succeed(slowPushStarted, undefined);
+              const handle = makeSuccessfulHandle("");
+              return ChildProcessSpawner.makeHandle({
+                ...handle,
+                exitCode: Effect.sleep(Duration.seconds(31)).pipe(
+                  Effect.as(ChildProcessSpawner.ExitCode(0)),
+                ),
+              });
+            }
+            return yield* delegate.spawn(command);
+          }),
+        );
+        const slowPushDriver = yield* makeGitVcsDriverCore().pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, slowPushSpawner),
+          Effect.provide(ServerConfigLayer.pipe(Layer.provideMerge(NodeServices.layer))),
+        );
+        const pushFiber = yield* slowPushDriver
+          .pushCurrentBranch(cwd, null)
+          .pipe(Effect.forkChild({ startImmediately: true }));
+
+        yield* Deferred.await(slowPushStarted);
+        yield* TestClock.adjust("31 seconds");
+        const pushed = yield* Fiber.join(pushFiber);
+
+        assert.deepInclude(pushed, {
+          status: "pushed",
+          branch: "main",
+          upstreamBranch: "origin/main",
+        });
+
+        const rejectedPushSpawner = ChildProcessSpawner.make((command) =>
+          Effect.gen(function* () {
+            if (
+              ChildProcess.isStandardCommand(command) &&
+              command.command === "git" &&
+              command.args[0] === "push"
+            ) {
+              const handle = makeSuccessfulHandle("");
+              return ChildProcessSpawner.makeHandle({
+                ...handle,
+                exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(1)),
+                stderr: Stream.encodeText(
+                  Stream.make(
+                    "remote: error: File private-export.csv exceeds GitHub's file size limit\nremote: error: GH001: Large files detected\n",
+                  ),
+                ),
+              });
+            }
+            return yield* delegate.spawn(command);
+          }),
+        );
+        const rejectedPushDriver = yield* makeGitVcsDriverCore().pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, rejectedPushSpawner),
+          Effect.provide(ServerConfigLayer.pipe(Layer.provideMerge(NodeServices.layer))),
+        );
+        const rejection = yield* rejectedPushDriver.pushCurrentBranch(cwd, null).pipe(Effect.flip);
+
+        assert.include(rejection.detail, "committed file exceeds its size limit");
+        assert.notInclude(rejection.detail, "private-export.csv");
+      }),
     );
 
     it.effect("pushes to the requested remote instead of the primary remote", () =>
