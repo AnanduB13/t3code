@@ -526,17 +526,22 @@ export {
 export { sortPinnedThreadsByOrderKey as sortPinnedThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 
 /**
- * Search the already-ordered sidebar thread collection by title only.
- * Keeping the input order means lifecycle ordering (active, snoozed, settled)
- * remains stable while the user narrows the list.
+ * Search the already-ordered sidebar thread collection by its visible title
+ * and project label. Keeping the input order means lifecycle ordering
+ * (active, snoozed, settled) remains stable while the user narrows the list.
  */
-export function searchSidebarThreadsByTitle<T extends { readonly title: string }>(
+export function searchSidebarThreads<T extends { readonly title: string }>(
   threads: readonly T[],
   query: string,
+  projectLabelForThread: (thread: T) => string | null = () => null,
 ): T[] {
   const normalizedQuery = query.trim().toLowerCase();
   if (normalizedQuery.length === 0) return [];
-  return threads.filter((thread) => thread.title.toLowerCase().includes(normalizedQuery));
+  return threads.filter(
+    (thread) =>
+      thread.title.toLowerCase().includes(normalizedQuery) ||
+      projectLabelForThread(thread)?.toLowerCase().includes(normalizedQuery) === true,
+  );
 }
 
 type SettledTimestampInput = Pick<
