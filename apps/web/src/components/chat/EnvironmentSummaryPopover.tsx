@@ -125,7 +125,10 @@ export function EnvironmentSummaryWidget({
   onRunQuickAction,
   onOpenPullRequest,
 }: EnvironmentSummaryPopoverProps) {
-  const [open, setOpen] = useState(true);
+  // This control is remounted when navigation changes the active chat. Keep
+  // the initial state closed so navigation cannot reopen a panel the user
+  // dismissed; opening it is always an explicit action.
+  const [open, setOpen] = useState(false);
   const hasChanges = status?.hasWorkingTreeChanges === true;
   const fileCount = status?.workingTree.files.length ?? 0;
   const insertions = status?.workingTree.insertions ?? 0;
