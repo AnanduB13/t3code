@@ -79,12 +79,27 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           projectedActiveTurnId === null || projectedTurnSession !== undefined;
         const providerOwnsBackgroundWork =
           thread?.backgroundLiveness == null || threadLiveSessions.length > 0;
-        const projectedTurnLastActivityMs = projectedTurnSession
+        // Adapter session timestamps describe changes to the session record;
+        // they are not a provider-event heartbeat. In particular, a recovered
+        // Codex session can retain an old updatedAt while its resumed turn is
+        // actively emitting messages and tool events. Every projected provider
+        // event advances the thread timestamp, so use the newest of the two
+        // before declaring a provider-owned turn stalled.
+        const projectedTurnSessionUpdatedMs = projectedTurnSession
           ? Date.parse(projectedTurnSession.updatedAt)
           : Number.NaN;
+        const projectedThreadUpdatedMs = thread ? Date.parse(thread.updatedAt) : Number.NaN;
+        const projectedTurnLastActivityMs = Math.max(
+          Number.isNaN(projectedTurnSessionUpdatedMs)
+            ? Number.NEGATIVE_INFINITY
+            : projectedTurnSessionUpdatedMs,
+          Number.isNaN(projectedThreadUpdatedMs)
+            ? Number.NEGATIVE_INFINITY
+            : projectedThreadUpdatedMs,
+        );
         const hasStalledProjectedTurn =
           projectedTurnSession !== undefined &&
-          !Number.isNaN(projectedTurnLastActivityMs) &&
+          projectedTurnLastActivityMs !== Number.NEGATIVE_INFINITY &&
           now - projectedTurnLastActivityMs >= inactivityThresholdMs;
         const hasOrphanedProjectedWork = !providerOwnsProjectedTurn || !providerOwnsBackgroundWork;
 
@@ -120,7 +135,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
                   reason: hasStalledProjectedTurn
                     ? "active_turn_inactivity_threshold"
                     : "orphaned_projected_work",
-                  lastTurnActivityAt: projectedTurnSession?.updatedAt ?? null,
+                  lastTurnActivityAt:
+                    projectedTurnLastActivityMs === Number.NEGATIVE_INFINITY
+                      ? null
+                      : DateTime.formatIso(DateTime.makeUnsafe(projectedTurnLastActivityMs)),
                 }),
               ),
               Effect.as(true),

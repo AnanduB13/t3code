@@ -62,6 +62,7 @@ const unsupported = () => Effect.die(new Error("Unsupported provider call in tes
 function makeReadModel(
   threads: ReadonlyArray<{
     readonly id: ThreadId;
+    readonly updatedAt?: string;
     readonly session: {
       readonly threadId: ThreadId;
       readonly status: "starting" | "running" | "ready" | "interrupted" | "stopped" | "error";
@@ -102,7 +103,7 @@ function makeReadModel(
       branch: null,
       worktreePath: null,
       createdAt: now,
-      updatedAt: now,
+      updatedAt: thread.updatedAt ?? now,
       archivedAt: null,
       settledOverride: null,
       settledAt: null,
@@ -508,6 +509,67 @@ describe("ProviderSessionReaper", () => {
         status: "running",
         lastSeenAt: "2026-04-14T00:00:00.000Z",
         resumeCursor: { opaque: "resume-live-active-turn" },
+        runtimePayload: null,
+      }),
+    );
+
+    await startReaper();
+    await Effect.runPromise(drainFibers);
+
+    expect(harness.dispatchedCommands).toEqual([]);
+    expect(harness.stopSession).not.toHaveBeenCalled();
+  });
+
+  it("preserves an active recovered turn when provider events are newer than the session record", async () => {
+    const threadId = ThreadId.make("thread-reaper-recovered-active-turn");
+    const turnId = TurnId.make("turn-reaper-recovered-active");
+    const staleSessionAt = "2026-01-01T00:00:00.000Z";
+    const recentProviderActivityAt = DateTime.formatIso(await Effect.runPromise(DateTime.now));
+    const harness = await createHarness({
+      readModel: makeReadModel([
+        {
+          id: threadId,
+          updatedAt: recentProviderActivityAt,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: staleSessionAt,
+          },
+        },
+      ]),
+      liveSessions: [
+        {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          status: "running",
+          runtimeMode: "full-access",
+          threadId,
+          activeTurnId: turnId,
+          createdAt: staleSessionAt,
+          // Recovered Codex sessions retain this durable timestamp while
+          // messages and tool activity continue to update the thread.
+          updatedAt: staleSessionAt,
+        },
+      ],
+    });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        adapterKey: "codex",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: staleSessionAt,
+        resumeCursor: { threadId: "provider-thread-recovered-active" },
         runtimePayload: null,
       }),
     );
