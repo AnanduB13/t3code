@@ -13,6 +13,9 @@ The browser uses its own T3 Code session rather than controlling the user's norm
 data is separated by environment, but remains available to later tabs in that environment until its
 browser data is cleared.
 
+Tabs created by an agent are closed automatically when that turn finishes, which releases their
+browser views and any active recording. Tabs you open yourself remain open until you close them.
+
 Today, browser automation needs a connected T3 Code Desktop app to host the browser. A web or mobile
 client can direct an agent connected to that environment, but it cannot become the browser host by
 itself. If no Desktop host is connected, the agent can fall back to web search when its provider

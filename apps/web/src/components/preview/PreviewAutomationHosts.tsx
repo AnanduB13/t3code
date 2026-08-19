@@ -1,6 +1,7 @@
 "use client";
 
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   FILL_PREVIEW_VIEWPORT,
@@ -20,7 +21,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
@@ -42,6 +43,8 @@ import { environmentCatalog } from "~/connection/catalog";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
+import { isLatestTurnSettled } from "~/session-logic";
+import { useThreadShells } from "~/state/entities";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -65,6 +68,11 @@ import {
 } from "./previewNavigationReadiness";
 import { createPreviewAutomationRequestConsumerAtom } from "./previewAutomationRequestConsumer";
 import { createPreviewAutomationClientId } from "./previewAutomationClientId";
+import { closePreviewSession } from "./closePreviewSession";
+import {
+  markPreviewTabAutomationOwned,
+  releaseAutomationOwnedPreviewTabs,
+} from "./previewAutomationOwnership";
 import {
   needsPreviewAutomationSessionSync,
   resolvePreviewAutomationOpenTab,
@@ -245,6 +253,35 @@ const raisePreviewAutomationHostError = (
 
 export function PreviewAutomationHosts() {
   const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
+  const threadShells = useThreadShells();
+  const closePreview = useAtomCommand(previewEnvironment.close, { reportFailure: false });
+  const settledByThreadRef = useRef(new Map<string, boolean>());
+  useEffect(() => {
+    const previous = settledByThreadRef.current;
+    const next = new Map<string, boolean>();
+    for (const thread of threadShells) {
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const threadKey = scopedThreadKey(threadRef);
+      const settled = isLatestTurnSettled(thread.latestTurn, thread.session);
+      next.set(threadKey, settled);
+      if (previous.get(threadKey) !== false || !settled) continue;
+
+      const previewState = readThreadPreviewState(threadRef);
+      for (const tabId of releaseAutomationOwnedPreviewTabs(threadRef)) {
+        const snapshot = previewState.sessions[tabId];
+        if (!snapshot) continue;
+        void closePreviewSession({
+          closePreview,
+          snapshot,
+          tabId,
+          threadRef,
+        }).then((result) => {
+          if (result._tag === "Failure") markPreviewTabAutomationOwned(threadRef, tabId);
+        });
+      }
+    }
+    settledByThreadRef.current = next;
+  }, [closePreview, threadShells]);
   if (!isElectron || !previewBridge?.automation) return null;
   return (
     <>
@@ -385,6 +422,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               }
               const snapshot = result.value;
               applyPreviewServerSnapshot(threadRef, snapshot);
+              markPreviewTabAutomationOwned(threadRef, snapshot.tabId);
               activeTabId = snapshot.tabId;
               activeSnapshot = snapshot;
               tabId = activeTabId;
