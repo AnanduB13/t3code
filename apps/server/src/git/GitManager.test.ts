@@ -2676,6 +2676,33 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("accepts same-repo PR metadata after a GitHub repository rename", () =>
+    Effect.sync(() => {
+      expect(
+        GitManager.matchesBranchHeadContext(
+          {
+            number: 395,
+            title: "Improve chart persistence and trade history recovery",
+            url: "https://github.com/AnanduB13/TradeFXBook/pull/395",
+            baseRefName: "main",
+            headRefName: "codex/crypto-payment-coming-soon",
+            state: "open",
+            updatedAt: Option.none(),
+            isCrossRepository: false,
+            headRepositoryNameWithOwner: "anandub13/tradefxbook",
+            headRepositoryOwnerLogin: "anandub13",
+          },
+          {
+            headBranch: "codex/crypto-payment-coming-soon",
+            headRepositoryNameWithOwner: "anandub13/topg-journal",
+            headRepositoryOwnerLogin: "anandub13",
+            isCrossRepository: false,
+          },
+        ),
+      ).toBe(true);
+    }),
+  );
+
   it.effect("accepts fork PR metadata when origin is the fork checkout remote", () =>
     Effect.sync(() => {
       const headContext = {

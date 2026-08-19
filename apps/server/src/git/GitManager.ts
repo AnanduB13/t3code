@@ -324,6 +324,13 @@ export function matchesBranchHeadContext(
     return false;
   }
 
+  // GitHub reports this relative to the repository being queried. When both sides are known to
+  // be same-repository, the branch is enough to identify the head: the repository name parsed
+  // from a local remote may be an old name that GitHub still redirects after a rename.
+  if (!headContext.isCrossRepository && pr.isCrossRepository === false) {
+    return true;
+  }
+
   const expectedHead = resolveExpectedHeadIdentity(headContext);
   const pullRequestHead = resolvePullRequestHeadIdentity(pr);
 
