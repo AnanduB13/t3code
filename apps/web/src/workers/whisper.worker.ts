@@ -1,9 +1,12 @@
-import { pipeline } from "@huggingface/transformers";
+import { env, pipeline } from "@huggingface/transformers";
+import onnxRuntimeModuleUrl from "../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs?url";
+import onnxRuntimeWasmUrl from "../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.wasm?url";
 import {
   type WhisperPipelineConfiguration,
   whisperPipelineConfigurations,
 } from "../lib/whisperModel";
 import { type WhisperTranscriberOptions, whisperTranscriberOptions } from "../lib/whisperOptions";
+import { configureLocalWhisperRuntime } from "../lib/whisperRuntime";
 
 /* oxlint-disable unicorn/require-post-message-target-origin -- Worker.postMessage has no target origin. */
 
@@ -17,6 +20,12 @@ type TranscribeRequest = {
   audio: Float32Array;
 };
 type WorkerRequest = { type: "load" } | TranscribeRequest;
+
+configureLocalWhisperRuntime(
+  env,
+  { mjs: onnxRuntimeModuleUrl, wasm: onnxRuntimeWasmUrl },
+  self.location.href,
+);
 
 let transcriberPromise: Promise<Transcriber> | null = null;
 
