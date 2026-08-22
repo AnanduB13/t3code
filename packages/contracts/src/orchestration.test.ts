@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  ChatPdfAttachment,
   ModelSelection,
   OrchestrationCommand,
   OrchestrationEvent,
@@ -27,6 +28,7 @@ import {
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
+const decodeChatPdfAttachment = Schema.decodeUnknownEffect(ChatPdfAttachment);
 const decodeFullThreadDiffInput = Schema.decodeUnknownEffect(OrchestrationGetFullThreadDiffInput);
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
@@ -53,6 +55,35 @@ const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPaylo
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+
+it.effect("accepts persisted PDF attachments with the canonical MIME type", () =>
+  Effect.gen(function* () {
+    const attachment = yield* decodeChatPdfAttachment({
+      type: "pdf",
+      id: "thread-pdf-1",
+      name: "booking.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+    });
+    assert.strictEqual(attachment.type, "pdf");
+    assert.strictEqual(attachment.mimeType, "application/pdf");
+  }),
+);
+
+it.effect("rejects PDF attachments with a misleading MIME type", () =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.exit(
+      decodeChatPdfAttachment({
+        type: "pdf",
+        id: "thread-pdf-1",
+        name: "booking.pdf",
+        mimeType: "image/png",
+        sizeBytes: 1024,
+      }),
+    );
+    assert.strictEqual(exit._tag, "Failure");
+  }),
+);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {

@@ -893,10 +893,10 @@ it.layer(
           text: "Keep",
           attachments: [
             {
-              type: "image",
+              type: "pdf",
               id: keepAttachmentId,
-              name: "keep.png",
-              mimeType: "image/png",
+              name: "keep.pdf",
+              mimeType: "application/pdf",
               sizeBytes: 5,
             },
           ],
@@ -960,14 +960,17 @@ it.layer(
         },
       });
 
-      const keepPath = path.join(attachmentsDir, `${keepAttachmentId}.png`);
+      const keepPath = path.join(attachmentsDir, `${keepAttachmentId}.pdf`);
+      const keepTextPath = path.join(attachmentsDir, `${keepAttachmentId}.pdf.txt`);
       const removePath = path.join(attachmentsDir, `${removeAttachmentId}.png`);
       yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
       yield* fileSystem.writeFileString(keepPath, "keep");
+      yield* fileSystem.writeFileString(keepTextPath, "keep extracted text");
       yield* fileSystem.writeFileString(removePath, "remove");
       const otherThreadPath = path.join(attachmentsDir, `${otherThreadAttachmentId}.png`);
       yield* fileSystem.writeFileString(otherThreadPath, "other");
       assert.isTrue(yield* exists(keepPath));
+      assert.isTrue(yield* exists(keepTextPath));
       assert.isTrue(yield* exists(removePath));
       assert.isTrue(yield* exists(otherThreadPath));
 
@@ -988,6 +991,7 @@ it.layer(
       });
 
       assert.isTrue(yield* exists(keepPath));
+      assert.isTrue(yield* exists(keepTextPath));
       assert.isFalse(yield* exists(removePath));
       assert.isTrue(yield* exists(otherThreadPath));
     }),
@@ -1079,10 +1083,10 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-atta
             text: "Delete",
             attachments: [
               {
-                type: "image",
+                type: "pdf",
                 id: attachmentId,
-                name: "delete.png",
-                mimeType: "image/png",
+                name: "delete.pdf",
+                mimeType: "application/pdf",
                 sizeBytes: 5,
               },
             ],
@@ -1093,15 +1097,18 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-atta
           },
         });
 
-        const threadAttachmentPath = path.join(attachmentsDir, `${attachmentId}.png`);
+        const threadAttachmentPath = path.join(attachmentsDir, `${attachmentId}.pdf`);
+        const threadAttachmentTextPath = path.join(attachmentsDir, `${attachmentId}.pdf.txt`);
         const otherThreadAttachmentPath = path.join(
           attachmentsDir,
           `${otherThreadAttachmentId}.png`,
         );
         yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
         yield* fileSystem.writeFileString(threadAttachmentPath, "delete");
+        yield* fileSystem.writeFileString(threadAttachmentTextPath, "extracted text");
         yield* fileSystem.writeFileString(otherThreadAttachmentPath, "other-thread");
         assert.isTrue(yield* exists(threadAttachmentPath));
+        assert.isTrue(yield* exists(threadAttachmentTextPath));
         assert.isTrue(yield* exists(otherThreadAttachmentPath));
 
         yield* appendAndProject({
@@ -1121,6 +1128,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-atta
         });
 
         assert.isFalse(yield* exists(threadAttachmentPath));
+        assert.isFalse(yield* exists(threadAttachmentTextPath));
         assert.isTrue(yield* exists(otherThreadAttachmentPath));
       }),
     );

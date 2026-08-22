@@ -52,6 +52,7 @@ import {
   ChevronRightIcon,
   CircleAlertIcon,
   EyeIcon,
+  FileTextIcon,
   GlobeIcon,
   HammerIcon,
   MessageCircleIcon,
@@ -988,7 +989,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const userImages = row.message.attachments ?? [];
+  const userAttachments = row.message.attachments ?? [];
+  const userImages = userAttachments.filter((attachment) => attachment.type === "image");
+  const userPdfs = userAttachments.filter((attachment) => attachment.type === "pdf");
   const pastedTextState = extractTrailingPastedTexts(row.message.text);
   const displayedUserMessage = deriveDisplayedUserMessageState(pastedTextState.promptText);
   const terminalContexts = displayedUserMessage.contexts;
@@ -1043,6 +1046,39 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                 )}
               </div>
             ))}
+          </div>
+        )}
+        {userPdfs.length > 0 && (
+          <div className="mb-2 grid gap-2">
+            {userPdfs.map((pdf) => {
+              const content = (
+                <>
+                  <FileTextIcon className="size-5 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-left text-xs">{pdf.name}</span>
+                  <span className="shrink-0 text-[10px] text-secondary-label">
+                    {(pdf.sizeBytes / 1024 / 1024).toFixed(1)} MB
+                  </span>
+                </>
+              );
+              return pdf.previewUrl ? (
+                <a
+                  key={pdf.id}
+                  href={pdf.previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex max-w-[420px] items-center gap-2 rounded-lg border border-border/80 bg-background/70 px-3 py-2 hover:bg-background"
+                >
+                  {content}
+                </a>
+              ) : (
+                <div
+                  key={pdf.id}
+                  className="flex max-w-[420px] items-center gap-2 rounded-lg border border-border/80 bg-background/70 px-3 py-2"
+                >
+                  {content}
+                </div>
+              );
+            })}
           </div>
         )}
         {previewAnnotations.map((annotation, index) => (

@@ -9,6 +9,9 @@
  *
  * @module ProviderServiceLive
  */
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFSP from "node:fs/promises";
+
 import {
   ModelSelection,
   NonNegativeInt,
@@ -35,7 +38,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as Stream from "effect/Stream";
 
-import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { resolveAttachmentPath, resolvePdfTextPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import {
   increment,
@@ -57,6 +60,7 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import { buildProviderInputWithAttachments } from "../attachmentPrompt.ts";
 const isModelSelection = Schema.is(ModelSelection);
 
 /**
@@ -688,41 +692,63 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
-    // Adapters inline attachment pixels into the model prompt, but the model's
-    // tools cannot dereference pixels. Appending the on-disk path is what lets
-    // a turn like "include this screenshot in the PR" copy the actual file.
-    // This runs after schema decode, so the appended lines are exempt from the
-    // PROVIDER_SEND_TURN_MAX_INPUT_CHARS check; attachment count is capped, so
-    // the overhead is bounded. Unresolvable ids are skipped here and surface
-    // as adapter errors when the file is read for inlining.
-    const attachmentPathLines = attachments.flatMap((attachment) => {
-      const attachmentPath = resolveAttachmentPath({
-        attachmentsDir: serverConfig.attachmentsDir,
-        attachment,
-      });
-      return attachmentPath === null
-        ? []
-        : [`[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`];
+    // Keep originals addressable to provider tools. PDFs also get a plain-text
+    // sidecar: ordinary documents are inlined, while unusually large ones are
+    // referenced without silently truncating their contents.
+    const resolvedAttachments = yield* Effect.forEach(attachments, (attachment) =>
+      Effect.gen(function* () {
+        const attachmentPath = resolveAttachmentPath({
+          attachmentsDir: serverConfig.attachmentsDir,
+          attachment,
+        });
+        if (attachmentPath === null) {
+          return yield* toValidationError(
+            "ProviderService.sendTurn",
+            `Could not resolve attachment '${attachment.name}'`,
+          );
+        }
+        if (attachment.type === "image") {
+          return { attachment, originalPath: attachmentPath };
+        }
+
+        const extractedTextPath = resolvePdfTextPath({
+          attachmentsDir: serverConfig.attachmentsDir,
+          attachmentId: attachment.id,
+        });
+        if (extractedTextPath === null) {
+          return yield* toValidationError(
+            "ProviderService.sendTurn",
+            `Could not resolve extracted text for '${attachment.name}'`,
+          );
+        }
+        const extractedText = yield* Effect.tryPromise({
+          try: () => NodeFSP.readFile(extractedTextPath, "utf8"),
+          catch: (cause) =>
+            toValidationError(
+              "ProviderService.sendTurn",
+              `Could not read extracted text for '${attachment.name}'`,
+              cause,
+            ),
+        });
+        return { attachment, originalPath: attachmentPath, extractedTextPath, extractedText };
+      }),
+    );
+    const inputTextWithAttachments = buildProviderInputWithAttachments({
+      ...(parsed.input !== undefined ? { text: parsed.input } : {}),
+      attachments: resolvedAttachments,
     });
-    const inputTextWithAttachmentPaths =
-      attachmentPathLines.length === 0
-        ? parsed.input
-        : [parsed.input, attachmentPathLines.join("\n")]
-            .filter((part): part is string => typeof part === "string" && part.length > 0)
-            .join("\n\n");
+    const adapterAttachments = attachments.filter((attachment) => attachment.type === "image");
 
     const input = {
       ...parsed,
-      ...(inputTextWithAttachmentPaths !== undefined
-        ? { input: inputTextWithAttachmentPaths }
-        : {}),
-      attachments,
+      ...(inputTextWithAttachments !== undefined ? { input: inputTextWithAttachments } : {}),
+      attachments: adapterAttachments,
     };
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "send-turn",
       "provider.thread_id": input.threadId,
       "provider.interaction_mode": input.interactionMode,
-      "provider.attachment_count": input.attachments.length,
+      "provider.attachment_count": attachments.length,
     });
     let metricProvider = "unknown";
     let metricModel = input.modelSelection?.model;
@@ -766,7 +792,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         // often, since every toggle restarts the session. Recording it per turn
         // gives a usage-weighted view and lets it cross with interactionMode.
         runtimeMode: routed.runtimeMode,
-        attachmentCount: input.attachments.length,
+        attachmentCount: attachments.length,
         hasInput: typeof input.input === "string" && input.input.trim().length > 0,
       });
       return turn;

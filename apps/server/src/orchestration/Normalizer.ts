@@ -8,11 +8,17 @@ import {
   type OrchestrationCommand,
   OrchestrationDispatchCommandError,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+  PROVIDER_SEND_TURN_MAX_PDF_BYTES,
 } from "@t3tools/contracts";
 
-import { createAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
+import {
+  createAttachmentId,
+  resolveAttachmentPath,
+  resolvePdfTextPath,
+} from "../attachmentStore.ts";
 import { ServerConfig } from "../config.ts";
 import { parseBase64DataUrl } from "../imageMime.ts";
+import { extractPdfText } from "../pdfTextExtraction.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export const canonicalizeClientCommandTimestamps = (
@@ -109,16 +115,26 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       (attachment) =>
         Effect.gen(function* () {
           const parsed = parseBase64DataUrl(attachment.dataUrl);
-          if (!parsed || !parsed.mimeType.startsWith("image/")) {
+          const expectedMimeType = attachment.type === "pdf" ? "application/pdf" : null;
+          const validMimeType =
+            parsed &&
+            (attachment.type === "image"
+              ? parsed.mimeType.startsWith("image/")
+              : parsed.mimeType === expectedMimeType);
+          if (!parsed || !validMimeType) {
             return yield* new OrchestrationDispatchCommandError({
-              message: `Invalid image attachment payload for '${attachment.name}'.`,
+              message: `Invalid ${attachment.type} attachment payload for '${attachment.name}'.`,
             });
           }
 
           const bytes = Buffer.from(parsed.base64, "base64");
-          if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+          const maximumBytes =
+            attachment.type === "pdf"
+              ? PROVIDER_SEND_TURN_MAX_PDF_BYTES
+              : PROVIDER_SEND_TURN_MAX_IMAGE_BYTES;
+          if (bytes.byteLength === 0 || bytes.byteLength > maximumBytes) {
             return yield* new OrchestrationDispatchCommandError({
-              message: `Image attachment '${attachment.name}' is empty or too large.`,
+              message: `${attachment.type === "pdf" ? "PDF" : "Image"} attachment '${attachment.name}' is empty or too large.`,
             });
           }
 
@@ -129,13 +145,36 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
             });
           }
 
-          const persistedAttachment = {
-            type: "image" as const,
-            id: attachmentId,
-            name: attachment.name,
-            mimeType: parsed.mimeType.toLowerCase(),
-            sizeBytes: bytes.byteLength,
-          };
+          const persistedAttachment =
+            attachment.type === "pdf"
+              ? {
+                  type: "pdf" as const,
+                  id: attachmentId,
+                  name: attachment.name,
+                  mimeType: "application/pdf" as const,
+                  sizeBytes: bytes.byteLength,
+                }
+              : {
+                  type: "image" as const,
+                  id: attachmentId,
+                  name: attachment.name,
+                  mimeType: parsed.mimeType.toLowerCase(),
+                  sizeBytes: bytes.byteLength,
+                };
+
+          const extractedPdf =
+            attachment.type === "pdf"
+              ? yield* Effect.tryPromise({
+                  try: () => extractPdfText(bytes),
+                  catch: (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message:
+                        cause instanceof Error
+                          ? `Could not extract '${attachment.name}': ${cause.message}`
+                          : `Could not extract '${attachment.name}'.`,
+                    }),
+                })
+              : null;
 
           const attachmentPath = resolveAttachmentPath({
             attachmentsDir: serverConfig.attachmentsDir,
@@ -144,6 +183,18 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           if (!attachmentPath) {
             return yield* new OrchestrationDispatchCommandError({
               message: `Failed to resolve persisted path for '${attachment.name}'.`,
+            });
+          }
+          const pdfTextPath =
+            extractedPdf === null
+              ? null
+              : resolvePdfTextPath({
+                  attachmentsDir: serverConfig.attachmentsDir,
+                  attachmentId,
+                });
+          if (extractedPdf !== null && pdfTextPath === null) {
+            return yield* new OrchestrationDispatchCommandError({
+              message: `Failed to resolve extracted text path for '${attachment.name}'.`,
             });
           }
 
@@ -163,6 +214,16 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                 }),
             ),
           );
+          if (extractedPdf !== null && pdfTextPath !== null) {
+            yield* fileSystem.writeFileString(pdfTextPath, extractedPdf.text).pipe(
+              Effect.mapError(
+                () =>
+                  new OrchestrationDispatchCommandError({
+                    message: `Failed to persist extracted text for '${attachment.name}'.`,
+                  }),
+              ),
+            );
+          }
 
           return persistedAttachment;
         }),

@@ -66,6 +66,7 @@ import {
   markPromotedDraftThreads,
   markPromotedDraftThreadsByRef,
   type ComposerImageAttachment,
+  hydrateImagesFromPersisted,
   useComposerDraftStore,
   DraftId,
 } from "./composerDraftStore";
@@ -103,6 +104,25 @@ function makeImage(input: {
     file,
   };
 }
+
+describe("PDF composer attachments", () => {
+  it("hydrates persisted PDFs without treating them as image previews", () => {
+    const [attachment] = hydrateImagesFromPersisted([
+      {
+        type: "pdf",
+        id: "pdf-1",
+        name: "booking.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 8,
+        dataUrl: "data:application/pdf;base64,JVBERi0x",
+      },
+    ]);
+
+    expect(attachment?.type).toBe("pdf");
+    expect(attachment?.previewUrl).toBeUndefined();
+    expect(attachment?.file.type).toBe("application/pdf");
+  });
+});
 
 function makeTerminalContext(input: {
   id: string;
@@ -349,7 +369,7 @@ describe("composerDraftStore syncPersistedAttachments", () => {
         name: image.name,
         mimeType: image.mimeType,
         sizeBytes: image.sizeBytes,
-        dataUrl: image.previewUrl,
+        dataUrl: image.previewUrl!,
       },
     ]);
     await Promise.resolve();

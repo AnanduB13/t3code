@@ -33,7 +33,12 @@ import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model"
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { resolveAppModelSelection, resolveAppModelSelectionForInstance } from "./modelSelection";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatImageAttachment } from "./types";
+import {
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type ChatImageAttachment,
+  type ChatPdfAttachment,
+} from "./types";
 import {
   type TerminalContextDraft,
   ensureInlineTerminalContextPlaceholders,
@@ -79,6 +84,7 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
 }
 
 export const PersistedComposerImageAttachment = Schema.Struct({
+  type: Schema.optional(Schema.Literals(["image", "pdf"])),
   id: Schema.String,
   name: Schema.String,
   mimeType: Schema.String,
@@ -87,10 +93,10 @@ export const PersistedComposerImageAttachment = Schema.Struct({
 });
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
 
-export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
-  previewUrl: string;
-  file: File;
-}
+export type ComposerImageAttachment = (
+  | (Omit<ChatImageAttachment, "previewUrl"> & { previewUrl: string })
+  | (Omit<ChatPdfAttachment, "previewUrl"> & { previewUrl?: undefined })
+) & { file: File };
 
 export interface ComposerPastedTextAttachment {
   id: string;
@@ -1100,7 +1106,7 @@ function revokeDraftThreadPreviewUrls(draft: ComposerThreadDraftState | undefine
     return;
   }
   for (const image of draft.images) {
-    revokeObjectPreviewUrl(image.previewUrl);
+    if (image.previewUrl) revokeObjectPreviewUrl(image.previewUrl);
   }
 }
 
@@ -1109,6 +1115,7 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
     return null;
   }
   const candidate = value as Record<string, unknown>;
+  const type = candidate.type;
   const id = candidate.id;
   const name = candidate.name;
   const mimeType = candidate.mimeType;
@@ -1127,6 +1134,7 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
     return null;
   }
   return {
+    ...(type === "image" || type === "pdf" ? { type } : {}),
     id,
     name,
     mimeType,
@@ -2203,14 +2211,14 @@ export function hydrateImagesFromPersisted(
 
     return [
       {
-        type: "image" as const,
+        type: attachment.type ?? (attachment.mimeType === "application/pdf" ? "pdf" : "image"),
         id: attachment.id,
         name: attachment.name,
         mimeType: attachment.mimeType,
         sizeBytes: attachment.sizeBytes,
-        previewUrl: attachment.dataUrl,
+        ...(attachment.mimeType.startsWith("image/") ? { previewUrl: attachment.dataUrl } : {}),
         file,
-      } satisfies ComposerImageAttachment,
+      } as ComposerImageAttachment,
     ];
   });
 }
@@ -3007,13 +3015,15 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const existingDedupKeys = new Set(
               existing.images.map((image) => composerImageDedupKey(image)),
             );
-            const acceptedPreviewUrls = new Set(existing.images.map((image) => image.previewUrl));
+            const acceptedPreviewUrls = new Set(
+              existing.images.flatMap((image) => (image.previewUrl ? [image.previewUrl] : [])),
+            );
             const dedupedIncoming: ComposerImageAttachment[] = [];
             for (const image of images) {
               const dedupKey = composerImageDedupKey(image);
               if (existingIds.has(image.id) || existingDedupKeys.has(dedupKey)) {
                 // Avoid revoking a blob URL that's still referenced by an accepted image.
-                if (!acceptedPreviewUrls.has(image.previewUrl)) {
+                if (image.previewUrl && !acceptedPreviewUrls.has(image.previewUrl)) {
                   revokeObjectPreviewUrl(image.previewUrl);
                 }
                 continue;
@@ -3021,7 +3031,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               dedupedIncoming.push(image);
               existingIds.add(image.id);
               existingDedupKeys.add(dedupKey);
-              acceptedPreviewUrls.add(image.previewUrl);
+              if (image.previewUrl) acceptedPreviewUrls.add(image.previewUrl);
             }
             if (dedupedIncoming.length === 0) {
               return state;
@@ -3048,7 +3058,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           }
           const removedImage = existing.images.find((image) => image.id === imageId);
           if (removedImage) {
-            revokeObjectPreviewUrl(removedImage.previewUrl);
+            if (removedImage.previewUrl) revokeObjectPreviewUrl(removedImage.previewUrl);
           }
           set((state) => {
             const current = state.draftsByThreadKey[threadKey];
@@ -3557,7 +3567,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               return state;
             }
             for (const image of current.images) {
-              revokeObjectPreviewUrl(image.previewUrl);
+              if (image.previewUrl) revokeObjectPreviewUrl(image.previewUrl);
             }
             const nextDraft: ComposerThreadDraftState = {
               ...current,

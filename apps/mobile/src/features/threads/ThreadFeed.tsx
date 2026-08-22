@@ -183,6 +183,36 @@ function MessageAttachmentImage(props: {
   );
 }
 
+function MessageAttachmentPdf(props: {
+  readonly environmentId: EnvironmentId;
+  readonly attachmentId: string;
+  readonly name: string;
+  readonly sizeBytes: number;
+}) {
+  const foregroundColor = useThemeColor("--color-foreground");
+  const uri = useAssetUrl(props.environmentId, {
+    _tag: "attachment",
+    attachmentId: props.attachmentId,
+  });
+
+  return (
+    <TouchableOpacity
+      activeOpacity={uri === null ? 1 : 0.7}
+      disabled={uri === null}
+      className="flex-row items-center gap-2 rounded-[14px] bg-white/15 px-3 py-2"
+      onPress={() => {
+        if (uri !== null) void Linking.openURL(uri);
+      }}
+    >
+      <SymbolView name="doc.fill" size={18} tintColor={foregroundColor} type="monochrome" />
+      <Text className="min-w-0 flex-1" numberOfLines={1}>
+        {props.name}
+      </Text>
+      <Text className="text-xs opacity-60">{(props.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>
+    </TouchableOpacity>
+  );
+}
+
 const MARKDOWN_COLORS = {
   light: {
     body: "#111111",
@@ -922,7 +952,15 @@ function renderFeedEntry(
               />
             ) : null}
             {attachments.map((attachment) => {
-              return (
+              return attachment.type === "pdf" ? (
+                <MessageAttachmentPdf
+                  key={attachment.id}
+                  environmentId={props.environmentId}
+                  attachmentId={attachment.id}
+                  name={attachment.name}
+                  sizeBytes={attachment.sizeBytes}
+                />
+              ) : (
                 <MessageAttachmentImage
                   key={attachment.id}
                   environmentId={props.environmentId}
@@ -983,7 +1021,15 @@ function renderFeedEntry(
           )
         ) : null}
         {attachments.map((attachment) => {
-          return (
+          return attachment.type === "pdf" ? (
+            <MessageAttachmentPdf
+              key={attachment.id}
+              environmentId={props.environmentId}
+              attachmentId={attachment.id}
+              name={attachment.name}
+              sizeBytes={attachment.sizeBytes}
+            />
+          ) : (
             <MessageAttachmentImage
               key={attachment.id}
               environmentId={props.environmentId}

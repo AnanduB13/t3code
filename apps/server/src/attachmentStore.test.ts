@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createAttachmentId,
   parseThreadSegmentFromAttachmentId,
+  parseAttachmentIdFromRelativePath,
   resolveAttachmentPathById,
 } from "./attachmentStore.ts";
 
@@ -76,5 +77,25 @@ describe("attachmentStore", () => {
     } finally {
       NodeFS.rmSync(attachmentsDir, { recursive: true, force: true });
     }
+  });
+
+  it("resolves persisted PDFs by attachment id", () => {
+    const attachmentsDir = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "t3code-attachment-store-"),
+    );
+    try {
+      const attachmentId = "thread-1-pdf";
+      const pdfPath = NodePath.join(attachmentsDir, `${attachmentId}.pdf`);
+      NodeFS.writeFileSync(pdfPath, Buffer.from("%PDF-1.4"));
+
+      expect(resolveAttachmentPathById({ attachmentsDir, attachmentId })).toBe(pdfPath);
+    } finally {
+      NodeFS.rmSync(attachmentsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("parses PDF text sidecars for cleanup", () => {
+    const attachmentId = "thread-pdf-00000000-0000-4000-8000-000000000001";
+    expect(parseAttachmentIdFromRelativePath(`${attachmentId}.pdf.txt`)).toBe(attachmentId);
   });
 });

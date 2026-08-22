@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -22,7 +22,33 @@ import {
   settleAsyncResult,
   settlePromise,
   squashAtomCommandFailure,
+  withRefreshInterval,
 } from "./runtime.ts";
+
+describe("withRefreshInterval", () => {
+  it("keeps refreshing for the full lifetime of a mounted atom", async () => {
+    vi.useFakeTimers();
+    try {
+      let value = 0;
+      const source = Atom.make(() => ++value);
+      const refreshed = withRefreshInterval(source, 100);
+      const registry = AtomRegistry.make();
+      const unmount = registry.mount(refreshed);
+
+      expect(registry.get(refreshed)).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(registry.get(refreshed)).toBe(4);
+      unmount();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(value).toBe(4);
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("settleAsyncResult", () => {
   it("preserves successful values and typed failures", async () => {

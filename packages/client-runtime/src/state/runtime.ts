@@ -528,10 +528,47 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
     return (
       options.refreshIntervalMs === undefined
         ? queryAtom
-        : queryAtom.pipe(Atom.withRefresh(options.refreshIntervalMs))
+        : withRefreshInterval(queryAtom, options.refreshIntervalMs)
     ).pipe(Atom.setIdleTTL(idleTtlMs), Atom.withLabel(`${options.label}:${key}`));
   });
   return (target) => family(environmentRpcKey(target));
+}
+
+/**
+ * Refreshes a mounted atom repeatedly until its lifetime is disposed.
+ *
+ * Effect's `Atom.withRefresh` is intentionally a one-shot refresh. Query
+ * callers use `refreshIntervalMs` for renewable data such as signed asset
+ * URLs, so stopping after the first refresh eventually leaves mounted views
+ * holding expired values.
+ */
+export function withRefreshInterval<Value>(
+  atom: Atom.Atom<Value>,
+  intervalMs: number,
+): Atom.Atom<Value> {
+  return Atom.transform(
+    atom,
+    (get) => {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const scheduleRefresh = () => {
+        // @effect-diagnostics-next-line globalTimers:off - The timeout is scoped to the atom's browser lifecycle and canceled by its finalizer.
+        timeout = setTimeout(() => {
+          timeout = undefined;
+          get.refresh(atom);
+          scheduleRefresh();
+        }, intervalMs);
+      };
+
+      scheduleRefresh();
+      get.addFinalizer(() => {
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+      });
+      return get(atom);
+    },
+    { initialValueTarget: atom },
+  );
 }
 
 export function createEnvironmentSubscriptionAtomFamily<R, ER, Input, A, E>(
