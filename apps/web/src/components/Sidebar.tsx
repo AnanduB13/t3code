@@ -21,6 +21,7 @@ import {
   canSnooze,
   effectiveSettled,
   effectiveSnoozed,
+  isLatestTurnCompleted,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
@@ -175,6 +176,7 @@ import {
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
+import { hasUnseenCompletionInProjectKind } from "./ThreadCompletionNotifications.logic";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -796,7 +798,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     prState !== "closed";
   // In-flight rows (working, or waiting on approval/input) fade as a whole:
   // there is nothing for the user to do yet, so prominence is reserved for
-  // rows that need a human — done (unread), read-but-unsettled, failed, and
+  // rows that need a human — unread completions, read-but-unsettled, failed, and
   // freshly woken. The status label keeps its hue, so waiting rows stay
   // findable. In-flight rows recede the same as read-ready ones (inbox-zero:
   // working threads aren't your problem yet) — only the colored status label
@@ -852,7 +854,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     icon: "woke" as const,
                     className: "text-amber-700 dark:text-amber-300",
                   }
-                : isUnread
+                : isLatestTurnCompleted(thread.latestTurn)
                   ? {
                       label: "Done",
                       icon: "done" as const,
@@ -1701,6 +1703,7 @@ export default function Sidebar() {
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
   const markThreadVisited = useUiStateStore((s) => s.markThreadVisited);
+  const threadLastVisitedAtById = useUiStateStore((s) => s.threadLastVisitedAtById);
   const acknowledgeWoke = useCallback(
     (threadRef: ScopedThreadRef, visitedAt: string) => {
       markThreadVisited(scopedThreadKey(threadRef), visitedAt);
@@ -1737,6 +1740,24 @@ export default function Sidebar() {
   const projectModeProjects = useMemo(
     () => projects.filter((project) => project.id !== GENERAL_CHATS_PROJECT_ID),
     [projects],
+  );
+  const hasUnreadChats = useMemo(
+    () =>
+      hasUnseenCompletionInProjectKind({
+        threads,
+        lastVisitedAtByThreadKey: threadLastVisitedAtById,
+        isIncludedProject: (thread) => thread.projectId === GENERAL_CHATS_PROJECT_ID,
+      }),
+    [threadLastVisitedAtById, threads],
+  );
+  const hasUnreadProjects = useMemo(
+    () =>
+      hasUnseenCompletionInProjectKind({
+        threads,
+        lastVisitedAtByThreadKey: threadLastVisitedAtById,
+        isIncludedProject: (thread) => thread.projectId !== GENERAL_CHATS_PROJECT_ID,
+      }),
+    [threadLastVisitedAtById, threads],
   );
   const orderedProjects = useMemo(
     () =>
@@ -3900,6 +3921,12 @@ export default function Sidebar() {
             <MessageSquareIcon className="size-4" />
           )}
           <span>{sidebarMode === "chats" ? "Projects" : "Chats"}</span>
+          {(sidebarMode === "chats" ? hasUnreadProjects : hasUnreadChats) ? (
+            <span
+              aria-label={`Unread completed ${sidebarMode === "chats" ? "project tasks" : "chats"}`}
+              className="ml-auto size-2 rounded-full bg-primary shadow-[0_0_0_2px_hsl(var(--sidebar-background))]"
+            />
+          ) : null}
         </SidebarMenuButton>
       </SidebarGroup>
       <AgentsSidebarLink />

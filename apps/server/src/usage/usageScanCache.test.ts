@@ -5,6 +5,7 @@ import {
   dedupeWithinFile,
   encodeScanCache,
   pruneScanCache,
+  resolveScanCacheRetentionCutoffMs,
   type ScanCache,
 } from "./usageScanCache.ts";
 import type { UsageRecord } from "./usageTranscripts.ts";
@@ -166,6 +167,28 @@ describe("pruneScanCache", () => {
     });
 
     expect(cache.size).toBe(1);
+  });
+});
+
+describe("resolveScanCacheRetentionCutoffMs", () => {
+  it("keeps the baseline retention for a shorter requested window", () => {
+    expect(
+      resolveScanCacheRetentionCutoffMs({
+        startedAtMs: 10_000,
+        windowStartMs: 9_000,
+        minimumRetentionMs: 5_000,
+      }),
+    ).toBe(5_000);
+  });
+
+  it("retains the whole requested range when it is longer than the baseline", () => {
+    expect(
+      resolveScanCacheRetentionCutoffMs({
+        startedAtMs: 10_000,
+        windowStartMs: 1_000,
+        minimumRetentionMs: 5_000,
+      }),
+    ).toBe(1_000);
   });
 });
 

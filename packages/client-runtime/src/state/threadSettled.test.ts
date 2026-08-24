@@ -11,9 +11,22 @@ import {
   canSettle,
   effectiveSettled,
   hasQueuedTurnStart,
+  isLatestTurnCompleted,
   threadLastActivityAt,
   type ChangeRequestStateLike,
 } from "./threadSettled.ts";
+
+describe("isLatestTurnCompleted", () => {
+  it("keeps completion independent from whether a client has read the result", () => {
+    const completed = makeShell({ activityAt: NOW }).latestTurn;
+
+    expect(isLatestTurnCompleted(completed)).toBe(true);
+    expect(isLatestTurnCompleted(completed ? { ...completed, state: "running" } : null)).toBe(
+      false,
+    );
+    expect(isLatestTurnCompleted(null)).toBe(false);
+  });
+});
 
 const NOW = "2026-04-10T00:00:00.000Z";
 const FRESH = "2026-04-09T00:00:00.000Z";

@@ -150,6 +150,25 @@ describe("resolveThreadListV2Status", () => {
       "ready",
     );
   });
+
+  it("keeps a successful latest task labeled done", () => {
+    expect(
+      resolveThreadListV2Status(
+        makeThread({
+          id: ThreadId.make("done"),
+          title: "Done",
+          latestTurn: {
+            turnId: TurnId.make("turn-done"),
+            state: "completed",
+            requestedAt: NOW,
+            startedAt: NOW,
+            completedAt: NOW,
+            assistantMessageId: null,
+          },
+        }),
+      ),
+    ).toBe("done");
+  });
 });
 
 describe("resolveThreadListV2SwipeActions", () => {

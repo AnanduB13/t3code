@@ -1,9 +1,20 @@
 // @effect-diagnostics globalDate:off -- UI snooze presets use local calendar boundaries and Intl labels.
-import type { OrchestrationThreadShell } from "@t3tools/contracts";
+import type { OrchestrationLatestTurn, OrchestrationThreadShell } from "@t3tools/contracts";
 
 export type ChangeRequestStateLike = "open" | "closed" | "merged";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * Durable completion state for list rows. This is deliberately independent
+ * of client visit markers: reading a result can clear unread emphasis, but it
+ * must not erase the fact that the latest task finished successfully.
+ */
+export function isLatestTurnCompleted(
+  latestTurn: OrchestrationLatestTurn | null | undefined,
+): boolean {
+  return latestTurn?.state === "completed";
+}
 
 export function threadLastActivityAt(shell: OrchestrationThreadShell): string | null {
   const candidates = [

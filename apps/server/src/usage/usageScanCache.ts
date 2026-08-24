@@ -220,6 +220,15 @@ export interface PruneOptions {
   readonly retentionCutoffMs: number;
 }
 
+/** Retains at least the baseline cache horizon and every day in the requested window. */
+export function resolveScanCacheRetentionCutoffMs(input: {
+  readonly startedAtMs: number;
+  readonly windowStartMs: number;
+  readonly minimumRetentionMs: number;
+}): number {
+  return Math.min(input.startedAtMs - input.minimumRetentionMs, input.windowStartMs);
+}
+
 /**
  * Drops aged-out entries, and entries for files that have disappeared.
  *

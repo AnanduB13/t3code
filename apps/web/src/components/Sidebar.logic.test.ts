@@ -286,6 +286,20 @@ describe("hasUnseenCompletion", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not call a failed turn an unread completion", () => {
+    expect(
+      hasUnseenCompletion({
+        hasActionableProposedPlan: false,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        interactionMode: "default",
+        latestTurn: { ...makeLatestTurn(), state: "error" },
+        lastVisitedAt: "2026-03-09T10:04:00.000Z",
+        session: null,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("createThreadJumpHintVisibilityController", () => {
@@ -1085,7 +1099,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("does not manufacture completed state without a client visit marker", () => {
+  it("keeps completed visible when the result was produced in the open thread", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -1098,7 +1112,7 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toBeNull();
+    ).toMatchObject({ label: "Completed", pulse: false });
   });
 
   it("shows completed when there is an unseen completion and no active blocker", () => {
@@ -1109,6 +1123,24 @@ describe("resolveThreadStatusPill", () => {
           interactionMode: "default",
           latestTurn: makeLatestTurn(),
           lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            activeTurnId: null,
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("keeps completed visible after the completion has been read", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          latestTurn: makeLatestTurn(),
+          lastVisitedAt: "2026-03-09T10:05:00.000Z",
           session: {
             ...baseThread.session,
             status: "ready",

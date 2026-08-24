@@ -12,6 +12,7 @@ import {
   formatPercent,
   formatTokens,
   formatUsd,
+  makeAllTimeWindow,
   makeWindow,
 } from "@t3tools/shared/usageFormat";
 import { ScrollArea } from "../ui/scroll-area";
@@ -26,16 +27,22 @@ const WINDOW_OPTIONS = [
   { days: 7, label: "7 days" },
   { days: 30, label: "30 days" },
   { days: 90, label: "90 days" },
+  { days: "all", label: "All time" },
 ] as const;
 
+type UsageWindowSelection = (typeof WINDOW_OPTIONS)[number]["days"];
+
 export function UsagePage() {
-  const [windowDays, setWindowDays] = useState<number>(30);
+  const [windowSelection, setWindowSelection] = useState<UsageWindowSelection>(30);
   const [metric, setMetric] = useState<UsageChartMetric>("cost");
   const [breakdown, setBreakdown] = useState<"model" | "day">("model");
 
   // Recomputed only when the window length changes, so a re-render does not
   // shift the range and refetch every environment.
-  const window = useMemo(() => makeWindow(windowDays), [windowDays]);
+  const window = useMemo(
+    () => (windowSelection === "all" ? makeAllTimeWindow() : makeWindow(windowSelection)),
+    [windowSelection],
+  );
   const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
 
   // Hold the content until every environment is terminal. Rendering merged
@@ -43,9 +50,11 @@ export function UsagePage() {
   // jump as each one lands.
   const settling = isPending || isPartial;
 
+  const chartSinceDay =
+    windowSelection === "all" ? (merged.daily[0]?.day ?? window.untilDay) : window.sinceDay;
   const days = useMemo(
-    () => enumerateDays(window.sinceDay, window.untilDay),
-    [window.sinceDay, window.untilDay],
+    () => enumerateDays(chartSinceDay, window.untilDay),
+    [chartSinceDay, window.untilDay],
   );
   const recentDays = useMemo(() => merged.daily.toReversed().slice(0, 8), [merged.daily]);
 
@@ -99,7 +108,9 @@ export function UsagePage() {
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <p className="text-sm text-muted-foreground">
-                {formatDayShort(window.sinceDay)} to {formatDayShort(window.untilDay)}
+                {windowSelection === "all"
+                  ? "All time"
+                  : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`}
               </p>
               <div className="flex items-center gap-2">
                 <div className="flex overflow-hidden rounded-md border border-border">
@@ -107,10 +118,10 @@ export function UsagePage() {
                     <button
                       key={option.days}
                       type="button"
-                      onClick={() => setWindowDays(option.days)}
+                      onClick={() => setWindowSelection(option.days)}
                       className={cn(
                         "cursor-pointer px-3 py-1.5 text-xs",
-                        option.days === windowDays
+                        option.days === windowSelection
                           ? "bg-muted text-foreground"
                           : "text-muted-foreground hover:text-foreground",
                       )}
@@ -176,18 +187,18 @@ export function UsagePage() {
                   <div className="flex flex-col gap-5">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs tracking-wide text-muted-foreground uppercase">
-                        {metric === "cost" ? "Raw token cost" : "Processed tokens"}
+                        {metric === "cost" ? "Token cost" : "Processed tokens"}
                       </span>
                       <span className="text-4xl font-semibold text-foreground tabular-nums">
                         {metric === "cost"
-                          ? `${formatUsd(merged.costUsd)}*`
+                          ? formatUsd(merged.costUsd)
                           : formatTokens(merged.totalTokens)}
                       </span>
-                      <span className="text-xs text-muted-foreground">
-                        {metric === "cost"
-                          ? "* if billed at full API rate"
-                          : `Input, cache reads and output across ${formatCount(merged.sessions)} sessions.`}
-                      </span>
+                      {metric === "tokens" ? (
+                        <span className="text-xs text-muted-foreground">
+                          {`Input, cache reads and output across ${formatCount(merged.sessions)} sessions.`}
+                        </span>
+                      ) : null}
                     </div>
 
                     {orderedProviders.map((provider) => {
@@ -280,7 +291,7 @@ export function UsagePage() {
                     value={formatUsd(merged.costQuality.cacheSavingsUsd)}
                     detail={
                       merged.costUsd > 0
-                        ? `${(merged.costQuality.cacheSavingsUsd / merged.costUsd).toFixed(1)}x the raw token cost`
+                        ? `${(merged.costQuality.cacheSavingsUsd / merged.costUsd).toFixed(1)}x the token cost`
                         : "vs full input rates"
                     }
                   />
@@ -595,10 +606,9 @@ function UsageSkeleton() {
         <div className="flex flex-col gap-5">
           <div className="flex flex-col gap-1">
             <span className="text-xs tracking-wide text-muted-foreground uppercase">
-              Raw token cost
+              Token cost
             </span>
             <div className="my-1.5 h-8 w-36 rounded-sm bg-muted" />
-            <div className="h-3 w-28 rounded-sm bg-muted" />
           </div>
 
           {PROVIDER_ORDER.map((provider) => (

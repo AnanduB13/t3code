@@ -12,6 +12,7 @@ import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
+import { isLatestTurnCompleted } from "@t3tools/client-runtime/state/thread-settled";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -250,8 +251,9 @@ export function useThreadJumpHintVisibility(): {
 }
 
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
+  const latestTurn = thread.latestTurn;
+  if (!isLatestTurnCompleted(latestTurn) || !latestTurn?.completedAt) return false;
+  const completedAt = Date.parse(latestTurn.completedAt);
   if (Number.isNaN(completedAt)) return false;
   if (!thread.lastVisitedAt) return false;
 
@@ -424,12 +426,11 @@ export function resolveThreadRowClassName(input: {
 }
 
 // ── Sidebar thread status model ─────────────────────────────────────
-// Five visual states, three colors: color is reserved for "act now"
+// Six visual states, four colors: color is reserved for "act now"
 // (approval), "in motion" (working), and "broken" (failed). Ready is the
-// unlabeled resting state — the agent stopped and is waiting on the user,
-// whether it finished, asked a question, or proposed a plan.
-// Unread completion is tracked separately: it describes whether a ready
-// thread needs attention, not what the thread is currently doing.
+// unlabeled resting state only when no task outcome exists. A successful
+// latest task remains Completed after it is read; unread completion is
+// tracked separately and controls prominence rather than truth.
 export type SidebarThreadStatus =
   | "approval"
   | "input"
@@ -690,7 +691,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (hasUnseenCompletion(thread)) {
+  if (isLatestTurnCompleted(thread.latestTurn)) {
     return {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",

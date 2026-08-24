@@ -6,6 +6,8 @@
  */
 import { UsageDay, type UsageSummaryInput } from "@t3tools/contracts";
 
+export const ALL_TIME_USAGE_SINCE_DAY = UsageDay.make("1970-01-01");
+
 const CURRENCY = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -105,4 +107,9 @@ export function makeWindow(days: number, now = new Date()): UsageSummaryInput {
     untilDay: UsageDay.make(untilDay),
     timeZone,
   };
+}
+
+/** Every provider transcript available on the environment, through today. */
+export function makeAllTimeWindow(now = new Date()): UsageSummaryInput {
+  return { ...makeWindow(1, now), sinceDay: ALL_TIME_USAGE_SINCE_DAY };
 }

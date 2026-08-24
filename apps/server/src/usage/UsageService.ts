@@ -49,6 +49,7 @@ import {
   dedupeWithinFile,
   encodeScanCache,
   pruneScanCache,
+  resolveScanCacheRetentionCutoffMs,
   type ScanCache,
 } from "./usageScanCache.ts";
 import type { UsageRecord } from "./usageTranscripts.ts";
@@ -65,7 +66,7 @@ const RATES_TTL_MS = 24 * 60 * 60 * 1000;
  */
 const MTIME_SLACK_MS = 36 * 60 * 60 * 1000;
 
-/** Longest window the UI offers, plus slack. Older entries are pruned. */
+/** Baseline cache retention for ordinary usage windows. */
 const CACHE_RETENTION_DAYS = 90;
 
 /** On-disk shape of the rate snapshot. */
@@ -384,7 +385,11 @@ export const make = Effect.gen(function* () {
       livePaths,
       walkedRoots,
       windowStartMs,
-      retentionCutoffMs: startedAtMs - CACHE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      retentionCutoffMs: resolveScanCacheRetentionCutoffMs({
+        startedAtMs,
+        windowStartMs,
+        minimumRetentionMs: CACHE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      }),
     });
     if (pruned > 0) cacheDirty = true;
     yield* persistScanCache();
