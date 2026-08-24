@@ -1099,7 +1099,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("keeps completed visible when the result was produced in the open thread", () => {
+  it("hides completed when the result was produced in the open thread", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -1112,7 +1112,7 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toBeNull();
   });
 
   it("shows completed when there is an unseen completion and no active blocker", () => {
@@ -1133,7 +1133,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Completed", pulse: false });
   });
 
-  it("keeps completed visible after the completion has been read", () => {
+  it("hides completed after the completion has been read", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -1148,7 +1148,7 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toBeNull();
   });
 });
 

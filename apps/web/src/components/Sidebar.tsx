@@ -21,7 +21,6 @@ import {
   canSnooze,
   effectiveSettled,
   effectiveSnoozed,
-  isLatestTurnCompleted,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
@@ -854,7 +853,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     icon: "woke" as const,
                     className: "text-amber-700 dark:text-amber-300",
                   }
-                : isLatestTurnCompleted(thread.latestTurn)
+                : isUnread
                   ? {
                       label: "Done",
                       icon: "done" as const,

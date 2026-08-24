@@ -12,9 +12,9 @@ If reordering is unavailable for one environment, update the T3 Code server runn
 environment. Older servers can still pin and unpin threads, but do not understand synced ordering;
 their pinned threads keep the default newest-first order below the ones you have arranged.
 
-When an agent finishes its latest task successfully, the thread keeps a **Done** status in project
-lists. Opening or reading the result reduces its unread emphasis but does not remove the completion
-label. Starting another task replaces **Done** with the new live status.
+When an agent finishes its latest task successfully, the thread shows a **Done** status in project
+lists until you open the result. Opening the completed thread clears **Done**, so the label only
+points out newly completed work that still needs your attention.
 
 Finishing work also creates an in-app notification with a shortcut to the thread. The desktop app
 uses a system notification when it is in the background and notifications are allowed by the

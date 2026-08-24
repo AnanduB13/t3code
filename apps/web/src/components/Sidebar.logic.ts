@@ -691,7 +691,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (isLatestTurnCompleted(thread.latestTurn)) {
+  if (hasUnseenCompletion(thread)) {
     return {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",

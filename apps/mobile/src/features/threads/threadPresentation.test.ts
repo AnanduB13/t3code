@@ -35,11 +35,7 @@ const completedThread: EnvironmentThreadShell = {
 };
 
 describe("resolveThreadStatus", () => {
-  it("shows a durable Done status for a successful latest task", () => {
-    expect(resolveThreadStatus(completedThread)).toMatchObject({
-      kind: "completed",
-      label: "Done",
-      pulse: false,
-    });
+  it("does not keep a completed task labeled done without an unread marker", () => {
+    expect(resolveThreadStatus(completedThread)).toBeNull();
   });
 });

@@ -151,7 +151,7 @@ describe("resolveThreadListV2Status", () => {
     );
   });
 
-  it("keeps a successful latest task labeled done", () => {
+  it("does not keep a completed task labeled done without an unread marker", () => {
     expect(
       resolveThreadListV2Status(
         makeThread({
@@ -167,7 +167,7 @@ describe("resolveThreadListV2Status", () => {
           },
         }),
       ),
-    ).toBe("done");
+    ).toBe("ready");
   });
 });
 
