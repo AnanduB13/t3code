@@ -40,6 +40,22 @@ describe("resolveHostedBrowserWebviewWrapperStyle", () => {
     });
   });
 
+  it("keeps a read-only floating preview visible without forwarding input", () => {
+    expect(
+      resolveHostedBrowserWebviewWrapperStyle({
+        active: true,
+        interactive: false,
+        rect: { x: 12, y: 34, width: 360, height: 203 },
+        hiddenSize: { width: 1280, height: 800 },
+      }),
+    ).toMatchObject({
+      left: 12,
+      top: 34,
+      pointerEvents: "none",
+      zIndex: 30,
+    });
+  });
+
   it("keeps an inactive webview paintable while moving it offscreen", () => {
     const style = resolveHostedBrowserWebviewWrapperStyle({
       active: false,

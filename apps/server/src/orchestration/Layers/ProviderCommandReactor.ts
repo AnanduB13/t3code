@@ -1334,14 +1334,14 @@ const make = Effect.gen(function* () {
       threadId: thread.id,
       session: {
         threadId: thread.id,
-        status: "stopped",
+        status: event.payload.failureMessage === undefined ? "stopped" : "error",
         providerName: thread.session?.providerName ?? null,
         ...(thread.session?.providerInstanceId !== undefined
           ? { providerInstanceId: thread.session.providerInstanceId }
           : {}),
         runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         activeTurnId: null,
-        lastError: thread.session?.lastError ?? null,
+        lastError: event.payload.failureMessage ?? thread.session?.lastError ?? null,
         updatedAt: now,
       },
       createdAt: now,

@@ -98,6 +98,7 @@ describe("browserSurfaceStore", () => {
             content: null,
             fittedSourceContent: null,
             fitSourceContent: false,
+            interactive: true,
             cornerRadius: 0,
             updatedAt: 1,
             owner: null,
@@ -108,6 +109,7 @@ describe("browserSurfaceStore", () => {
             content: null,
             fittedSourceContent: null,
             fitSourceContent: false,
+            interactive: true,
             cornerRadius: 0,
             updatedAt: 2,
             owner: null,
@@ -148,6 +150,20 @@ describe("browserSurfaceStore", () => {
       visible: false,
       owner: null,
     });
+  });
+
+  it("tracks whether a presented surface accepts browser input", () => {
+    const tabId = "read-only-browser-surface";
+    const lease = acquireBrowserSurface(tabId);
+    lease.present({ x: 10, y: 20, width: 320, height: 200 }, true, 12, false);
+
+    expect(useBrowserSurfaceStore.getState().byTabId[tabId]).toMatchObject({
+      visible: true,
+      interactive: false,
+    });
+
+    lease.release();
+    expect(useBrowserSurfaceStore.getState().byTabId[tabId]?.interactive).toBe(true);
   });
 
   it("clears fitted presentation state when its lease is released", () => {

@@ -3,8 +3,10 @@ import * as NodeAssert from "node:assert/strict";
 import { describe, it } from "vite-plus/test";
 
 import {
+  CODEX_DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
   codexAppServerArgs,
   codexExecLaunchArgs,
+  codexSessionAppServerArgs,
   resolveCodexLaunchArgs,
 } from "./codexLaunchArgs.ts";
 
@@ -40,6 +42,30 @@ describe("codexAppServerArgs", () => {
       "--enable",
       "foo",
     ]);
+  });
+});
+
+describe("codexSessionAppServerArgs", () => {
+  it("compacts long-running sessions before their context becomes expensive", () => {
+    NodeAssert.deepStrictEqual(codexSessionAppServerArgs(undefined, undefined), [
+      "app-server",
+      "-c",
+      `model_auto_compact_token_limit=${CODEX_DEFAULT_AUTO_COMPACT_TOKEN_LIMIT}`,
+    ]);
+  });
+
+  it("preserves an explicit auto-compact limit", () => {
+    NodeAssert.deepStrictEqual(
+      codexSessionAppServerArgs(undefined, "--config=model_auto_compact_token_limit=220000"),
+      ["app-server", "--config=model_auto_compact_token_limit=220000"],
+    );
+  });
+
+  it("detects an explicit limit in per-session app-server arguments", () => {
+    NodeAssert.deepStrictEqual(
+      codexSessionAppServerArgs(["-c", "model_auto_compact_token_limit=200000"], "--strict-config"),
+      ["app-server", "--strict-config", "-c", "model_auto_compact_token_limit=200000"],
+    );
   });
 });
 

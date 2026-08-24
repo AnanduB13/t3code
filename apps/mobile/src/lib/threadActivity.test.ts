@@ -58,6 +58,35 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("removes a retry warning after later activity proves the turn recovered", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-recovered"),
+      projectId: ProjectId.make("project-1"),
+      title: "Recovered thread",
+      activities: [
+        makeActivity({
+          id: EventId.make("warning"),
+          kind: "runtime.warning",
+          summary: "Reconnecting... 5/5",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: { message: "Reconnecting... 5/5", detail: { willRetry: true } },
+        }),
+        makeActivity({
+          id: EventId.make("tool"),
+          kind: "tool.completed",
+          summary: "Ran command",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId: TurnId.make("turn-1"),
+        }),
+      ],
+    });
+
+    const serializedFeed = JSON.stringify(buildThreadFeed(thread));
+    expect(serializedFeed).not.toContain("Reconnecting... 5/5");
+    expect(serializedFeed).toContain("Ran command");
+  });
+
   it("keeps historic work entries attributed to their turns", () => {
     const thread = makeThread({
       id: ThreadId.make("thread-1"),

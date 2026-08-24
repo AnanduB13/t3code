@@ -1,6 +1,7 @@
 import * as Option from "effect/Option";
 import * as Arr from "effect/Array";
 import { isBackgroundTaskActivity } from "@t3tools/client-runtime/state/subagentRuntime";
+import { omitRecoveredRuntimeWarnings } from "@t3tools/client-runtime/state/transient-runtime-warnings";
 import {
   ApprovalRequestId,
   isToolLifecycleItemType,
@@ -755,7 +756,7 @@ function isAgentInternalActivity(activity: OrchestrationThreadActivity): boolean
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const ordered = omitRecoveredRuntimeWarnings([...activities].toSorted(compareActivitiesByOrder));
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;

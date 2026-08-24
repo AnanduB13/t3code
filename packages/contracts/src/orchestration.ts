@@ -969,6 +969,10 @@ const ThreadSessionStopCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
+  // Server recovery may stop a provider that no longer makes progress. Keep
+  // that distinct from a user interruption so clients do not claim "You
+  // stopped" when the watchdog ended a wedged runtime.
+  failureMessage: Schema.optional(TrimmedNonEmptyString),
   // Settle-cleanup stops are conditional: the decider drops the stop if the
   // thread was re-engaged (unsettled, session starting/running, or a queued
   // turn start) between the settle and this command. Guarding in the decider
@@ -1413,6 +1417,7 @@ export const ThreadRevertedPayload = Schema.Struct({
 export const ThreadSessionStopRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   createdAt: IsoDateTime,
+  failureMessage: Schema.optional(TrimmedNonEmptyString),
 });
 
 export const ThreadSessionSetPayload = Schema.Struct({

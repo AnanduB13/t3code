@@ -71,7 +71,7 @@ import { createPreviewAutomationClientId } from "./previewAutomationClientId";
 import { closePreviewSession } from "./closePreviewSession";
 import {
   markPreviewTabAutomationOwned,
-  releaseAutomationOwnedPreviewTabs,
+  prepareCompletedThreadPreviewCleanup,
 } from "./previewAutomationOwnership";
 import {
   needsPreviewAutomationSessionSync,
@@ -267,7 +267,7 @@ export function PreviewAutomationHosts() {
       if (previous.get(threadKey) !== false || !settled) continue;
 
       const previewState = readThreadPreviewState(threadRef);
-      for (const tabId of releaseAutomationOwnedPreviewTabs(threadRef)) {
+      for (const tabId of prepareCompletedThreadPreviewCleanup(threadRef)) {
         const snapshot = previewState.sessions[tabId];
         if (!snapshot) continue;
         void closePreviewSession({

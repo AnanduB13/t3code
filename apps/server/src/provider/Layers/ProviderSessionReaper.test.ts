@@ -638,6 +638,8 @@ describe("ProviderSessionReaper", () => {
     expect(harness.dispatchedCommands[0]).toMatchObject({
       type: "thread.session.stop",
       threadId,
+      failureMessage:
+        "The provider stopped responding before the turn completed. Retry the task to continue.",
     });
     const dispatched = harness.dispatchedCommands[0];
     if (dispatched?.type !== "thread.session.stop") {

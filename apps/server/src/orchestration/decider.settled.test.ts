@@ -569,6 +569,26 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       expect(unconditionalEvents.map((event) => event.type)).toEqual([
         "thread.session-stop-requested",
       ]);
+
+      const failed = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.session.stop",
+          commandId: CommandId.make("cmd-stop-provider-failure"),
+          threadId: ThreadId.make("thread-1"),
+          createdAt: NOW,
+          failureMessage: "The provider stopped responding.",
+        },
+        readModel: makeReadModel(null, null, makeSession("running")),
+      });
+      const failedEvents = Array.isArray(failed) ? failed : [failed];
+      expect(failedEvents).toEqual([
+        expect.objectContaining({
+          type: "thread.session-stop-requested",
+          payload: expect.objectContaining({
+            failureMessage: "The provider stopped responding.",
+          }),
+        }),
+      ]);
     }),
   );
 });

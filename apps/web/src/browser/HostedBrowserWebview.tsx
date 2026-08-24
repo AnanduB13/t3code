@@ -64,6 +64,7 @@ export function HostedBrowserWebview(props: {
         content: current?.content ?? null,
         cornerRadius: current?.cornerRadius ?? 0,
         fitSourceContent: current?.fitSourceContent ?? false,
+        interactive: current?.interactive ?? true,
         fittedSourceContent: current?.fittedSourceContent ?? null,
         rect: resolveBrowserSurfacePanelRect(state.byTabId, runtimeTabId),
         visible: current?.visible ?? false,
@@ -233,6 +234,7 @@ export function HostedBrowserWebview(props: {
 
   const wrapperStyle = resolveHostedBrowserWebviewWrapperStyle({
     active,
+    interactive: presentation.interactive,
     cornerRadius: presentation.cornerRadius,
     rect: lastRect,
     hiddenSize,

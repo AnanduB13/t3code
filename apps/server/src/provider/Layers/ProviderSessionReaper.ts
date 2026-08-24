@@ -18,10 +18,12 @@ import { forkParked } from "../../serverActivation.ts";
 import { ProviderService } from "../Services/ProviderService.ts";
 
 const DEFAULT_INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000;
+const DEFAULT_ACTIVE_TURN_INACTIVITY_THRESHOLD_MS = 15 * 60 * 1000;
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 export interface ProviderSessionReaperLiveOptions {
   readonly inactivityThresholdMs?: number;
+  readonly activeTurnInactivityThresholdMs?: number;
   readonly sweepIntervalMs?: number;
 }
 
@@ -35,6 +37,12 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const inactivityThresholdMs = Math.max(
       1,
       options?.inactivityThresholdMs ?? DEFAULT_INACTIVITY_THRESHOLD_MS,
+    );
+    const activeTurnInactivityThresholdMs = Math.max(
+      1,
+      options?.activeTurnInactivityThresholdMs ??
+        options?.inactivityThresholdMs ??
+        DEFAULT_ACTIVE_TURN_INACTIVITY_THRESHOLD_MS,
     );
     const sweepIntervalMs = Math.max(1, options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
 
@@ -100,7 +108,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         const hasStalledProjectedTurn =
           projectedTurnSession !== undefined &&
           projectedTurnLastActivityMs !== Number.NEGATIVE_INFINITY &&
-          now - projectedTurnLastActivityMs >= inactivityThresholdMs;
+          now - projectedTurnLastActivityMs >= activeTurnInactivityThresholdMs;
         const hasOrphanedProjectedWork = !providerOwnsProjectedTurn || !providerOwnsBackgroundWork;
 
         if (hasOrphanedProjectedWork || hasStalledProjectedTurn) {
@@ -117,6 +125,9 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
                 `server:provider-session-reaper:${binding.threadId}:${String(now)}`,
               ),
               threadId: binding.threadId,
+              failureMessage: hasStalledProjectedTurn
+                ? "The provider stopped responding before the turn completed. Retry the task to continue."
+                : "The provider session ended before the turn completed. Retry the task to continue.",
               createdAt: hasStalledProjectedTurn
                 ? DateTime.formatIso(DateTime.makeUnsafe(now))
                 : (thread?.updatedAt ?? binding.lastSeenAt),
@@ -245,6 +256,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
         yield* Effect.logInfo("provider.session.reaper.started", {
           inactivityThresholdMs,
+          activeTurnInactivityThresholdMs,
           sweepIntervalMs,
         });
       });

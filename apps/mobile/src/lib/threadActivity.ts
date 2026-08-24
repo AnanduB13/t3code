@@ -7,6 +7,7 @@ import type {
   TurnId,
   UserInputQuestion,
 } from "@t3tools/contracts";
+import { omitRecoveredRuntimeWarnings } from "@t3tools/client-runtime/state/transient-runtime-warnings";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 
 import * as Arr from "effect/Array";
@@ -297,7 +298,7 @@ function isAgentInternalActivity(activity: OrchestrationThreadActivity): boolean
 function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): DerivedWorkLogEntry[] {
-  const ordered = Arr.sort(activities, activityOrder);
+  const ordered = omitRecoveredRuntimeWarnings(Arr.sort(activities, activityOrder));
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;

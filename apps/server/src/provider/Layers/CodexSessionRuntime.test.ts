@@ -426,6 +426,8 @@ describe("codexSessionAppServerArgs", () => {
       "app-server",
       "-c",
       "model=gpt-5",
+      "-c",
+      "model_auto_compact_token_limit=180000",
     ]);
   });
 
@@ -442,6 +444,8 @@ describe("codexSessionAppServerArgs", () => {
         "foo",
         "-c",
         "mcp_servers.t3-code.url=http://127.0.0.1/mcp",
+        "-c",
+        "model_auto_compact_token_limit=180000",
       ],
     );
   });

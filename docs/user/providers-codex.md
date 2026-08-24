@@ -127,6 +127,16 @@ retry message.
 Some signed-in or location-specific details can only be confirmed in an interactive browser. In
 that case, Codex continues the research and clearly identifies the detail it could not verify.
 
+## Long-Running Threads
+
+T3 Code asks Codex to compact a long conversation before its working context becomes large enough
+to make each response unusually slow. If you set `model_auto_compact_token_limit` in the provider's
+launch arguments, your value takes precedence.
+
+If an active provider stops sending any events for an extended period, T3 Code ends the turn with a
+provider error and a retry message. This keeps a disconnected process from displaying an endlessly
+running timer, and distinguishes the failure from a turn that you stopped yourself.
+
 ## If Both Accounts Look The Same
 
 If two Codex providers show the same account or the same unexpected model list:

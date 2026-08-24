@@ -1,18 +1,21 @@
 "use client";
 
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { PanelRightIcon, PictureInPicture2, XIcon } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useRef } from "react";
+import { GripIcon, PanelRightIcon, XIcon } from "lucide-react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  useLayoutEffect,
+  useRef,
+} from "react";
 
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { Button } from "~/components/ui/button";
-import { toastManager } from "~/components/ui/toast";
 import { useThreadPreviewState } from "~/previewStateStore";
 import { selectThreadPreviewMiniPlayer, usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
-import { previewBridge } from "./previewBridge";
 import {
   clampPreviewMiniPlayerPosition,
   clampPreviewMiniPlayerSize,
@@ -66,20 +69,6 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     useRightPanelStore.getState().openBrowser(threadRef, tabId);
   };
 
-  const toggleNativePictureInPicture = () => {
-    if (!previewBridge) return;
-    const operation = desktopOverlay?.pictureInPicture
-      ? previewBridge.pictureInPicture.close
-      : previewBridge.pictureInPicture.open;
-    void operation(runtimeTabId).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Unable to update popped-out preview",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-    });
-  };
-
   useLayoutEffect(() => {
     const clampAndMove = () => {
       const root = rootRef.current;
@@ -111,7 +100,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     return () => observer.disconnect();
   }, [bottomInset, position, tabId, threadRef]);
 
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     const root = rootRef.current;
     const parent = root?.offsetParent;
@@ -129,7 +118,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     event.preventDefault();
   };
 
-  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current;
     const root = rootRef.current;
     const parent = root?.offsetParent;
@@ -148,12 +137,35 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     usePreviewMiniPlayerStore.getState().move(threadRef, tabId, next);
   };
 
-  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (dragRef.current?.pointerId !== event.pointerId) return;
     dragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+  };
+
+  const handleDragKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const direction = {
+      ArrowLeft: { x: -1, y: 0 },
+      ArrowRight: { x: 1, y: 0 },
+      ArrowUp: { x: 0, y: -1 },
+      ArrowDown: { x: 0, y: 1 },
+    }[event.key];
+    if (!direction) return;
+    const root = rootRef.current;
+    const parent = root?.offsetParent;
+    if (!root || !(parent instanceof HTMLElement)) return;
+    const step = event.shiftKey ? 24 : 8;
+    const current = position ?? { x: root.offsetLeft, y: root.offsetTop };
+    const next = clampPreviewMiniPlayerPosition(
+      { x: current.x + direction.x * step, y: current.y + direction.y * step },
+      { width: parent.clientWidth, height: parent.clientHeight },
+      { width: root.offsetWidth, height: root.offsetHeight },
+      bottomInset,
+    );
+    usePreviewMiniPlayerStore.getState().move(threadRef, tabId, next);
+    event.preventDefault();
   };
 
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -217,7 +229,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
       ref={rootRef}
       aria-label="Floating browser preview"
       data-preview-mini-player={tabId}
-      className="pointer-events-none absolute select-none"
+      className="group absolute select-none"
       style={
         position
           ? { left: position.x, top: position.y, width: size.width, height: size.height }
@@ -229,18 +241,21 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
             }
       }
     >
-      <div className="group pointer-events-auto absolute right-2 top-2 z-[34] size-3">
-        <div
-          aria-hidden="true"
-          className="absolute right-0 top-0 size-2 rounded-full bg-foreground/25 shadow-sm ring-1 ring-background/70 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
-        />
-        <div
-          className="pointer-events-none absolute right-0 top-0 flex h-8 cursor-grab items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 opacity-0 shadow-lg/20 backdrop-blur-xl transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 active:cursor-grabbing"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
+      <button
+        type="button"
+        aria-label="Move floating browser preview"
+        title="Drag to move preview. Use arrow keys for precise movement."
+        className="absolute inset-0 z-[32] cursor-grab rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onKeyDown={handleDragKeyDown}
+      />
+
+      <div className="pointer-events-auto absolute right-2 top-2 z-[34]">
+        <div className="pointer-events-none flex h-8 items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 opacity-0 shadow-lg/20 backdrop-blur-xl transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <GripIcon aria-hidden className="mx-1 size-3.5 text-muted-foreground" />
           <Button
             variant="ghost"
             size="icon-xs"
@@ -252,29 +267,10 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
             <PanelRightIcon />
           </Button>
           <Button
-            variant={desktopOverlay?.pictureInPicture ? "secondary" : "ghost"}
-            size="icon-xs"
-            aria-label={
-              desktopOverlay?.pictureInPicture
-                ? "Close popped-out preview"
-                : "Pop preview into separate window"
-            }
-            title={
-              desktopOverlay?.pictureInPicture
-                ? "Close separate window"
-                : "Pop into separate window"
-            }
-            disabled={!desktopOverlay?.hasWebContents}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={toggleNativePictureInPicture}
-          >
-            <PictureInPicture2 />
-          </Button>
-          <Button
             variant="ghost"
             size="icon-xs"
-            aria-label="Close floating preview"
-            title="Close floating preview"
+            aria-label="Hide floating preview"
+            title="Hide preview"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={close}
           >
@@ -288,6 +284,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
         <BrowserSurfaceSlot
           tabId={runtimeTabId}
           visible={Boolean(desktopOverlay?.hasWebContents)}
+          interactive={false}
           cornerRadius={12}
           fitSourceContent
           layoutVersion={position ? `${position.x}:${position.y}` : `initial:${bottomInset}`}
@@ -303,7 +300,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
           type="button"
           aria-label="Resize floating preview"
           title="Resize floating preview"
-          className="pointer-events-auto absolute bottom-0 right-0 z-[33] size-5 cursor-nwse-resize rounded-br-xl after:absolute after:bottom-1 after:right-1 after:size-2 after:border-b after:border-r after:border-foreground/45"
+          className="pointer-events-auto absolute bottom-0 right-0 z-[35] size-5 cursor-nwse-resize rounded-br-xl after:absolute after:bottom-1 after:right-1 after:size-2 after:border-b after:border-r after:border-foreground/45"
           onPointerDown={handleResizePointerDown}
           onPointerMove={handleResizePointerMove}
           onPointerUp={endResize}

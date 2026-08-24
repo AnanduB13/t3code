@@ -1591,6 +1591,30 @@ describe("deriveTimelineEntries", () => {
 });
 
 describe("deriveWorkLogEntries context window handling", () => {
+  it("removes a retry warning after later activity proves the turn recovered", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "warning-1",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "runtime.warning",
+        summary: "Reconnecting... 5/5",
+        tone: "info",
+        payload: { detail: { willRetry: true } },
+      }),
+      makeActivity({
+        id: "tool-1",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Ran command",
+        tone: "tool",
+      }),
+    ]);
+
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-1"]);
+  });
+
   it("excludes context window updates from the work log", () => {
     const entries = deriveWorkLogEntries([
       makeActivity({
