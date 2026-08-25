@@ -7,3 +7,6 @@ remaining queue; the next prompt starts after the provider acknowledges the stop
 Use the controls beside a queued prompt to edit its text, remove it, or steer it into the active
 turn. Drag the handle at the start of a prompt to change the order. Queue changes are stored by the
 environment, so the same order and edits remain after a refresh or reconnect.
+
+Images and PDFs stay attached while a prompt waits. Their previews or file icons appear beside the
+queued prompt and the files are sent with it when that prompt runs.

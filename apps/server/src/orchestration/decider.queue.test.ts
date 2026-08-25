@@ -126,6 +126,14 @@ const turnStartCommand = (suffix: string) =>
     createdAt: NOW,
   }) as const;
 
+const IMAGE_ATTACHMENT = {
+  type: "image" as const,
+  id: "thread-queue-image",
+  name: "queued-image.png",
+  mimeType: "image/png",
+  sizeBytes: 1_024,
+};
+
 const applyPlanned = (
   readModel: OrchestrationReadModel,
   planned:
@@ -173,6 +181,42 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
       expect(thread?.queuedMessages.map((entry) => entry.messageId)).toEqual([
         asMessageId("message-busy"),
       ]);
+    }),
+  );
+
+  it.effect("preserves queued image attachments through automatic dispatch", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      const command = {
+        ...turnStartCommand("image"),
+        message: {
+          ...turnStartCommand("image").message,
+          attachments: [IMAGE_ATTACHMENT],
+        },
+      };
+      readModel = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({ command, readModel }),
+      );
+
+      const queued = readModel.threads.find((entry) => entry.id === THREAD_ID)?.queuedMessages[0];
+      expect(queued?.attachments).toEqual([IMAGE_ATTACHMENT]);
+
+      const planned = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.queue.drain",
+          commandId: asCommandId("cmd-drain-image"),
+          threadId: THREAD_ID,
+          afterTurnId: TurnId.make("turn-active"),
+          createdAt: NOW,
+        },
+        readModel,
+      });
+      const projected = yield* applyPlanned(readModel, planned);
+      const sent = projected.threads
+        .find((entry) => entry.id === THREAD_ID)
+        ?.messages.find((message) => message.id === asMessageId("message-image"));
+      expect(sent?.attachments).toEqual([IMAGE_ATTACHMENT]);
     }),
   );
 

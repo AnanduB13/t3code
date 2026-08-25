@@ -47,9 +47,13 @@ describe("QueuedMessageChips", () => {
   });
 
   it("uses an attachment summary for an attachment-only queued message", () => {
+    const attachmentUrlById = new Map([
+      ["attachment-1", "https://assets.example.test/attachment-1.png"],
+    ]);
     const markup = renderToStaticMarkup(
       <QueuedMessageChips
         queuedMessages={[queuedMessage("attachment-only", "", 2)]}
+        attachmentUrlById={attachmentUrlById}
         onSteer={vi.fn()}
         onRemove={vi.fn()}
         onUpdate={vi.fn()}
@@ -57,7 +61,26 @@ describe("QueuedMessageChips", () => {
       />,
     );
 
-    expect(markup).toContain("2 attachment(s)");
+    expect(markup).toContain("image-1.png, image-2.png");
+    expect(markup).toContain('src="https://assets.example.test/attachment-1.png"');
+    expect(markup).toContain('title="image-2.png"');
+  });
+
+  it("shows queued image attachments alongside prompt text", () => {
+    const markup = renderToStaticMarkup(
+      <QueuedMessageChips
+        queuedMessages={[queuedMessage("with-image", "Fix the layout", 1)]}
+        attachmentUrlById={new Map([["attachment-1", "/attachment-preview.png"]])}
+        onSteer={vi.fn()}
+        onRemove={vi.fn()}
+        onUpdate={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Fix the layout");
+    expect(markup).toContain('src="/attachment-preview.png"');
+    expect(markup).toContain("1 queued attachment: image-1.png");
   });
 
   it("keeps remove available while steer waits for a running turn", () => {

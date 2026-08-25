@@ -21,6 +21,8 @@ import {
   CheckIcon,
   CornerUpRightIcon,
   GripVerticalIcon,
+  FileTextIcon,
+  ImageIcon,
   PencilIcon,
   Trash2Icon,
   XIcon,
@@ -37,6 +39,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
  */
 export const QueuedMessageChips = memo(function QueuedMessageChips({
   queuedMessages,
+  attachmentUrlById,
   steerDisabled,
   onSteer,
   onRemove,
@@ -44,6 +47,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   onReorder,
 }: {
   readonly queuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
+  readonly attachmentUrlById?: ReadonlyMap<string, string>;
   readonly steerDisabled?: boolean;
   readonly onSteer: (messageId: MessageId) => void;
   readonly onRemove: (messageId: MessageId) => void;
@@ -133,11 +137,51 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                         className="min-h-10 min-w-0 flex-1 resize-y rounded-md border border-border/70 bg-background/70 px-2 py-1.5 text-[13px] leading-5 outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
                       />
                     ) : (
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
-                        {queuedMessage.text.length > 0
-                          ? queuedMessage.text
-                          : `${queuedMessage.attachments.length} attachment(s)`}
-                      </span>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        {queuedMessage.attachments.length > 0 ? (
+                          <span
+                            className="flex shrink-0 items-center -space-x-1"
+                            aria-label={`${queuedMessage.attachments.length} queued attachment${queuedMessage.attachments.length === 1 ? "" : "s"}: ${queuedMessage.attachments.map((attachment) => attachment.name).join(", ")}`}
+                          >
+                            {queuedMessage.attachments.slice(0, 3).map((attachment) => {
+                              const attachmentUrl = attachmentUrlById?.get(attachment.id);
+                              return attachment.type === "image" && attachmentUrl ? (
+                                <img
+                                  key={attachment.id}
+                                  src={attachmentUrl}
+                                  alt=""
+                                  title={attachment.name}
+                                  className="size-6 rounded-md border border-border/80 bg-muted object-cover"
+                                />
+                              ) : (
+                                <span
+                                  key={attachment.id}
+                                  title={attachment.name}
+                                  className="flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-muted-foreground"
+                                >
+                                  {attachment.type === "pdf" ? (
+                                    <FileTextIcon className="size-3.5" />
+                                  ) : (
+                                    <ImageIcon className="size-3.5" />
+                                  )}
+                                </span>
+                              );
+                            })}
+                            {queuedMessage.attachments.length > 3 ? (
+                              <span className="relative flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-[10px] text-muted-foreground">
+                                +{queuedMessage.attachments.length - 3}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : null}
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
+                          {queuedMessage.text.length > 0
+                            ? queuedMessage.text
+                            : queuedMessage.attachments
+                                .map((attachment) => attachment.name)
+                                .join(", ")}
+                        </span>
+                      </div>
                     )}
                     <div className="flex shrink-0 items-center gap-1">
                       {editingId === queuedMessage.messageId ? (

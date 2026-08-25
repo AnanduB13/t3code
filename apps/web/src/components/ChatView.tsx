@@ -2383,33 +2383,39 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, []);
   const serverMessages = activeThread?.messages;
-  const serverAttachmentIds = useMemo(() => {
+  const queuedMessages = activeThread?.queuedMessages;
+  const persistedAttachmentIds = useMemo(() => {
     const attachmentIds = new Set<string>();
     for (const message of serverMessages ?? []) {
       for (const attachment of message.attachments ?? []) {
         attachmentIds.add(attachment.id);
       }
     }
+    for (const message of queuedMessages ?? []) {
+      for (const attachment of message.attachments) {
+        attachmentIds.add(attachment.id);
+      }
+    }
     return [...attachmentIds];
-  }, [serverMessages]);
-  const serverAttachmentResources = useMemo(
+  }, [queuedMessages, serverMessages]);
+  const persistedAttachmentResources = useMemo(
     () =>
-      serverAttachmentIds.map((attachmentId) => ({
+      persistedAttachmentIds.map((attachmentId) => ({
         _tag: "attachment" as const,
         attachmentId,
       })),
-    [serverAttachmentIds],
+    [persistedAttachmentIds],
   );
-  const serverAttachmentUrls = useAssetUrls(environmentId, serverAttachmentResources);
-  const serverAttachmentUrlById = useMemo(
+  const persistedAttachmentUrls = useAssetUrls(environmentId, persistedAttachmentResources);
+  const persistedAttachmentUrlById = useMemo(
     () =>
       new Map(
-        serverAttachmentIds.flatMap((attachmentId, index) => {
-          const url = serverAttachmentUrls[index];
+        persistedAttachmentIds.flatMap((attachmentId, index) => {
+          const url = persistedAttachmentUrls[index];
           return url ? [[attachmentId, url] as const] : [];
         }),
       ),
-    [serverAttachmentIds, serverAttachmentUrls],
+    [persistedAttachmentIds, persistedAttachmentUrls],
   );
   const displayServerMessages = useMemo<ReadonlyArray<ChatMessage>>(() => {
     if (!serverMessages) return [];
@@ -2420,12 +2426,12 @@ function ChatViewContent(props: ChatViewProps) {
       return {
         ...message,
         attachments: message.attachments.map((attachment) => {
-          const previewUrl = serverAttachmentUrlById.get(attachment.id);
+          const previewUrl = persistedAttachmentUrlById.get(attachment.id);
           return previewUrl ? { ...attachment, previewUrl } : attachment;
         }),
       };
     });
-  }, [serverAttachmentUrlById, serverMessages]);
+  }, [persistedAttachmentUrlById, serverMessages]);
   useEffect(() => {
     if (typeof Image === "undefined" || displayServerMessages.length === 0) {
       return;
@@ -6481,6 +6487,7 @@ function ChatViewContent(props: ChatViewProps) {
                   ) : null}
                   <QueuedMessageChips
                     queuedMessages={activeThread?.queuedMessages ?? []}
+                    attachmentUrlById={persistedAttachmentUrlById}
                     steerDisabled={phase !== "running"}
                     onSteer={onSteerQueuedMessage}
                     onRemove={onRemoveQueuedMessage}
