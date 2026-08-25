@@ -118,6 +118,7 @@ import {
 } from "./userMessageTerminalContexts";
 import { SkillInlineText } from "./SkillInlineText";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { resolveWorkingStatusLabel, WORKING_STATUS_ROTATION_MS } from "./workingStatusLabel";
 import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
@@ -1403,7 +1404,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
             />
           ))}
         </span>
-        <span className="working-loader-label shrink-0 text-[13px] font-medium">Churning</span>
+        <WorkingStatusLabel createdAt={row.createdAt} />
         <span className="shrink-0 font-mono text-[12px] text-muted-foreground/65 tabular-nums">
           {row.createdAt ? <WorkingTimer createdAt={row.createdAt} /> : "0.0s"}
         </span>
@@ -1414,6 +1415,56 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         ) : null}
       </div>
     </div>
+  );
+}
+
+function WorkingStatusLabel({ createdAt }: { createdAt?: string | null }) {
+  const textRef = useRef<HTMLSpanElement>(null);
+  const startedAtRef = useRef<number | null>(null);
+  if (startedAtRef.current === null) {
+    const parsedStartedAt = createdAt ? Date.parse(createdAt) : Number.NaN;
+    startedAtRef.current = Number.isFinite(parsedStartedAt) ? parsedStartedAt : Date.now();
+  }
+
+  const startedAtMs = startedAtRef.current;
+  const initialText = resolveWorkingStatusLabel(startedAtMs, Date.now());
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let intervalId: number | undefined;
+
+    const updateText = () => {
+      if (textRef.current) {
+        textRef.current.textContent = resolveWorkingStatusLabel(startedAtMs, Date.now());
+      }
+    };
+    const updateRotation = () => {
+      if (intervalId !== undefined) {
+        window.clearInterval(intervalId);
+        intervalId = undefined;
+      }
+      updateText();
+      if (!reducedMotion.matches) {
+        intervalId = window.setInterval(updateText, WORKING_STATUS_ROTATION_MS);
+      }
+    };
+
+    updateRotation();
+    reducedMotion.addEventListener("change", updateRotation);
+    return () => {
+      reducedMotion.removeEventListener("change", updateRotation);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+  }, [startedAtMs]);
+
+  return (
+    <span
+      ref={textRef}
+      aria-hidden
+      className="working-loader-label shrink-0 text-[13px] font-medium"
+    >
+      {initialText}
+    </span>
   );
 }
 
