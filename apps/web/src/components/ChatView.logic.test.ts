@@ -25,6 +25,7 @@ import {
   getStartedThreadModelChangeBlockReason,
   hasEnvironmentReconnectWarningGraceElapsed,
   hasServerAcknowledgedLocalDispatch,
+  isChatWorkActive,
   isBranchMismatchDismissedForSession,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
@@ -46,6 +47,24 @@ describe("formatDraftHeroHeading", () => {
   it("keeps the generic heading while project data is unavailable", () => {
     expect(formatDraftHeroHeading(null)).toBe("What would you like to build?");
     expect(formatDraftHeroHeading("   ")).toBe("What would you like to build?");
+  });
+});
+
+describe("isChatWorkActive", () => {
+  const idleFlags = {
+    isSendBusy: false,
+    isConnecting: false,
+    isRevertingCheckpoint: false,
+  };
+
+  it("keeps timeline feedback visible while the provider session is starting", () => {
+    expect(isChatWorkActive({ phase: "connecting", ...idleFlags })).toBe(true);
+  });
+
+  it("shows active and optimistic work but stays quiet for an idle session", () => {
+    expect(isChatWorkActive({ phase: "running", ...idleFlags })).toBe(true);
+    expect(isChatWorkActive({ phase: "ready", ...idleFlags, isSendBusy: true })).toBe(true);
+    expect(isChatWorkActive({ phase: "ready", ...idleFlags })).toBe(false);
   });
 });
 

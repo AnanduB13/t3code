@@ -298,6 +298,7 @@ import {
   filterPendingOptimisticMessages,
   formatDraftHeroHeading,
   hasServerAcknowledgedLocalDispatch,
+  isChatWorkActive,
   isBranchMismatchDismissedForSession,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
@@ -2316,11 +2317,16 @@ function ChatViewContent(props: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError,
   });
-  const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const isWorking = isChatWorkActive({
+    phase,
+    isSendBusy,
+    isConnecting,
+    isRevertingCheckpoint,
+  });
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
-    localDispatchStartedAt,
+    localDispatchStartedAt ?? activeThread?.pendingTurnStart?.requestedAt ?? null,
   );
   useEffect(() => {
     attachmentPreviewHandoffByMessageIdRef.current = attachmentPreviewHandoffByMessageId;

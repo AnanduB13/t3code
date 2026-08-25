@@ -46,6 +46,21 @@ export function formatDraftHeroHeading(projectTitle: string | null | undefined):
   return title ? `What would you like to change in ${title}?` : "What would you like to build?";
 }
 
+export function isChatWorkActive(input: {
+  phase: SessionPhase;
+  isSendBusy: boolean;
+  isConnecting: boolean;
+  isRevertingCheckpoint: boolean;
+}): boolean {
+  return (
+    input.phase === "connecting" ||
+    input.phase === "running" ||
+    input.isSendBusy ||
+    input.isConnecting ||
+    input.isRevertingCheckpoint
+  );
+}
+
 export function filterPendingOptimisticMessages(input: {
   optimisticMessages: ReadonlyArray<ChatMessage>;
   projectedMessages: Thread["messages"];
