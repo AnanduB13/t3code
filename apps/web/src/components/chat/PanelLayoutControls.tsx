@@ -1,4 +1,5 @@
 import {
+  BellIcon,
   Globe2Icon,
   Maximize2Icon,
   Minimize2Icon,
@@ -8,11 +9,13 @@ import {
 } from "lucide-react";
 import { memo } from "react";
 
+import { ActivityCenter } from "../ActivityCenter";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface PanelLayoutControlsProps {
+  activityCenterActive?: boolean;
   showTerminalControl?: boolean;
   terminalAvailable: boolean;
   terminalOpen: boolean;
@@ -33,6 +36,7 @@ interface PanelLayoutControlsProps {
 }
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
+  activityCenterActive = true,
   showTerminalControl = true,
   terminalAvailable,
   terminalOpen,
@@ -118,6 +122,16 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
           </MenuPopup>
         </Menu>
       ) : null}
+      {activityCenterActive ? (
+        <ActivityCenter />
+      ) : (
+        <span
+          aria-hidden
+          className="inline-flex size-8 shrink-0 items-center justify-center text-muted-foreground"
+        >
+          <BellIcon className="size-3.5" />
+        </span>
+      )}
       <Tooltip>
         <TooltipTrigger
           render={

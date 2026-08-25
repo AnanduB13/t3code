@@ -20,3 +20,8 @@ Finishing work also creates an in-app notification with a shortcut to the thread
 uses a system notification when it is in the background and notifications are allowed by the
 operating system. When completed work has not been viewed, the **Chats** or **Projects** switch shows
 an unread dot for the other section; opening the completed thread clears that indicator.
+
+On web and desktop, the bell beside **Chat layout** opens the activity center. **Notifications**
+lists the latest completed task in each chat or project thread and labels it read after you open
+the thread. **Running** lists active agent turns, background work, and monitors across all connected
+environments. Select any entry to jump directly to its thread.

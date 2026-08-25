@@ -53,15 +53,29 @@ export function hasUnseenCompletionInProjectKind(input: {
     if (thread.archivedAt !== null || !input.isIncludedProject(thread)) {
       return false;
     }
-    const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-    const completedAt = thread.latestTurn?.completedAt;
-    const lastVisitedAt = input.lastVisitedAtByThreadKey[threadKey];
-    if (!isLatestTurnCompleted(thread.latestTurn) || !completedAt || !lastVisitedAt) return false;
-    const completedAtMs = Date.parse(completedAt);
-    const lastVisitedAtMs = Date.parse(lastVisitedAt);
-    if (Number.isNaN(completedAtMs)) return false;
-    return Number.isNaN(lastVisitedAtMs) || completedAtMs > lastVisitedAtMs;
+    return isThreadCompletionUnread(thread, input.lastVisitedAtByThreadKey);
   });
+}
+
+/**
+ * A completion is unread only when this client observed the thread before it
+ * finished and has not visited the finished turn. Missing visit markers are
+ * deliberately treated as read so connecting a new client does not turn the
+ * entire thread history into a notification backlog.
+ */
+export function isThreadCompletionUnread(
+  thread: EnvironmentThreadShell,
+  lastVisitedAtByThreadKey: Readonly<Record<string, string>>,
+): boolean {
+  const completedAt = thread.latestTurn?.completedAt;
+  if (!isLatestTurnCompleted(thread.latestTurn) || !completedAt) return false;
+  const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const lastVisitedAt = lastVisitedAtByThreadKey[threadKey];
+  if (!lastVisitedAt) return false;
+  const completedAtMs = Date.parse(completedAt);
+  const lastVisitedAtMs = Date.parse(lastVisitedAt);
+  if (Number.isNaN(completedAtMs)) return false;
+  return Number.isNaN(lastVisitedAtMs) || completedAtMs > lastVisitedAtMs;
 }
 
 export function shouldShowSystemCompletionNotification(input: {
