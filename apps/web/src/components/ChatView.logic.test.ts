@@ -27,6 +27,7 @@ import {
   hasServerAcknowledgedLocalDispatch,
   isChatWorkActive,
   isBranchMismatchDismissedForSession,
+  mergeDisplayedQueuedMessages,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
   resolveThreadMetadataUpdateForNextTurn,
@@ -34,6 +35,7 @@ import {
   scheduleEnvironmentReconnectWarning,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
+  shouldOptimisticallyQueueMessage,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
 
@@ -202,6 +204,105 @@ describe("filterPendingOptimisticMessages", () => {
         queuedMessages: [],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("mergeDisplayedQueuedMessages", () => {
+  const queuedMessage = (id: string) => ({
+    messageId: MessageId.make(id),
+    text: id,
+    attachments: [],
+    queuedAt: now,
+  });
+
+  it("shows a locally queued prompt before the server acknowledges it", () => {
+    expect(
+      mergeDisplayedQueuedMessages({
+        optimisticQueuedMessages: [queuedMessage("pending")],
+        projectedMessages: [],
+        serverQueuedMessages: [],
+      }).map((message) => message.messageId),
+    ).toEqual([MessageId.make("pending")]);
+  });
+
+  it("hands an optimistic prompt to the server queue without duplicating it", () => {
+    const acknowledged = queuedMessage("acknowledged");
+    expect(
+      mergeDisplayedQueuedMessages({
+        optimisticQueuedMessages: [acknowledged],
+        projectedMessages: [],
+        serverQueuedMessages: [acknowledged],
+      }),
+    ).toEqual([acknowledged]);
+  });
+
+  it("removes the optimistic queue row when the prompt starts directly", () => {
+    const dispatched = queuedMessage("dispatched");
+    expect(
+      mergeDisplayedQueuedMessages({
+        optimisticQueuedMessages: [dispatched],
+        projectedMessages: [
+          {
+            id: dispatched.messageId,
+            role: "user",
+            text: dispatched.text,
+            turnId: null,
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        serverQueuedMessages: [],
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("shouldOptimisticallyQueueMessage", () => {
+  it("matches the server queue boundary for active and pending server turns", () => {
+    expect(
+      shouldOptimisticallyQueueMessage({
+        isServerThread: true,
+        createsWorktree: false,
+        sessionStatus: "running",
+        hasPendingTurnStart: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldOptimisticallyQueueMessage({
+        isServerThread: true,
+        createsWorktree: false,
+        sessionStatus: null,
+        hasPendingTurnStart: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not queue a normal, draft, or bootstrapped worktree send", () => {
+    expect(
+      shouldOptimisticallyQueueMessage({
+        isServerThread: true,
+        createsWorktree: false,
+        sessionStatus: "other",
+        hasPendingTurnStart: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldOptimisticallyQueueMessage({
+        isServerThread: false,
+        createsWorktree: false,
+        sessionStatus: "running",
+        hasPendingTurnStart: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldOptimisticallyQueueMessage({
+        isServerThread: true,
+        createsWorktree: true,
+        sessionStatus: "running",
+        hasPendingTurnStart: false,
+      }),
+    ).toBe(false);
   });
 });
 

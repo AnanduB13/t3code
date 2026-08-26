@@ -118,7 +118,11 @@ import {
 } from "./userMessageTerminalContexts";
 import { SkillInlineText } from "./SkillInlineText";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
-import { resolveWorkingStatusLabel, WORKING_STATUS_ROTATION_MS } from "./workingStatusLabel";
+import {
+  advanceWorkingStatusLabelState,
+  workingStatusLabel,
+  type WorkingStatusLabelState,
+} from "./workingStatusLabel";
 import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
@@ -158,6 +162,8 @@ interface TimelineRowActivityState {
   latestTurnId: TurnId | null;
   /** Current plan step label for the working row, when the turn has a plan. */
   workingStepLabel: string | null;
+  /** Stable playful phrase chosen once per generation. */
+  workingPhraseLabel: string;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -299,6 +305,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   topFadeEnabled = false,
   loadEarlier = null,
 }: MessagesTimelineProps) {
+  const workingStatusStateRef = useRef<WorkingStatusLabelState>({
+    threadKey: routeThreadKey,
+    turnId: null,
+    working: false,
+    labelIndex: null,
+  });
+  const workingGenerationTurnId = latestTurn?.state === "running" ? latestTurn.turnId : null;
+  workingStatusStateRef.current = advanceWorkingStatusLabelState(workingStatusStateRef.current, {
+    threadKey: routeThreadKey,
+    turnId: workingGenerationTurnId,
+    working: isWorking,
+  });
+  const workingPhraseLabel = workingStatusLabel(workingStatusStateRef.current);
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
   const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
@@ -571,8 +590,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnInProgress,
       latestTurnId: latestTurn?.turnId ?? null,
       workingStepLabel,
+      workingPhraseLabel,
     }),
-    [activeTurnInProgress, isRevertingCheckpoint, isWorking, latestTurn?.turnId, workingStepLabel],
+    [
+      activeTurnInProgress,
+      isRevertingCheckpoint,
+      isWorking,
+      latestTurn?.turnId,
+      workingPhraseLabel,
+      workingStepLabel,
+    ],
   );
 
   // Stable renderItem — no closure deps. Row components read shared state
@@ -1388,7 +1415,7 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
 });
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { workingStepLabel } = use(TimelineRowActivityCtx);
+  const { workingPhraseLabel, workingStepLabel } = use(TimelineRowActivityCtx);
   return (
     <div className="py-0.5 pl-1.5">
       <div
@@ -1404,7 +1431,9 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
             />
           ))}
         </span>
-        <WorkingStatusLabel createdAt={row.createdAt} />
+        <span aria-hidden className="working-loader-label shrink-0 text-[13px] font-medium">
+          {workingPhraseLabel}
+        </span>
         <span className="shrink-0 font-mono text-[12px] text-muted-foreground/65 tabular-nums">
           {row.createdAt ? <WorkingTimer createdAt={row.createdAt} /> : "0.0s"}
         </span>
@@ -1415,56 +1444,6 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         ) : null}
       </div>
     </div>
-  );
-}
-
-function WorkingStatusLabel({ createdAt }: { createdAt?: string | null }) {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const startedAtRef = useRef<number | null>(null);
-  if (startedAtRef.current === null) {
-    const parsedStartedAt = createdAt ? Date.parse(createdAt) : Number.NaN;
-    startedAtRef.current = Number.isFinite(parsedStartedAt) ? parsedStartedAt : Date.now();
-  }
-
-  const startedAtMs = startedAtRef.current;
-  const initialText = resolveWorkingStatusLabel(startedAtMs, Date.now());
-
-  useEffect(() => {
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let intervalId: number | undefined;
-
-    const updateText = () => {
-      if (textRef.current) {
-        textRef.current.textContent = resolveWorkingStatusLabel(startedAtMs, Date.now());
-      }
-    };
-    const updateRotation = () => {
-      if (intervalId !== undefined) {
-        window.clearInterval(intervalId);
-        intervalId = undefined;
-      }
-      updateText();
-      if (!reducedMotion.matches) {
-        intervalId = window.setInterval(updateText, WORKING_STATUS_ROTATION_MS);
-      }
-    };
-
-    updateRotation();
-    reducedMotion.addEventListener("change", updateRotation);
-    return () => {
-      reducedMotion.removeEventListener("change", updateRotation);
-      if (intervalId !== undefined) window.clearInterval(intervalId);
-    };
-  }, [startedAtMs]);
-
-  return (
-    <span
-      ref={textRef}
-      aria-hidden
-      className="working-loader-label shrink-0 text-[13px] font-medium"
-    >
-      {initialText}
-    </span>
   );
 }
 

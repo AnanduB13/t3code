@@ -3,6 +3,7 @@ import {
   isProviderDriverKind,
   ProjectId,
   type ModelSelection,
+  type OrchestrationQueuedMessage,
   type ProviderDriverKind,
   type ServerProvider,
   type ScopedProjectRef,
@@ -73,6 +74,40 @@ export function filterPendingOptimisticMessages(input: {
   for (const message of input.projectedMessages) acknowledgedMessageIds.add(message.id);
   for (const message of input.queuedMessages) acknowledgedMessageIds.add(message.messageId);
   return input.optimisticMessages.filter((message) => !acknowledgedMessageIds.has(message.id));
+}
+
+export function mergeDisplayedQueuedMessages(input: {
+  readonly optimisticQueuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
+  readonly projectedMessages: Thread["messages"];
+  readonly serverQueuedMessages: Thread["queuedMessages"];
+}): ReadonlyArray<OrchestrationQueuedMessage> {
+  if (input.optimisticQueuedMessages.length === 0) return input.serverQueuedMessages;
+
+  const acknowledgedMessageIds = new Set<string>();
+  for (const message of input.projectedMessages) acknowledgedMessageIds.add(message.id);
+  for (const message of input.serverQueuedMessages) acknowledgedMessageIds.add(message.messageId);
+
+  const pendingQueueMessages = input.optimisticQueuedMessages.filter(
+    (message) => !acknowledgedMessageIds.has(message.messageId),
+  );
+  return pendingQueueMessages.length === 0
+    ? input.serverQueuedMessages
+    : [...input.serverQueuedMessages, ...pendingQueueMessages];
+}
+
+export function shouldOptimisticallyQueueMessage(input: {
+  readonly isServerThread: boolean;
+  readonly createsWorktree: boolean;
+  readonly sessionStatus: "starting" | "running" | "other" | null;
+  readonly hasPendingTurnStart: boolean;
+}): boolean {
+  return (
+    input.isServerThread &&
+    !input.createsWorktree &&
+    (input.sessionStatus === "starting" ||
+      input.sessionStatus === "running" ||
+      input.hasPendingTurnStart)
+  );
 }
 
 export function startNewThreadForProject(

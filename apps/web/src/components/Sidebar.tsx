@@ -176,6 +176,11 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrom
 import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
 import { hasUnseenCompletionInProjectKind } from "./ThreadCompletionNotifications.logic";
+import {
+  aggregateProjectActivity,
+  buildProjectActivityByPhysicalKey,
+  type ProjectScopeActivity,
+} from "./ProjectScopeActivity.logic";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -202,6 +207,38 @@ type SidebarMode = "projects" | "chats";
 // Keep the v2 key so existing preferences survive the v2-to-default rename.
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:snoozed-expanded";
+
+function ProjectActivityIndicators({ activity }: { activity: ProjectScopeActivity }) {
+  if (activity.runningCount === 0 && activity.unreadCount === 0) return null;
+
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      {activity.runningCount > 0 ? (
+        <span
+          className="inline-flex items-center gap-0.5 text-info"
+          role="img"
+          aria-label={`${activity.runningCount} ${activity.runningCount === 1 ? "task" : "tasks"} running`}
+          title={`${activity.runningCount} ${activity.runningCount === 1 ? "task" : "tasks"} running`}
+          data-project-running-count={activity.runningCount}
+        >
+          <CircleDashedIcon className="size-3.5" />
+          {activity.runningCount > 1 ? (
+            <span className="text-[10px] tabular-nums">{activity.runningCount}</span>
+          ) : null}
+        </span>
+      ) : null}
+      {activity.unreadCount > 0 ? (
+        <span
+          className="size-2 rounded-full bg-info"
+          role="img"
+          aria-label={`${activity.unreadCount} unread completed ${activity.unreadCount === 1 ? "task" : "tasks"}`}
+          title={`${activity.unreadCount} unread completed ${activity.unreadCount === 1 ? "task" : "tasks"}`}
+          data-project-unread-count={activity.unreadCount}
+        />
+      ) : null}
+    </span>
+  );
+}
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -1791,6 +1828,35 @@ export default function Sidebar() {
   const projectGroups = useMemo(
     () => sortLogicalProjectsForSidebar(unsortedProjectGroups, threads, sidebarProjectSortOrder),
     [sidebarProjectSortOrder, threads, unsortedProjectGroups],
+  );
+  const projectActivityByPhysicalKey = useMemo(
+    () =>
+      buildProjectActivityByPhysicalKey({
+        threads,
+        lastVisitedAtByThreadKey: threadLastVisitedAtById,
+      }),
+    [threadLastVisitedAtById, threads],
+  );
+  const projectActivityByScopeKey = useMemo(
+    () =>
+      new Map(
+        projectGroups.map(
+          (project) =>
+            [
+              project.projectKey,
+              aggregateProjectActivity(project.memberProjectRefs, projectActivityByPhysicalKey),
+            ] as const,
+        ),
+      ),
+    [projectActivityByPhysicalKey, projectGroups],
+  );
+  const allProjectsActivity = useMemo(
+    () =>
+      aggregateProjectActivity(
+        projectGroups.flatMap((project) => project.memberProjectRefs),
+        projectActivityByPhysicalKey,
+      ),
+    [projectActivityByPhysicalKey, projectGroups],
   );
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const createGeneralChat = useCallback(() => {
@@ -3465,6 +3531,16 @@ export default function Sidebar() {
                     <span className="min-w-0 flex-1 truncate">
                       {scopedProjectGroup?.displayName ?? "All projects"}
                     </span>
+                    <ProjectActivityIndicators
+                      activity={
+                        scopedProjectGroup
+                          ? (projectActivityByScopeKey.get(scopedProjectGroup.projectKey) ?? {
+                              runningCount: 0,
+                              unreadCount: 0,
+                            })
+                          : allProjectsActivity
+                      }
+                    />
                     <ChevronDownIcon className="-mr-px size-4 shrink-0" />
                   </MenuTrigger>
                   <MenuPopup align="start" className="w-(--anchor-width)">
@@ -3480,10 +3556,15 @@ export default function Sidebar() {
                         className="h-8 min-h-8 px-1 py-0 text-sm font-medium [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
                       >
                         <FolderIcon className="size-4 shrink-0" />
-                        <span className="min-w-0 truncate text-sm">All projects</span>
+                        <span className="min-w-0 flex-1 truncate text-sm">All projects</span>
+                        <ProjectActivityIndicators activity={allProjectsActivity} />
                       </MenuRadioItem>
                       {projectGroups.map((project) => {
                         const scopeKey = project.projectKey;
+                        const activity = projectActivityByScopeKey.get(scopeKey) ?? {
+                          runningCount: 0,
+                          unreadCount: 0,
+                        };
                         return (
                           <MenuRadioItem
                             key={scopeKey}
@@ -3497,12 +3578,15 @@ export default function Sidebar() {
                               faviconPath={project.faviconPath}
                               className="size-4 shrink-0"
                             />
-                            <span className="min-w-0 truncate text-sm">{project.displayName}</span>
+                            <span className="min-w-0 flex-1 truncate text-sm">
+                              {project.displayName}
+                            </span>
+                            <ProjectActivityIndicators activity={activity} />
                             <button
                               type="button"
                               aria-label={`Project settings for ${project.displayName}`}
                               title={`Project settings for ${project.displayName}`}
-                              className="ml-auto inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                              className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                               onPointerDown={(event) => event.stopPropagation()}
                               onClick={(event) => {
                                 void handleProjectSettings(event, project);

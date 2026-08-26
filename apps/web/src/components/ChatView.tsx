@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
+  type OrchestrationQueuedMessage,
   type ProjectScript,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -300,7 +301,9 @@ import {
   hasServerAcknowledgedLocalDispatch,
   isChatWorkActive,
   isBranchMismatchDismissedForSession,
+  mergeDisplayedQueuedMessages,
   shouldShowBranchMismatchBanner,
+  shouldOptimisticallyQueueMessage,
   getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
@@ -1376,6 +1379,9 @@ function ChatViewContent(props: ChatViewProps) {
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
+  const [optimisticQueuedMessages, setOptimisticQueuedMessages] = useState<
+    OrchestrationQueuedMessage[]
+  >([]);
   const [localDraftErrorsByDraftId, setLocalDraftErrorsByDraftId] = useState<
     Record<string, LocalThreadErrorEntry>
   >({});
@@ -2390,6 +2396,15 @@ function ChatViewContent(props: ChatViewProps) {
   }, []);
   const serverMessages = activeThread?.messages;
   const queuedMessages = activeThread?.queuedMessages;
+  const displayedQueuedMessages = useMemo(
+    () =>
+      mergeDisplayedQueuedMessages({
+        optimisticQueuedMessages,
+        projectedMessages: serverMessages ?? [],
+        serverQueuedMessages: queuedMessages ?? [],
+      }),
+    [optimisticQueuedMessages, queuedMessages, serverMessages],
+  );
   const persistedAttachmentIds = useMemo(() => {
     const attachmentIds = new Set<string>();
     for (const message of serverMessages ?? []) {
@@ -2423,6 +2438,19 @@ function ChatViewContent(props: ChatViewProps) {
       ),
     [persistedAttachmentIds, persistedAttachmentUrls],
   );
+  const queuedAttachmentUrlById = useMemo(() => {
+    const urls = new Map(persistedAttachmentUrlById);
+    const optimisticQueuedIds = new Set(
+      optimisticQueuedMessages.map((message) => message.messageId),
+    );
+    for (const message of optimisticUserMessages) {
+      if (!optimisticQueuedIds.has(message.id)) continue;
+      for (const attachment of message.attachments ?? []) {
+        if (attachment.previewUrl) urls.set(attachment.id, attachment.previewUrl);
+      }
+    }
+    return urls;
+  }, [optimisticQueuedMessages, optimisticUserMessages, persistedAttachmentUrlById]);
   const displayServerMessages = useMemo<ReadonlyArray<ChatMessage>>(() => {
     if (!serverMessages) return [];
     return serverMessages.map((message) => {
@@ -2570,16 +2598,16 @@ function ChatViewContent(props: ChatViewProps) {
     const pendingMessages = filterPendingOptimisticMessages({
       optimisticMessages: optimisticUserMessages,
       projectedMessages: serverMessagesWithPreviewHandoff,
-      queuedMessages: activeThread?.queuedMessages ?? [],
+      queuedMessages: displayedQueuedMessages,
     });
     if (pendingMessages.length === 0) {
       return serverMessagesWithPreviewHandoff;
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [
-    activeThread?.queuedMessages,
     attachmentPreviewHandoffByMessageId,
     displayServerMessages,
+    displayedQueuedMessages,
     optimisticUserMessages,
   ]);
   const timelineEntries = useMemo(
@@ -4083,6 +4111,10 @@ function ChatViewContent(props: ChatViewProps) {
     const serverIds = new Set(activeThread.messages.map((message) => message.id));
     const queuedIds = new Set(activeThread.queuedMessages.map((message) => message.messageId));
     const acknowledgedIds = new Set([...serverIds, ...queuedIds]);
+    setOptimisticQueuedMessages((existing) => {
+      const next = existing.filter((message) => !acknowledgedIds.has(message.messageId));
+      return next.length === existing.length ? existing : next;
+    });
     const removedMessages = optimisticUserMessages.filter((message) =>
       acknowledgedIds.has(message.id),
     );
@@ -4120,6 +4152,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
       return [];
     });
+    setOptimisticQueuedMessages([]);
     resetLocalDispatch();
     setExpandedImage(null);
   }, [draftId, resetLocalDispatch, threadId]);
@@ -5208,21 +5241,31 @@ function ChatViewContent(props: ChatViewProps) {
             previewUrl: attachment.previewUrl,
           },
     );
-    // Sending always returns to the live edge. The new row becomes the
-    // anchored end-space target so it lands near the top while the response
-    // streams into the reserved space below it.
-    isAtEndRef.current = true;
-    timelineScrollModeRef.current = "anchoring-new-turn";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
-    pendingTimelineAnchorRef.current = messageIdForSend;
-    activeTimelineAnchorIndexRef.current = null;
-    showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
-    setTimelineAnchor({
-      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-      messageId: messageIdForSend,
+    const sessionStatus = activeThread.session?.status;
+    const shouldOptimisticallyQueue = shouldOptimisticallyQueueMessage({
+      isServerThread,
+      createsWorktree: baseBranchForWorktree !== null,
+      sessionStatus:
+        sessionStatus === "starting" || sessionStatus === "running" ? sessionStatus : "other",
+      hasPendingTurnStart: activeThread.pendingTurnStart != null,
     });
+    // A normal send returns to the live edge and anchors the new row. Queued
+    // work has no timeline row yet, so moving the timeline here would be a
+    // second visual jump on top of the queue update.
+    if (!shouldOptimisticallyQueue) {
+      isAtEndRef.current = true;
+      timelineScrollModeRef.current = "anchoring-new-turn";
+      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      setTimelineLiveFollowEnabled(true);
+      pendingTimelineAnchorRef.current = messageIdForSend;
+      activeTimelineAnchorIndexRef.current = null;
+      showScrollDebouncer.current.cancel();
+      setShowScrollToBottom(false);
+      setTimelineAnchor({
+        threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+        messageId: messageIdForSend,
+      });
+    }
     setOptimisticUserMessages((existing) => [
       ...existing,
       {
@@ -5236,6 +5279,20 @@ function ChatViewContent(props: ChatViewProps) {
         streaming: false,
       },
     ]);
+    if (shouldOptimisticallyQueue) {
+      setOptimisticQueuedMessages((existing) => [
+        ...existing.filter((message) => message.messageId !== messageIdForSend),
+        {
+          messageId: messageIdForSend,
+          text: outgoingMessageText,
+          attachments: optimisticAttachments.map(
+            ({ previewUrl: _previewUrl, ...attachment }) => attachment,
+          ),
+          modelSelection: ctxSelectedModelSelection,
+          queuedAt: messageCreatedAt,
+        },
+      ]);
+    }
     setThreadError(threadIdForSend, null);
     if (expiredTerminalContextCount > 0) {
       const toastCopy = buildExpiredTerminalContextToastCopy(
@@ -5396,6 +5453,9 @@ function ChatViewContent(props: ChatViewProps) {
           const next = existing.filter((message) => message.id !== messageIdForSend);
           return next.length === existing.length ? existing : next;
         });
+        setOptimisticQueuedMessages((existing) =>
+          existing.filter((message) => message.messageId !== messageIdForSend),
+        );
         promptRef.current = promptForSend;
         const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
         composerImagesRef.current = retryComposerImages;
@@ -6493,8 +6553,8 @@ function ChatViewContent(props: ChatViewProps) {
                     <ThreadSyncStatusPill phase={threadSyncPhase} />
                   ) : null}
                   <QueuedMessageChips
-                    queuedMessages={activeThread?.queuedMessages ?? []}
-                    attachmentUrlById={persistedAttachmentUrlById}
+                    queuedMessages={displayedQueuedMessages}
+                    attachmentUrlById={queuedAttachmentUrlById}
                     steerDisabled={phase !== "running"}
                     onSteer={onSteerQueuedMessage}
                     onRemove={onRemoveQueuedMessage}

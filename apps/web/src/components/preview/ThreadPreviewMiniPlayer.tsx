@@ -1,7 +1,7 @@
 "use client";
 
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { GripIcon, PanelRightIcon, XIcon } from "lucide-react";
+import { Minimize2Icon, PanelRightIcon } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -253,28 +253,29 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
         onKeyDown={handleDragKeyDown}
       />
 
-      <div className="pointer-events-auto absolute right-2 top-2 z-[34]">
-        <div className="pointer-events-none flex h-8 items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 opacity-0 shadow-lg/20 backdrop-blur-xl transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-          <GripIcon aria-hidden className="mx-1 size-3.5 text-muted-foreground" />
+      <div className="pointer-events-none absolute inset-0 z-[34] flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-[background-color,opacity] group-hover:bg-black/20 group-hover:opacity-100 group-focus-within:bg-black/20 group-focus-within:opacity-100">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-border/80 bg-popover/95 p-1 shadow-lg/30 backdrop-blur-xl">
           <Button
-            variant="ghost"
-            size="icon-xs"
+            variant="outline"
+            size="xs"
             aria-label="Open preview in right panel"
             title="Open in right panel"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={openInPanel}
           >
             <PanelRightIcon />
+            Open panel
           </Button>
           <Button
-            variant="ghost"
-            size="icon-xs"
+            variant="outline"
+            size="xs"
             aria-label="Hide floating preview"
-            title="Hide preview"
+            title="Minimize preview"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={close}
           >
-            <XIcon />
+            <Minimize2Icon />
+            Minimize
           </Button>
         </div>
       </div>
