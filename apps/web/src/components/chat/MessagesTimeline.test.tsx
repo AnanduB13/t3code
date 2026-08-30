@@ -231,6 +231,44 @@ function buildUserTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("renders backend visual evidence on assistant messages", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-assistant-evidence",
+            kind: "message",
+            createdAt: MESSAGE_CREATED_AT,
+            message: {
+              id: MessageId.make("message-assistant-evidence"),
+              role: "assistant",
+              text: "",
+              attachments: [
+                {
+                  type: "image",
+                  id: "attachment-evidence",
+                  name: "updated-pricing-section-element.jpg",
+                  mimeType: "image/jpeg",
+                  sizeBytes: 5,
+                  previewUrl: "data:image/jpeg;base64,aW1hZ2U=",
+                },
+              ],
+              turnId: null,
+              createdAt: MESSAGE_CREATED_AT,
+              updatedAt: MESSAGE_CREATED_AT,
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Preview updated-pricing-section-element.jpg"');
+    expect(markup).toContain("updated pricing section element");
+    expect(markup).not.toContain("(empty response)");
+  });
+
   it("restores a saved reading position instead of opening at the live edge", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline

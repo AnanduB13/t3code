@@ -478,6 +478,9 @@ importers:
       pdfjs-dist:
         specifier: 6.2.108
         version: 6.2.108
+      playwright-core:
+        specifier: 1.60.0
+        version: 1.60.0
       yaml:
         specifier: ^2.9.0
         version: 2.9.0

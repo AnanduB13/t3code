@@ -1,6 +1,7 @@
 import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
+  type ChatImageAttachment,
   CommandId,
   MessageId,
   type OrchestrationEvent,
@@ -45,6 +46,10 @@ import {
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import {
+  clearPendingVisualEvidence,
+  takePendingVisualEvidence,
+} from "../../visualEvidence/VisualEvidence.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
@@ -1220,6 +1225,7 @@ const make = Effect.gen(function* () {
     finalDeltaCommandTag: string;
     fallbackText?: string;
     hasProjectedMessage?: boolean;
+    attachments?: ReadonlyArray<ChatImageAttachment>;
   }) =>
     Effect.gen(function* () {
       const bufferedText = yield* takeBufferedAssistantText(input.messageId);
@@ -1243,13 +1249,14 @@ const make = Effect.gen(function* () {
         });
       }
 
-      if (input.hasProjectedMessage || hasRenderableText) {
+      if (input.hasProjectedMessage || hasRenderableText || (input.attachments?.length ?? 0) > 0) {
         yield* orchestrationEngine.dispatch({
           type: "thread.message.assistant.complete",
           commandId: yield* providerCommandId(input.event, input.commandTag),
           threadId: input.threadId,
           messageId: input.messageId,
           ...(input.turnId ? { turnId: input.turnId } : {}),
+          ...(input.attachments?.length ? { attachments: input.attachments } : {}),
           createdAt: input.createdAt,
         });
       }
@@ -1877,11 +1884,29 @@ const make = Effect.gen(function* () {
         const messages = detailedThread?.messages ?? [];
         const proposedPlans = detailedThread?.proposedPlans ?? [];
         const turnId = toTurnId(event.turnId);
+        const evidenceAttachments =
+          event.type === "turn.completed" && turnId
+            ? yield* takePendingVisualEvidence(thread.id)
+            : [];
+        if (event.type === "turn.aborted" || !turnId) {
+          yield* clearPendingVisualEvidence(thread.id);
+        }
         if (turnId) {
-          const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
+          const assistantMessageIds = Array.from(
+            yield* getAssistantMessageIdsForTurn(thread.id, turnId),
+          );
+          if (assistantMessageIds.length === 0 && evidenceAttachments.length > 0) {
+            const lastProjectedAssistantMessage = messages.findLast(
+              (message) => message.role === "assistant" && message.turnId === turnId,
+            );
+            assistantMessageIds.push(
+              lastProjectedAssistantMessage?.id ??
+                MessageId.make(`assistant:${turnId}:visual-evidence`),
+            );
+          }
           yield* Effect.forEach(
             assistantMessageIds,
-            (assistantMessageId) =>
+            (assistantMessageId, index) =>
               finalizeAssistantMessage({
                 event,
                 threadId: thread.id,
@@ -1891,6 +1916,9 @@ const make = Effect.gen(function* () {
                 commandTag: "assistant-complete-finalize",
                 finalDeltaCommandTag: "assistant-delta-finalize-fallback",
                 hasProjectedMessage: findMessageById(messages, assistantMessageId) !== undefined,
+                ...(index === assistantMessageIds.length - 1 && evidenceAttachments.length > 0
+                  ? { attachments: evidenceAttachments }
+                  : {}),
               }),
             { concurrency: 1 },
           ).pipe(Effect.asVoid);
@@ -1913,6 +1941,7 @@ const make = Effect.gen(function* () {
       }
 
       if (event.type === "session.exited") {
+        yield* clearPendingVisualEvidence(thread.id);
         yield* clearTurnStateForSession(thread.id);
       }
 
@@ -2074,7 +2103,8 @@ const make = Effect.gen(function* () {
       ).pipe(Effect.asVoid);
     });
 
-  const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;
+  const processDomainEvent = (event: TurnStartRequestedDomainEvent) =>
+    clearPendingVisualEvidence(event.payload.threadId);
 
   const processInput = (input: RuntimeIngestionInput) =>
     input.source === "runtime" ? processRuntimeEvent(input.event) : processDomainEvent(input.event);

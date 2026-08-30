@@ -26,12 +26,16 @@ import {
 import {
   PreviewSnapshotToolkitHandlersLive,
   PreviewStandardToolkitHandlersLive,
+  PreviewEvidenceToolkitHandlersLive,
 } from "./toolkits/preview/handlers.ts";
 import {
+  PreviewCaptureEvidenceTool,
+  PreviewEvidenceToolkit,
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
   PreviewStandardToolkit,
 } from "./toolkits/preview/tools.ts";
+import * as VisualEvidence from "../visualEvidence/VisualEvidence.ts";
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
@@ -106,7 +110,10 @@ const McpAuthMiddlewareLive = HttpRouter.middleware<{
   provides: McpInvocationContext.McpInvocationContext;
 }>()(makeMcpAuthMiddleware).layer;
 
-const previewSnapshotFailure = <E>(cause: Cause.Cause<E>) => {
+const imageToolFailure = <E>(
+  cause: Cause.Cause<E>,
+  input: { readonly operation: "snapshot" | "capture-evidence"; readonly message: string },
+) => {
   if (Cause.hasInterrupts(cause) || cause.reasons.some(Cause.isDieReason)) {
     return Effect.failCause(cause).pipe(Effect.orDie);
   }
@@ -124,14 +131,14 @@ const previewSnapshotFailure = <E>(cause: Cause.Cause<E>) => {
     structuredContent: {
       error: {
         _tag: errorTag,
-        operation: "snapshot",
+        operation: input.operation,
         failureCount: failures.length,
       },
     },
-    content: [{ type: "text", text: "Preview snapshot failed." }],
+    content: [{ type: "text", text: input.message }],
   });
-  return Effect.logWarning("preview snapshot failed", {
-    operation: "snapshot",
+  return Effect.logWarning("preview image tool failed", {
+    operation: input.operation,
     errorTag,
     failureCount: failures.length,
   }).pipe(Effect.as(result));
@@ -172,7 +179,11 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
           Effect.provideService(PreviewAutomationBroker.PreviewAutomationBroker, broker),
           Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
           Effect.matchCauseEffect({
-            onFailure: previewSnapshotFailure,
+            onFailure: (cause) =>
+              imageToolFailure(cause, {
+                operation: "snapshot",
+                message: "Preview snapshot failed.",
+              }),
             onSuccess: ({ encodedResult }) => {
               const snapshot = encodedResult as {
                 readonly screenshot: {
@@ -219,6 +230,77 @@ const PreviewStandardToolkitRegistrationLive = McpServer.toolkit(PreviewStandard
 
 const PreviewSnapshotRegistrationLive = Layer.effectDiscard(registerPreviewSnapshot()).pipe(
   Layer.provide(PreviewSnapshotToolkitHandlersLive),
+);
+
+const registerPreviewEvidence = Effect.fn("McpHttpServer.registerPreviewEvidence")(function* () {
+  const server = yield* McpServer.McpServer;
+  const visualEvidence = yield* VisualEvidence.VisualEvidence;
+  const built = yield* PreviewEvidenceToolkit;
+  const tool = PreviewCaptureEvidenceTool;
+  yield* server.addTool({
+    tool: new McpSchema.Tool({
+      name: tool.name,
+      description: Tool.getDescription(tool),
+      inputSchema: Tool.getJsonSchema(tool),
+      annotations: {
+        ...Context.getOption(tool.annotations, Tool.Title).pipe(
+          Option.map((title) => ({ title })),
+          Option.getOrUndefined,
+        ),
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    }),
+    annotations: tool.annotations,
+    handle: (payload) =>
+      Effect.withFiber((fiber) => {
+        const invocation = Context.getUnsafe(
+          fiber.context,
+          McpInvocationContext.McpInvocationContext,
+        );
+        return built.handle("preview_capture_evidence", payload).pipe(
+          Stream.unwrap,
+          Stream.run(Sink.last()),
+          Effect.flatMap(Effect.fromOption),
+          Effect.provideService(VisualEvidence.VisualEvidence, visualEvidence),
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.matchCauseEffect({
+            onFailure: (cause) =>
+              imageToolFailure(cause, {
+                operation: "capture-evidence",
+                message: "Backend visual evidence capture failed.",
+              }),
+            onSuccess: ({ encodedResult }) => {
+              const result = encodedResult as {
+                readonly screenshot: { readonly mimeType: "image/jpeg"; readonly data: string };
+                readonly [key: string]: unknown;
+              };
+              const { screenshot, ...metadata } = result;
+              return Effect.succeed(
+                new McpSchema.CallToolResult({
+                  isError: false,
+                  structuredContent: metadata,
+                  content: [
+                    { type: "text", text: JSON.stringify(metadata) },
+                    {
+                      type: "image",
+                      data: new Uint8Array(Buffer.from(screenshot.data, "base64")),
+                      mimeType: screenshot.mimeType,
+                    },
+                  ],
+                }),
+              );
+            },
+          }),
+        );
+      }),
+  });
+});
+
+export const PreviewEvidenceRegistrationLive = Layer.effectDiscard(registerPreviewEvidence()).pipe(
+  Layer.provide(PreviewEvidenceToolkitHandlersLive),
 );
 
 export const PreviewToolkitRegistrationLive = Layer.mergeAll(
@@ -340,5 +422,6 @@ const McpTransportLive = McpServer.layerHttp({
 
 export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
+  PreviewEvidenceRegistrationLive.pipe(Layer.provide(VisualEvidence.layer)),
   ComputerUseToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

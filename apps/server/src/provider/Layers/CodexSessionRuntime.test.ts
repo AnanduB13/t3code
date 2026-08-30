@@ -383,6 +383,9 @@ describe("T3 browser developer instructions", () => {
       NodeAssert.match(instructions, /immediately continue in the same turn/);
       NodeAssert.match(instructions, /Do not ask the user to open Desktop/);
       NodeAssert.match(instructions, /Do not repeatedly retry a host-level failure/);
+      NodeAssert.match(instructions, /preview_capture_evidence/);
+      NodeAssert.match(instructions, /exactly one `full-page` image/);
+      NodeAssert.match(instructions, /one `element` image/);
     }
   });
 });

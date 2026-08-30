@@ -244,6 +244,7 @@ import {
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
+  readThreadDetail,
   useProject,
   useProjects,
   useThread,
@@ -291,11 +292,14 @@ import {
   buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
   collectUserMessageBlobPreviewUrls,
+  composerContentMatchesSnapshot,
+  type ComposerContentSnapshot,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   dismissBranchMismatchForSession,
   hasEnvironmentReconnectWarningGraceElapsed,
   scheduleEnvironmentReconnectWarning,
+  snapshotComposerContent,
   filterPendingOptimisticMessages,
   formatDraftHeroHeading,
   hasServerAcknowledgedLocalDispatch,
@@ -1431,6 +1435,12 @@ function ChatViewContent(props: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
+  const restoredComposerSendRef = useRef<{
+    readonly threadRef: ScopedThreadRef;
+    readonly draftTarget: ScopedThreadRef | DraftId;
+    readonly messageId: MessageId;
+    readonly content: ComposerContentSnapshot;
+  } | null>(null);
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
 
   useLayoutEffect(() => {
@@ -1549,6 +1559,49 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
+  const reconcileAcknowledgedRestoredComposer = useCallback(() => {
+    const restored = restoredComposerSendRef.current;
+    if (restored === null) {
+      return;
+    }
+    const thread = readThreadDetail(restored.threadRef);
+    const acknowledged =
+      thread?.messages.some((message) => message.id === restored.messageId) === true ||
+      thread?.queuedMessages.some((message) => message.messageId === restored.messageId) === true;
+    if (!acknowledged) {
+      return;
+    }
+
+    // The server accepted the send despite the failed response. Remove only
+    // the exact retry draft we restored; anything the user edited meanwhile
+    // belongs to their next message and must survive reconciliation.
+    const draft = useComposerDraftStore.getState().getComposerDraft(restored.draftTarget);
+    const unchanged = composerContentMatchesSnapshot(draft, restored.content);
+    restoredComposerSendRef.current = null;
+    if (!unchanged) {
+      return;
+    }
+    clearComposerDraftContent(restored.draftTarget);
+    const restoredTargetIsCurrent =
+      typeof restored.draftTarget === "string"
+        ? restored.draftTarget === composerDraftTarget
+        : typeof composerDraftTarget !== "string" &&
+          scopedThreadKey(restored.draftTarget) === scopedThreadKey(composerDraftTarget);
+    if (restoredTargetIsCurrent) {
+      promptRef.current = "";
+      composerImagesRef.current = [];
+      composerTerminalContextsRef.current = [];
+      composerElementContextsRef.current = [];
+      composerRef.current?.resetCursorState();
+    }
+  }, [clearComposerDraftContent, composerDraftTarget, composerRef]);
+  useEffect(() => {
+    reconcileAcknowledgedRestoredComposer();
+  }, [
+    activeServerThread?.messages,
+    activeServerThread?.queuedMessages,
+    reconcileAcknowledgedRestoredComposer,
+  ]);
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
@@ -5153,6 +5206,7 @@ function ChatViewContent(props: ChatViewProps) {
 
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
+    restoredComposerSendRef.current = null;
     sendInFlightRef.current = true;
     if (isDraftHeroState && activeThreadKey) {
       let resolveDockStarted: (() => void) | undefined;
@@ -5473,6 +5527,18 @@ function ChatViewContent(props: ChatViewProps) {
           prompt: promptForSend,
           detectTrigger: true,
         });
+        const restoredDraft = useComposerDraftStore
+          .getState()
+          .getComposerDraft(composerDraftTarget);
+        if (restoredDraft) {
+          restoredComposerSendRef.current = {
+            threadRef: scopeThreadRef(activeThread.environmentId, threadIdForSend),
+            draftTarget: composerDraftTarget,
+            messageId: messageIdForSend,
+            content: snapshotComposerContent(restoredDraft),
+          };
+          reconcileAcknowledgedRestoredComposer();
+        }
       }
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);

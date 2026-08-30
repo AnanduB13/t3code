@@ -1215,18 +1215,66 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  const assistantImages = (row.message.attachments ?? []).filter(
+    (attachment) => attachment.type === "image",
+  );
+  const messageText =
+    row.message.text ||
+    (row.message.streaming || assistantImages.length > 0 ? "" : "(empty response)");
 
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <ChatMarkdown
-          text={messageText}
-          cwd={ctx.markdownCwd}
-          threadRef={ctx.threadRef ?? undefined}
-          isStreaming={Boolean(row.message.streaming)}
-          skills={ctx.skills}
-        />
+        {messageText ? (
+          <ChatMarkdown
+            text={messageText}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            isStreaming={Boolean(row.message.streaming)}
+            skills={ctx.skills}
+          />
+        ) : null}
+        {assistantImages.length > 0 ? (
+          <div
+            className={cn(
+              "grid gap-2",
+              messageText && "mt-3",
+              assistantImages.length > 1 && "sm:grid-cols-2",
+            )}
+          >
+            {assistantImages.map((image) => (
+              <figure
+                key={image.id}
+                className="overflow-hidden rounded-lg border border-border/80 bg-muted/20"
+              >
+                {image.previewUrl ? (
+                  <button
+                    type="button"
+                    className="block w-full cursor-zoom-in bg-background/50"
+                    aria-label={`Preview ${image.name}`}
+                    onClick={() => {
+                      const preview = buildExpandedImagePreview(assistantImages, image.id);
+                      if (preview) ctx.onImageExpand(preview);
+                    }}
+                  >
+                    <img
+                      src={image.previewUrl}
+                      alt={image.name}
+                      className="block max-h-[320px] w-full object-contain"
+                    />
+                  </button>
+                ) : (
+                  <div className="flex min-h-[120px] items-center justify-center px-3 text-center text-secondary-label text-xs">
+                    {image.name}
+                  </div>
+                )}
+                <figcaption className="border-t border-border/70 px-2.5 py-1.5 text-muted-foreground text-xs capitalize">
+                  {image.name.replace(/\.[^.]+$/, "").replaceAll("-", " ")}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : null}
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}

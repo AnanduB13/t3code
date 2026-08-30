@@ -76,6 +76,61 @@ export function filterPendingOptimisticMessages(input: {
   return input.optimisticMessages.filter((message) => !acknowledgedMessageIds.has(message.id));
 }
 
+export interface ComposerContentSnapshot {
+  readonly prompt: string;
+  readonly imageIds: ReadonlyArray<string>;
+  readonly pastedTextIds: ReadonlyArray<string>;
+  readonly terminalContextIds: ReadonlyArray<string>;
+  readonly elementContextIds: ReadonlyArray<string>;
+  readonly previewAnnotationIds: ReadonlyArray<string>;
+  readonly reviewCommentIds: ReadonlyArray<string>;
+}
+
+interface ComposerContentLike {
+  readonly prompt: string;
+  readonly images: ReadonlyArray<{ readonly id: string }>;
+  readonly pastedTexts: ReadonlyArray<{ readonly id: string }>;
+  readonly terminalContexts: ReadonlyArray<{ readonly id: string }>;
+  readonly elementContexts: ReadonlyArray<{ readonly id: string }>;
+  readonly previewAnnotations: ReadonlyArray<{ readonly id: string }>;
+  readonly reviewComments: ReadonlyArray<{ readonly id: string }>;
+}
+
+export function snapshotComposerContent(content: ComposerContentLike): ComposerContentSnapshot {
+  return {
+    prompt: content.prompt,
+    imageIds: content.images.map((entry) => entry.id),
+    pastedTextIds: content.pastedTexts.map((entry) => entry.id),
+    terminalContextIds: content.terminalContexts.map((entry) => entry.id),
+    elementContextIds: content.elementContexts.map((entry) => entry.id),
+    previewAnnotationIds: content.previewAnnotations.map((entry) => entry.id),
+    reviewCommentIds: content.reviewComments.map((entry) => entry.id),
+  };
+}
+
+export function composerContentMatchesSnapshot(
+  content: ComposerContentLike | null | undefined,
+  snapshot: ComposerContentSnapshot,
+): boolean {
+  if (!content || content.prompt !== snapshot.prompt) {
+    return false;
+  }
+  const sameIds = (
+    entries: ReadonlyArray<{ readonly id: string }>,
+    expectedIds: ReadonlyArray<string>,
+  ) =>
+    entries.length === expectedIds.length &&
+    entries.every((entry, index) => entry.id === expectedIds[index]);
+  return (
+    sameIds(content.images, snapshot.imageIds) &&
+    sameIds(content.pastedTexts, snapshot.pastedTextIds) &&
+    sameIds(content.terminalContexts, snapshot.terminalContextIds) &&
+    sameIds(content.elementContexts, snapshot.elementContextIds) &&
+    sameIds(content.previewAnnotations, snapshot.previewAnnotationIds) &&
+    sameIds(content.reviewComments, snapshot.reviewCommentIds)
+  );
+}
+
 export function mergeDisplayedQueuedMessages(input: {
   readonly optimisticQueuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
   readonly projectedMessages: Thread["messages"];

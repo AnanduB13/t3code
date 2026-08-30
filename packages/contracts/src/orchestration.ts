@@ -1068,6 +1068,7 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   turnId: Schema.optional(TurnId),
+  attachments: Schema.optional(Schema.Array(ChatImageAttachment)),
   createdAt: IsoDateTime,
 });
 

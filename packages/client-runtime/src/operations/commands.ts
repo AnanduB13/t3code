@@ -6,12 +6,16 @@ import {
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 
-import type { EnvironmentSupervisor } from "../connection/supervisor.ts";
+import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import {
   type EnvironmentRpcFailure,
   type EnvironmentRpcSuccess,
   type EnvironmentRpcUnavailableError,
+  isRpcClientError,
   request,
 } from "../rpc/client.ts";
 
@@ -88,6 +92,45 @@ function timestampedCommandMetadata(input: {
 
 function dispatch(command: ClientOrchestrationCommand) {
   return request(ORCHESTRATION_WS_METHODS.dispatchCommand, command);
+}
+
+function isReconnectableDispatchFailure(error: unknown): boolean {
+  return (
+    isRpcClientError(error) ||
+    (typeof error === "object" &&
+      error !== null &&
+      "_tag" in error &&
+      error._tag === "EnvironmentRpcUnavailableError")
+  );
+}
+
+/**
+ * Turn starts are safe to replay with the same command id. If their response
+ * is lost with the socket, wait for a replacement session and ask again so an
+ * already-accepted prompt resolves from its command receipt instead of being
+ * reported to the UI as rejected.
+ */
+function dispatchTurnStartDurably(command: CommandOf<"thread.turn.start">): CommandEffect {
+  return Effect.gen(function* () {
+    const supervisor = yield* EnvironmentSupervisor;
+    const attemptedSession = yield* SubscriptionRef.get(supervisor.session);
+    if (Option.isNone(attemptedSession)) {
+      return yield* dispatch(command);
+    }
+
+    return yield* dispatch(command).pipe(
+      Effect.catchIf(isReconnectableDispatchFailure, () =>
+        SubscriptionRef.changes(supervisor.session).pipe(
+          Stream.filter(Option.isSome),
+          Stream.map((session) => session.value),
+          Stream.filter((session) => session !== attemptedSession.value),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+          Effect.andThen(dispatchTurnStartDurably(command)),
+        ),
+      ),
+    );
+  });
 }
 
 export const createProject: (input: CreateProjectInput) => CommandEffect = Effect.fn(
@@ -271,7 +314,7 @@ export const startThreadTurn: (input: StartThreadTurnInput) => CommandEffect = E
   "EnvironmentCommands.startThreadTurn",
 )(function* (input) {
   const metadata = yield* timestampedCommandMetadata(input);
-  return yield* dispatch({
+  return yield* dispatchTurnStartDurably({
     ...input,
     type: "thread.turn.start",
     commandId: metadata.commandId,

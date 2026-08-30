@@ -17,12 +17,16 @@ import {
   PreviewAutomationTabTargetInput,
   PreviewAutomationTypeInput,
   PreviewAutomationWaitForInput,
+  VisualEvidenceCaptureError,
+  VisualEvidenceCaptureInput,
+  VisualEvidenceCaptureResult,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
+import { VisualEvidence } from "../../../visualEvidence/VisualEvidence.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
@@ -111,6 +115,20 @@ export const PreviewSnapshotTool = readonlyBrowserTool(
     dependencies,
   }).annotate(Tool.Title, "Inspect browser page"),
 );
+
+export const PreviewCaptureEvidenceTool = Tool.make("preview_capture_evidence", {
+  description:
+    "Capture final visual evidence with a backend-owned headless browser and attach it to this turn's final assistant message. It keeps working when the user's computer is offline. After user-visible web work, capture the whole page with mode full-page, then the changed region with mode element and a resilient Playwright locator.",
+  parameters: VisualEvidenceCaptureInput,
+  success: VisualEvidenceCaptureResult,
+  failure: VisualEvidenceCaptureError,
+  dependencies: [McpInvocationContext.McpInvocationContext, VisualEvidence],
+})
+  .annotate(Tool.Title, "Capture visual evidence")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, true);
 
 export const PreviewClickTool = browserTool(
   Tool.make("preview_click", {
@@ -234,3 +252,5 @@ export const PreviewStandardToolkit = Toolkit.make(
 );
 
 export const PreviewSnapshotToolkit = Toolkit.make(PreviewSnapshotTool);
+
+export const PreviewEvidenceToolkit = Toolkit.make(PreviewCaptureEvidenceTool);

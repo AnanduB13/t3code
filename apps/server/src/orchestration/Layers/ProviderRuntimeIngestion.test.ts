@@ -54,6 +54,7 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { recordPendingVisualEvidence } from "../../visualEvidence/VisualEvidence.ts";
 
 function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
   return ServerSettingsService.layerTest(overrides);
@@ -2691,6 +2692,76 @@ describe("ProviderRuntimeIngestion", () => {
       );
     });
     expect(completionEvents).toHaveLength(1);
+  });
+
+  it("attaches backend visual evidence to the final assistant message", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const evidenceDir = makeTempDir("t3-provider-evidence-");
+    const evidencePath = NodePath.join(evidenceDir, "landing-page.jpg");
+    NodeFS.writeFileSync(evidencePath, "image");
+    const attachment = {
+      type: "image" as const,
+      id: "thread-1-00000000-0000-4000-8000-000000000001",
+      name: "landing-page-full-page.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 5,
+    };
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-for-evidence"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-evidence"),
+    });
+    await waitForThread(
+      harness.readModel,
+      (thread) => thread.session?.activeTurnId === "turn-evidence",
+    );
+    await Effect.runPromise(
+      recordPendingVisualEvidence(asThreadId("thread-1"), {
+        attachment,
+        path: evidencePath,
+      }),
+    );
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-for-evidence"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-evidence"),
+      itemId: asItemId("item-evidence"),
+      payload: { streamKind: "assistant_text", delta: "Updated the landing page." },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-for-evidence"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-evidence"),
+      itemId: asItemId("item-evidence"),
+      payload: { itemType: "assistant_message", status: "completed" },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-for-evidence"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-evidence"),
+      payload: { state: "completed" },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some((message) => message.attachments?.some(({ id }) => id === attachment.id)),
+    );
+    const message = thread.messages.find((entry) => entry.id === "assistant:item-evidence");
+    expect(message?.attachments).toEqual([attachment]);
+    expect(NodeFS.existsSync(evidencePath)).toBe(true);
   });
 
   it("maps canonical request events into approval activities with requestKind", async () => {

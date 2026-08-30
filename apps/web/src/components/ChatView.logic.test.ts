@@ -16,6 +16,7 @@ import {
   buildExpiredTerminalContextToastCopy,
   buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
+  composerContentMatchesSnapshot,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   dismissBranchMismatchForSession,
@@ -33,11 +34,45 @@ import {
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   scheduleEnvironmentReconnectWarning,
+  snapshotComposerContent,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
   shouldOptimisticallyQueueMessage,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
+
+describe("restored composer reconciliation", () => {
+  const restoredContent = {
+    prompt: "these images are 3d, fix it please",
+    images: [{ id: "image-1" }, { id: "image-2" }],
+    pastedTexts: [],
+    terminalContexts: [],
+    elementContexts: [],
+    previewAnnotations: [],
+    reviewComments: [],
+  };
+
+  it("recognizes an unchanged retry draft after its message is acknowledged", () => {
+    const snapshot = snapshotComposerContent(restoredContent);
+    expect(composerContentMatchesSnapshot(restoredContent, snapshot)).toBe(true);
+  });
+
+  it("preserves newer edits and attachments", () => {
+    const snapshot = snapshotComposerContent(restoredContent);
+    expect(
+      composerContentMatchesSnapshot(
+        { ...restoredContent, prompt: `${restoredContent.prompt} and keep the layout` },
+        snapshot,
+      ),
+    ).toBe(false);
+    expect(
+      composerContentMatchesSnapshot(
+        { ...restoredContent, images: [...restoredContent.images, { id: "image-3" }] },
+        snapshot,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("formatDraftHeroHeading", () => {
   it("names the selected project", () => {

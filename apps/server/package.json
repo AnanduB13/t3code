@@ -33,6 +33,7 @@
     "effect": "catalog:",
     "node-pty": "^1.1.0",
     "pdfjs-dist": "6.2.108",
+    "playwright-core": "1.60.0",
     "yaml": "catalog:"
   },
   "devDependencies": {

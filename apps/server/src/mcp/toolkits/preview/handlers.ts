@@ -10,10 +10,13 @@ import type {
   PreviewAutomationStatus,
   PreviewTabId,
 } from "@t3tools/contracts";
+import { VisualEvidenceCaptureError } from "@t3tools/contracts";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "./tools.ts";
+import { PreviewEvidenceToolkit } from "./tools.ts";
+import { VisualEvidence } from "../../../visualEvidence/VisualEvidence.ts";
 
 export function normalizePreviewOpenInput(
   input: PreviewAutomationOpenInput,
@@ -93,6 +96,23 @@ export const PreviewStandardToolkitHandlersLive = PreviewStandardToolkit.toLayer
 
 export const PreviewSnapshotToolkitHandlersLive = PreviewSnapshotToolkit.toLayer({
   preview_snapshot,
+});
+
+export const PreviewEvidenceToolkitHandlersLive = PreviewEvidenceToolkit.toLayer({
+  preview_capture_evidence: (input) =>
+    Effect.gen(function* () {
+      const invocation = yield* McpInvocationContext.requirePreviewCapability().pipe(
+        Effect.mapError(
+          () =>
+            new VisualEvidenceCaptureError({
+              reason: "browser-unavailable",
+              message: "This provider session does not have browser preview access.",
+            }),
+        ),
+      );
+      const visualEvidence = yield* VisualEvidence;
+      return yield* visualEvidence.capture(invocation.threadId, input);
+    }),
 });
 
 export const PreviewToolkitHandlersLive = PreviewToolkit.toLayer(handlers);

@@ -11,6 +11,7 @@ import { HttpBody, HttpClient, HttpRouter, HttpServerResponse } from "effect/uns
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import * as VisualEvidence from "../visualEvidence/VisualEvidence.ts";
 
 const environmentId = EnvironmentId.make("environment-mcp-test");
 const threadId = ThreadId.make("thread-mcp-test");
@@ -39,6 +40,39 @@ const TestLayer = McpHttpServer.PreviewToolkitRegistrationLive.pipe(
   Layer.provideMerge(PreviewAutomationBroker.layer.pipe(Layer.provide(NodeServices.layer))),
 );
 
+const evidenceAttachment = {
+  type: "image" as const,
+  id: "thread-mcp-test-00000000-0000-4000-8000-000000000001",
+  name: "landing-page-full-page.jpg",
+  mimeType: "image/jpeg",
+  sizeBytes: 5,
+};
+const EvidenceTestLayer = McpHttpServer.PreviewEvidenceRegistrationLive.pipe(
+  Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provide(
+    Layer.succeed(
+      VisualEvidence.VisualEvidence,
+      VisualEvidence.VisualEvidence.of({
+        capture: (_threadId, input) =>
+          Effect.succeed({
+            attachment: evidenceAttachment,
+            mode: input.mode,
+            label: input.label,
+            url: "http://127.0.0.1:5173/",
+            width: 1_440,
+            height: 2_000,
+            screenshot: {
+              mimeType: "image/jpeg",
+              data: Buffer.from("image").toString("base64"),
+            },
+          }),
+        take: () => Effect.succeed([]),
+        clear: () => Effect.void,
+      }),
+    ),
+  ),
+);
+
 it("normalizes empty successful notification responses to accepted", () => {
   const notificationResponse = McpHttpServer.normalizeMcpHttpResponse(
     HttpServerResponse.text("", { status: 200, contentType: "application/json" }),
@@ -50,6 +84,37 @@ it("normalizes empty successful notification responses to accepted", () => {
   );
   expect(resultResponse.status).toBe(200);
 });
+
+it.effect("returns backend evidence as both an attachment result and an MCP image", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const tool = server.tools.find(({ tool }) => tool.name === "preview_capture_evidence");
+    expect(tool?.tool.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
+
+    const result = yield* server
+      .callTool({
+        name: "preview_capture_evidence",
+        arguments: {
+          target: { kind: "environment-port", port: 5173 },
+          mode: "full-page",
+          label: "Landing page",
+        },
+      })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({ attachment: evidenceAttachment });
+    expect(result.content.some((content) => content.type === "image")).toBe(true);
+  }).pipe(Effect.provide(EvidenceTestLayer)),
+);
 
 it.effect("returns bounded structural preview snapshot failures", () =>
   Effect.scoped(

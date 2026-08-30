@@ -1,6 +1,7 @@
 import {
   CommandId,
   EnvironmentId,
+  MessageId,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ThreadId,
@@ -8,10 +9,13 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { RpcClientError } from "effect/unstable/rpc";
 
 import {
   AVAILABLE_CONNECTION_STATE,
@@ -25,6 +29,7 @@ import {
   archiveThread,
   createProject,
   settleThread,
+  startThreadTurn,
   stopThreadSession,
   unsettleThread,
 } from "./commands.ts";
@@ -118,6 +123,76 @@ describe("environment commands", () => {
           createdAt: "2026-06-06T00:01:00.000Z",
         },
       ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("replays an ambiguously completed turn start after reconnecting", () =>
+    Effect.gen(function* () {
+      const dispatched: ClientOrchestrationCommand[] = [];
+      const firstAttempted = yield* Deferred.make<void>();
+      const transportError = new RpcClientError.RpcClientError({
+        reason: new RpcClientError.RpcClientDefect({
+          message: "socket closed before the response arrived",
+          cause: new Error("socket closed before the response arrived"),
+        }),
+      });
+      const firstClient = {
+        [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command: ClientOrchestrationCommand) =>
+          Effect.sync(() => dispatched.push(command)).pipe(
+            Effect.andThen(Deferred.succeed(firstAttempted, undefined)),
+            Effect.andThen(Effect.fail(transportError)),
+          ),
+      } as unknown as WsRpcProtocolClient;
+      const secondClient = {
+        [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command: ClientOrchestrationCommand) =>
+          Effect.sync(() => {
+            dispatched.push(command);
+            return { sequence: 42 };
+          }),
+      } as unknown as WsRpcProtocolClient;
+      const session = (client: WsRpcProtocolClient): RpcSession.RpcSession => ({
+        client,
+        initialConfig: Effect.never,
+        ready: Effect.void,
+        probe: Effect.void,
+        closed: Effect.never,
+      });
+      const activeSession = yield* SubscriptionRef.make(Option.some(session(firstClient)));
+      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+        target: TARGET,
+        state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+        session: activeSession,
+        prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
+        connect: Effect.void,
+        disconnect: Effect.void,
+        retryNow: Effect.void,
+      } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+
+      const command = startThreadTurn({
+        commandId: CommandId.make("turn-start-reconnect"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-1"),
+          role: "user",
+          text: "keep this prompt visible",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        createdAt: "2026-06-06T00:02:00.000Z",
+      }).pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      const fiber = yield* command;
+      yield* Deferred.await(firstAttempted);
+      yield* SubscriptionRef.set(activeSession, Option.none());
+      yield* SubscriptionRef.set(activeSession, Option.some(session(secondClient)));
+
+      expect(yield* Fiber.join(fiber)).toEqual({ sequence: 42 });
+      expect(dispatched).toHaveLength(2);
+      expect(dispatched[1]).toEqual(dispatched[0]);
+      expect(dispatched[0]?.commandId).toBe("turn-start-reconnect");
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
   );
 
