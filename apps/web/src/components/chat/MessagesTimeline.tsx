@@ -20,6 +20,7 @@ import {
   emptyAgentPanelModel,
   formatSubagentTokenCount,
 } from "@t3tools/client-runtime/state/subagentRuntime";
+import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
 const NOOP_OPEN_AGENTS = () => {};
@@ -76,6 +77,7 @@ import {
   FileIcon,
   GlobeIcon,
   HammerIcon,
+  ImageIcon,
   MessageCircleIcon,
   MousePointerClickIcon,
   PaintbrushIcon,
@@ -1156,37 +1158,54 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   return (
     <div className="group flex flex-col items-end gap-1">
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        {(regularImages.length > 0 || userVideos.length > 0) && (
+        {regularImages.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {regularImages.map((image) => {
+              const content = (
+                <>
+                  <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+                    {image.previewUrl ? (
+                      <img src={image.previewUrl} alt="" className="size-full object-cover" />
+                    ) : (
+                      <ImageIcon className="size-4" aria-hidden />
+                    )}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{image.name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {formatAttachmentSize(image.sizeBytes)}
+                    </span>
+                  </span>
+                </>
+              );
+
+              return image.previewUrl ? (
+                <button
+                  key={image.id}
+                  type="button"
+                  className="flex h-16 min-w-40 max-w-56 cursor-zoom-in items-center gap-2.5 rounded-lg border border-border/80 bg-background px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+                  aria-label={`Preview ${image.name}`}
+                  onClick={() => {
+                    const preview = buildExpandedImagePreview(regularImages, image.id);
+                    if (!preview) return;
+                    ctx.onImageExpand(preview);
+                  }}
+                >
+                  {content}
+                </button>
+              ) : (
+                <div
+                  key={image.id}
+                  className="flex h-16 min-w-40 max-w-56 items-center gap-2.5 rounded-lg border border-border/80 bg-background px-3"
+                >
+                  {content}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {userVideos.length > 0 && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-            {regularImages.map((image) => (
-              <div
-                key={image.id}
-                className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
-              >
-                {image.previewUrl ? (
-                  <button
-                    type="button"
-                    className="h-full w-full cursor-zoom-in"
-                    aria-label={`Preview ${image.name}`}
-                    onClick={() => {
-                      const preview = buildExpandedImagePreview(regularImages, image.id);
-                      if (!preview) return;
-                      ctx.onImageExpand(preview);
-                    }}
-                  >
-                    <img
-                      src={image.previewUrl}
-                      alt={image.name}
-                      className="block h-auto max-h-[220px] w-full object-cover"
-                    />
-                  </button>
-                ) : (
-                  <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-secondary-label text-[11px]">
-                    {image.name}
-                  </div>
-                )}
-              </div>
-            ))}
             {userVideos.map((file) => {
               const isOpening = ctx.openingVideoAttachmentId === file.id;
               return (
