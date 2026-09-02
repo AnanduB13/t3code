@@ -249,7 +249,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   computerUse: {
     describe: () => ipcRenderer.invoke(IpcChannels.COMPUTER_USE_DESCRIBE_CHANNEL, {}),
-    execute: (operation, input) =>
-      ipcRenderer.invoke(IpcChannels.COMPUTER_USE_EXECUTE_CHANNEL, { operation, input }),
+    execute: (requestId, operation, input) =>
+      ipcRenderer.invoke(IpcChannels.COMPUTER_USE_EXECUTE_CHANNEL, {
+        requestId,
+        operation,
+        input,
+      }),
+    cancel: (requestId) =>
+      ipcRenderer.invoke(IpcChannels.COMPUTER_USE_CANCEL_CHANNEL, { requestId }),
+    cancelAll: () => ipcRenderer.invoke(IpcChannels.COMPUTER_USE_CANCEL_ALL_CHANNEL, {}),
   },
 } satisfies DesktopBridge);

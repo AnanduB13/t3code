@@ -77,7 +77,11 @@ import {
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
 import { primaryServerObservabilityAtom, primaryServerProvidersAtom } from "../../state/server";
-import { useComputerUseHostEnabled } from "../../state/computerUseHost";
+import {
+  useComputerUseAllowedEnvironmentIds,
+  useComputerUseHostEnabled,
+} from "../../state/computerUseHost";
+import { useEnvironments } from "../../state/environments";
 import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -1696,6 +1700,13 @@ export function GeneralSettingsPanel() {
   const updateSettings = useUpdatePrimarySettings();
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
   const [computerUseHostEnabled, setComputerUseHostEnabled] = useComputerUseHostEnabled();
+  const [computerUseAllowedEnvironmentIds, setComputerUseAllowedEnvironmentIds] =
+    useComputerUseAllowedEnvironmentIds();
+  const { environments } = useEnvironments();
+  const computerUseAllowedEnvironmentIdSet = useMemo(
+    () => new Set(computerUseAllowedEnvironmentIds ?? []),
+    [computerUseAllowedEnvironmentIds],
+  );
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
   );
@@ -1751,16 +1762,50 @@ export function GeneralSettingsPanel() {
         {isElectron ? (
           <SettingsRow
             title="Computer Use on this device"
-            description="Allow agents in any environment connected to this Desktop app to capture and control local applications. This uses the real pointer and keyboard focus, and is off by default."
+            description="Allow agents from selected environments to capture and control local applications. This uses the real pointer and keyboard focus, and is off by default."
             control={
               <Switch
                 checked={computerUseHostEnabled}
-                onCheckedChange={(checked) => setComputerUseHostEnabled(Boolean(checked))}
+                onCheckedChange={(checked) => {
+                  const enabled = Boolean(checked);
+                  if (enabled && (computerUseAllowedEnvironmentIds?.length ?? 0) === 0) {
+                    setComputerUseAllowedEnvironmentIds(
+                      environments.map(({ environmentId }) => environmentId),
+                    );
+                  }
+                  setComputerUseHostEnabled(enabled);
+                }}
                 aria-label="Allow Computer Use on this device"
               />
             }
           />
         ) : null}
+        {isElectron && computerUseHostEnabled
+          ? environments.map((environment) => {
+              const allowed = computerUseAllowedEnvironmentIdSet.has(environment.environmentId);
+              return (
+                <SettingsRow
+                  key={environment.environmentId}
+                  title={environment.label}
+                  description="Allow agents connected through this environment to use this computer."
+                  control={
+                    <Switch
+                      checked={allowed}
+                      onCheckedChange={(checked) =>
+                        setComputerUseAllowedEnvironmentIds((current) => {
+                          const next = new Set(current ?? []);
+                          if (checked) next.add(environment.environmentId);
+                          else next.delete(environment.environmentId);
+                          return [...next];
+                        })
+                      }
+                      aria-label={`Allow Computer Use from ${environment.label}`}
+                    />
+                  }
+                />
+              );
+            })
+          : null}
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."

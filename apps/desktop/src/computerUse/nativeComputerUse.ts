@@ -19,6 +19,7 @@ import * as NodeTimersPromises from "node:timers/promises";
 import {
   boundsMatch,
   fitScreenshotSize,
+  selectWindowCaptureSource,
   selectUniqueWindowByTitle,
   screenshotPointToScreen,
   type ComputerUseBounds,
@@ -29,6 +30,7 @@ import {
   flattenAccessibilityTree,
   summarizeNavigation,
 } from "./computerUseAccessibility.ts";
+import { createSerializedAbortableExecutor } from "./computerUseExecution.ts";
 
 interface ComputerUseRuntime {
   readonly platform: NodeJS.Platform;
@@ -101,6 +103,7 @@ export const describeComputerUseDevice = (runtime = readRuntime()): ComputerUseD
   architecture: runtime.architecture,
   kind: sessionIsolation(runtime) === "isolated" ? "remote-desktop" : "prompting-device",
   sessionIsolation: sessionIsolation(runtime),
+  platformSupport: runtime.platform === "darwin" ? "verified" : "experimental",
   ...availability(runtime),
   supportedOperations: [
     "listApps",
@@ -117,6 +120,31 @@ export const describeComputerUseDevice = (runtime = readRuntime()): ComputerUseD
 const loadNut = () => import("@nut-tree-fork/nut-js");
 type NutModule = Awaited<ReturnType<typeof loadNut>>;
 type NativeWindow = Awaited<ReturnType<NutModule["getActiveWindow"]>>;
+
+export const probeComputerUseDevice = async (): Promise<ComputerUseDevice> => {
+  const device = describeComputerUseDevice();
+  if (!device.available) return device;
+  const timeout = new AbortController();
+  try {
+    const { getWindows } = await loadNut();
+    await Promise.race([
+      getWindows(),
+      NodeTimersPromises.setTimeout(5_000, undefined, { signal: timeout.signal }).then(() => {
+        throw new Error("Native window inspection did not respond within 5 seconds.");
+      }),
+    ]);
+    return device;
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    return {
+      ...device,
+      available: false,
+      unavailableReason: `Native window inspection is unavailable: ${detail}`,
+    };
+  } finally {
+    timeout.abort();
+  }
+};
 
 interface WindowRecord {
   readonly windowId: string;
@@ -218,7 +246,7 @@ const listApps = async () => {
   };
 };
 
-const captureWindow = async (bounds: ComputerUseBounds) => {
+const captureDisplayCrop = async (bounds: ComputerUseBounds) => {
   const display = electronScreen.getDisplayMatching(bounds);
   const displayBounds = display.bounds;
   const fullyContained =
@@ -281,12 +309,70 @@ const captureWindow = async (bounds: ComputerUseBounds) => {
   };
 };
 
-const captureSettledWindow = async (target: NativeWindow) => {
-  const firstBounds = await windowBounds(target);
-  const first = await captureWindow(firstBounds);
-  await NodeTimersPromises.setTimeout(120);
-  const latestBounds = await windowBounds(target);
-  const latest = await captureWindow(latestBounds);
+const captureNativeWindow = async (target: WindowRecord) => {
+  const display = electronScreen.getDisplayMatching(target.bounds);
+  const requested = fitScreenshotSize(
+    Math.max(1, Math.round(target.bounds.width * display.scaleFactor)),
+    Math.max(1, Math.round(target.bounds.height * display.scaleFactor)),
+  );
+  const sources = await desktopCapturer.getSources({
+    types: ["window"],
+    thumbnailSize: requested,
+    fetchWindowIcons: false,
+  });
+  const source = selectWindowCaptureSource(sources, target);
+  if (!source || source.thumbnail.isEmpty()) return undefined;
+  const sourceSize = source.thumbnail.getSize();
+  const boundsRatio = target.bounds.width / target.bounds.height;
+  const sourceRatio = sourceSize.width / sourceSize.height;
+  if (Math.abs(boundsRatio - sourceRatio) / boundsRatio > 0.04) return undefined;
+  const fittedSize = fitScreenshotSize(sourceSize.width, sourceSize.height);
+  const image =
+    fittedSize.width === sourceSize.width && fittedSize.height === sourceSize.height
+      ? source.thumbnail
+      : source.thumbnail.resize({ ...fittedSize, quality: "good" });
+  const size = image.getSize();
+  return {
+    screenshot: {
+      mimeType: "image/png" as const,
+      data: image.toPNG().toString("base64"),
+      width: size.width,
+      height: size.height,
+    },
+    coordinateSpace: {
+      ...target.bounds,
+      screenshotWidth: size.width,
+      screenshotHeight: size.height,
+    } satisfies ComputerUseCoordinateSpace,
+  };
+};
+
+const captureTargetWindow = async (target: WindowRecord) =>
+  (await captureNativeWindow(target)) ?? captureDisplayCrop(target.bounds);
+
+const abortError = () => new Error("Computer Use action was cancelled.");
+
+const requireNotAborted = (signal: AbortSignal) => {
+  if (signal.aborted) throw abortError();
+};
+
+const wait = async (durationMs: number, signal: AbortSignal) => {
+  try {
+    await NodeTimersPromises.setTimeout(durationMs, undefined, { signal });
+  } catch (cause) {
+    if (signal.aborted) throw abortError();
+    throw cause;
+  }
+};
+
+const captureSettledWindow = async (target: WindowRecord, signal: AbortSignal) => {
+  requireNotAborted(signal);
+  const firstBounds = await windowBounds(target.window);
+  const first = await captureTargetWindow({ ...target, bounds: firstBounds });
+  await wait(120, signal);
+  const latestBounds = await windowBounds(target.window);
+  const latest = await captureTargetWindow({ ...target, bounds: latestBounds });
+  requireNotAborted(signal);
   // A second bounded sample avoids an obviously half-open menu without making
   // dynamic clocks, carets, or video force six full PNG captures per observation.
   return first.screenshot.data === latest.screenshot.data
@@ -301,18 +387,23 @@ const discardExpiredObservations = () => {
   }
 };
 
-const getAppState = async (input: {
-  windowId?: string;
-  app?: string;
-}): Promise<ComputerUseAppState> => {
+const getAppState = async (
+  input: {
+    windowId?: string;
+    app?: string;
+  },
+  signal: AbortSignal,
+): Promise<ComputerUseAppState> => {
+  requireNotAborted(signal);
   const target = await resolveWindow(input);
   await target.window.focus();
-  await NodeTimersPromises.setTimeout(150);
-  const { screenshot, coordinateSpace, bounds } = await captureSettledWindow(target.window);
+  await wait(150, signal);
+  const { screenshot, coordinateSpace, bounds } = await captureSettledWindow(target, signal);
   const elements = await target.window
     .getElements(1_000)
     .then((root) => flattenAccessibilityTree(root, coordinateSpace))
     .catch(() => []);
+  requireNotAborted(signal);
   const observationId = `observation-${NodeCrypto.randomUUID()}`;
   observations.set(observationId, {
     observationId,
@@ -346,7 +437,8 @@ const getAppState = async (input: {
   };
 };
 
-const requireFreshObservation = async (input: Record<string, unknown>) => {
+const requireFreshObservation = async (input: Record<string, unknown>, signal: AbortSignal) => {
+  requireNotAborted(signal);
   const observationId = String(input.observationId ?? "");
   const windowId = String(input.windowId ?? "");
   const observation = observations.get(observationId);
@@ -369,7 +461,7 @@ const requireFreshObservation = async (input: Record<string, unknown>) => {
     throw new Error("The target window moved or resized after observation. Observe it again.");
   }
   await target.window.focus();
-  await NodeTimersPromises.setTimeout(100);
+  await wait(100, signal);
   observations.delete(observationId);
   return { target, observation };
 };
@@ -447,7 +539,12 @@ const keyFromName = async (name: string) => {
   return key;
 };
 
-async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: unknown) {
+async function executeComputerUseNow(
+  operation: ComputerUseOperation,
+  rawInput: unknown,
+  signal: AbortSignal,
+) {
+  requireNotAborted(signal);
   const runtime = readRuntime();
   const device = describeComputerUseDevice(runtime);
   if (!device.available)
@@ -456,16 +553,21 @@ async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: 
     windowId?: string;
     app?: string;
   };
-  if (operation === "listApps") return await listApps();
-  if (operation === "getAppState") return await getAppState(input);
+  if (operation === "listApps") {
+    const result = await listApps();
+    requireNotAborted(signal);
+    return result;
+  }
+  if (operation === "getAppState") return await getAppState(input, signal);
 
-  const { observation } = await requireFreshObservation(input);
+  const { observation } = await requireFreshObservation(input, signal);
   const nut = await loadNut();
+  requireNotAborted(signal);
   switch (operation) {
     case "move": {
       const point = pointFromInput(observation, input);
       await moveVisibleCursor(nut, point);
-      await NodeTimersPromises.setTimeout(250);
+      await wait(250, signal);
       return null;
     }
     case "click": {
@@ -479,7 +581,12 @@ async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: 
             : nut.Button.LEFT;
       const count = Math.max(1, Math.min(3, Number(input.clickCount ?? 1)));
       if (count === 2) await nut.mouse.doubleClick(button);
-      else for (let index = 0; index < count; index += 1) await nut.mouse.click(button);
+      else {
+        for (let index = 0; index < count; index += 1) {
+          requireNotAborted(signal);
+          await nut.mouse.click(button);
+        }
+      }
       return null;
     }
     case "drag": {
@@ -492,6 +599,7 @@ async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: 
         y: Number(input.toY),
       });
       await moveVisibleCursor(nut, from);
+      requireNotAborted(signal);
       nut.mouse.config.mouseSpeed = 1_400;
       await nut.mouse.drag(nut.straightTo(new nut.Point(to.x, to.y)));
       return null;
@@ -514,6 +622,7 @@ async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: 
         ),
       );
       const keys = [...modifierKeys, await keyFromName(String(input.key))];
+      requireNotAborted(signal);
       await nut.keyboard.pressKey(...keys);
       await nut.keyboard.releaseKey(...keys.toReversed());
       return null;
@@ -526,6 +635,7 @@ async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: 
         });
         await moveVisibleCursor(nut, point);
       }
+      requireNotAborted(signal);
       const deltaY = Number(input.deltaY ?? 0);
       const deltaX = Number(input.deltaX ?? 0);
       if (deltaY > 0) await nut.mouse.scrollDown(Math.ceil(deltaY));
@@ -535,21 +645,29 @@ async function executeComputerUseNow(operation: ComputerUseOperation, rawInput: 
       return null;
     }
     case "typeText":
+      requireNotAborted(signal);
       await nut.keyboard.type(String(input.text ?? ""));
       return null;
   }
 }
 
-let executionTail: Promise<void> = Promise.resolve();
+const executor = createSerializedAbortableExecutor(
+  (input: { readonly operation: ComputerUseOperation; readonly rawInput: unknown }, signal) =>
+    executeComputerUseNow(input.operation, input.rawInput, signal),
+);
 
-export function executeComputerUse(operation: ComputerUseOperation, rawInput: unknown) {
-  const result = executionTail.then(
-    () => executeComputerUseNow(operation, rawInput),
-    () => executeComputerUseNow(operation, rawInput),
-  );
-  executionTail = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
+export function executeComputerUse(
+  requestId: string,
+  operation: ComputerUseOperation,
+  rawInput: unknown,
+) {
+  return executor.execute(requestId, { operation, rawInput });
+}
+
+export function cancelComputerUse(requestId: string) {
+  executor.cancel(requestId);
+}
+
+export function cancelAllComputerUse() {
+  executor.cancelAll();
 }

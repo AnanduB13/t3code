@@ -270,6 +270,11 @@ export const make = Effect.gen(function* () {
     });
     const requestId = route.requestId!;
     const connection = route.connection;
+    const cancelHostRequest = Queue.offer(connection.queue, {
+      type: "cancel" as const,
+      connectionId: connection.connectionId,
+      requestId,
+    }).pipe(Effect.ignore);
     const offered = yield* Queue.offer(connection.queue, {
       type: "request",
       connectionId: connection.connectionId,
@@ -284,18 +289,20 @@ export const make = Effect.gen(function* () {
     }
     const result = yield* Deferred.await(deferred).pipe(
       Effect.timeoutOption(timeoutMs),
+      Effect.onInterrupt(() => cancelHostRequest),
       Effect.ensuring(cleanup),
     );
     return yield* Option.match(result, {
       onNone: () =>
-        Effect.fail(
-          new ComputerUseTimeoutError({
+        Effect.gen(function* () {
+          yield* cancelHostRequest;
+          return yield* new ComputerUseTimeoutError({
             ...scopeFields(scope),
             operation,
             deviceId: connection.host.device.deviceId,
             timeoutMs,
-          }),
-        ),
+          });
+        }),
       onSome: (value) => Effect.succeed(value as A),
     });
   });

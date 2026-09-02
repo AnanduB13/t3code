@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createAppUpdateLaunchCheck,
-  registerHiddenUpdateTap,
   runAppUpdateCheck,
   type AppUpdateCheckState,
   type AppUpdateClient,
@@ -234,19 +233,5 @@ describe("createAppUpdateLaunchCheck", () => {
 
     expect(checkOnLaunch()).toBeUndefined();
     expect(client.checkForUpdateAsync).not.toHaveBeenCalled();
-  });
-});
-
-describe("registerHiddenUpdateTap", () => {
-  it("unlocks the manual check on the fifth tap", () => {
-    let count = 0;
-
-    for (let tap = 1; tap <= 5; tap += 1) {
-      const result = registerHiddenUpdateTap(count);
-      expect(result.shouldCheck).toBe(tap === 5);
-      count = result.nextCount;
-    }
-
-    expect(count).toBe(0);
   });
 });

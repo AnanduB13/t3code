@@ -13,7 +13,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isElectron } from "~/env";
 import { useEnvironments } from "~/state/environments";
 import { computerUseEnvironment } from "~/state/computerUse";
-import { useComputerUseHostEnabled } from "~/state/computerUseHost";
+import {
+  useComputerUseAllowedEnvironmentIds,
+  useComputerUseHostEnabled,
+} from "~/state/computerUseHost";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { ComputerUseMonitor } from "./ComputerUseMonitor";
@@ -43,11 +46,24 @@ const serializeDesktopExecution = <A,>(task: () => Promise<A>): Promise<A> => {
 export function ComputerUseHosts() {
   const { environments } = useEnvironments();
   const [hostEnabled, setHostEnabled] = useComputerUseHostEnabled();
+  const [allowedEnvironmentIds, setAllowedEnvironmentIds] = useComputerUseAllowedEnvironmentIds();
+  const allowedEnvironmentIdSet = useMemo(
+    () => new Set(allowedEnvironmentIds ?? []),
+    [allowedEnvironmentIds],
+  );
+  const hostedEnvironments = useMemo(
+    () => environments.filter(({ environmentId }) => allowedEnvironmentIdSet.has(environmentId)),
+    [allowedEnvironmentIdSet, environments],
+  );
   const [device, setDevice] = useState<ComputerUseDevice | null>(null);
   const [monitor, setMonitor] = useState<ComputerUseMonitorState | null>(null);
   const pointerSequence = useRef(0);
   useEffect(() => {
-    if (!hostEnabled) {
+    if (!hostEnabled || allowedEnvironmentIds !== null) return;
+    setAllowedEnvironmentIds(environments.map(({ environmentId }) => environmentId));
+  }, [allowedEnvironmentIds, environments, hostEnabled, setAllowedEnvironmentIds]);
+  useEffect(() => {
+    if (!hostEnabled || hostedEnvironments.length === 0) {
       setDevice(null);
       return;
     }
@@ -59,10 +75,11 @@ export function ComputerUseHosts() {
     return () => {
       active = false;
     };
-  }, [hostEnabled]);
+  }, [hostEnabled, hostedEnvironments.length]);
   useEffect(() => {
     if (!hostEnabled) {
       desktopExecutionGeneration += 1;
+      void window.desktopBridge?.computerUse?.cancelAll();
       setMonitor(null);
     }
   }, [hostEnabled]);
@@ -126,7 +143,7 @@ export function ComputerUseHosts() {
   if (!isElectron || !window.desktopBridge?.computerUse || !device || !hostEnabled) return null;
   return (
     <>
-      {environments.map(({ environmentId }) => (
+      {hostedEnvironments.map(({ environmentId }) => (
         <ComputerUseHostConnection
           key={environmentId}
           environmentId={environmentId}
@@ -156,6 +173,10 @@ function ComputerUseHostConnection(props: {
   );
   const requestsAtom = computerUseEnvironment.requests({ environmentId, input: host });
   const respond = useAtomCommand(computerUseEnvironment.respond, "computer use response");
+  const executionId = useCallback(
+    (requestId: string) => `${environmentId}:${clientId}:${requestId}`,
+    [clientId, environmentId],
+  );
   const handleRequest = useCallback(
     (request: ComputerUseRequest) => {
       const requestedGeneration = desktopExecutionGeneration;
@@ -167,7 +188,11 @@ function ComputerUseHostConnection(props: {
         if (!bridge) throw new Error("The native Computer Use bridge is unavailable.");
         onRequestStarted(request);
         try {
-          const result = await bridge.execute(request.operation, request.input);
+          const result = await bridge.execute(
+            executionId(request.requestId),
+            request.operation,
+            request.input,
+          );
           onRequestSucceeded(request, result);
           return result;
         } catch (cause) {
@@ -176,13 +201,21 @@ function ComputerUseHostConnection(props: {
         }
       });
     },
-    [onRequestFailed, onRequestStarted, onRequestSucceeded],
+    [executionId, onRequestFailed, onRequestStarted, onRequestSucceeded],
   );
-  const [requestHandlerAtom] = useState(() => Atom.make({ handle: handleRequest }));
+  const cancelRequest = useCallback(
+    (requestId: string) => {
+      void window.desktopBridge?.computerUse?.cancel(executionId(requestId));
+    },
+    [executionId],
+  );
+  const [requestHandlerAtom] = useState(() =>
+    Atom.make({ handle: handleRequest, cancel: cancelRequest }),
+  );
   const setRequestHandler = useAtomSet(requestHandlerAtom);
   useEffect(() => {
-    setRequestHandler({ handle: handleRequest });
-  }, [handleRequest, setRequestHandler]);
+    setRequestHandler({ handle: handleRequest, cancel: cancelRequest });
+  }, [cancelRequest, handleRequest, setRequestHandler]);
   const consumerAtom = useMemo(
     () =>
       createComputerUseRequestConsumerAtom({

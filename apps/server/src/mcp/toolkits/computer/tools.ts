@@ -49,7 +49,7 @@ const observation = <T extends Tool.Any>(tool: T): T =>
 export const ComputerListDevicesTool = readonly(
   Tool.make("computer_list_devices", {
     description:
-      "List real computers currently connected to this T3 Code backend, with human-readable names, permission status, and sessionIsolation. A shared session uses that login's real focus and pointer; an isolated session is safe for concurrent user work. Always call this before the first Computer Use action. If selectionRequired is true, ask which named device to use.",
+      "List real computers currently connected to this T3 Code backend, with human-readable names, permission status, platformSupport, and sessionIsolation. A shared session uses that login's real focus and pointer; an isolated session is safe for concurrent user work. Treat experimental platform support as unverified and report failures plainly. Always call this before the first Computer Use action. If selectionRequired is true, ask which named device to use.",
     parameters: ComputerUseRefreshInput,
     success: ComputerUseDeviceList,
     failure: ComputerUseError,

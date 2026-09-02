@@ -35,7 +35,7 @@ describe("computerUseRequestConsumer", () => {
     const consumer = createComputerUseRequestConsumerAtom({
       requestsAtom,
       clientId: "client-1",
-      requestHandlerAtom: Atom.make({ handle }),
+      requestHandlerAtom: Atom.make({ handle, cancel: vi.fn() }),
       respond: async (response) => {
         responses.push(response);
       },
@@ -64,7 +64,7 @@ describe("computerUseRequestConsumer", () => {
     const consumer = createComputerUseRequestConsumerAtom({
       requestsAtom,
       clientId: "client-1",
-      requestHandlerAtom: Atom.make({ handle }),
+      requestHandlerAtom: Atom.make({ handle, cancel: vi.fn() }),
       respond,
       label: `test:computer-use-consumer:${EnvironmentId.make("environment-1")}`,
     });
@@ -76,5 +76,66 @@ describe("computerUseRequestConsumer", () => {
     expect(handle).not.toHaveBeenCalled();
     expect(respond).not.toHaveBeenCalled();
     registry.dispose();
+  });
+
+  it("forwards cancellation only for the active host connection", async () => {
+    const requestsAtom = Atom.make(
+      AsyncResult.success<ComputerUseStreamEvent, Error>({
+        type: "connected",
+        connectionId: "connection-2",
+      }),
+    );
+    const cancel = vi.fn();
+    const consumer = createComputerUseRequestConsumerAtom({
+      requestsAtom,
+      clientId: "client-1",
+      requestHandlerAtom: Atom.make({ handle: vi.fn(async () => undefined), cancel }),
+      respond: vi.fn(async () => undefined),
+      label: "test:computer-use-cancel",
+    });
+    const registry = AtomRegistry.make();
+    registry.mount(consumer);
+    registry.set(
+      requestsAtom,
+      AsyncResult.success({ type: "cancel", connectionId: "connection-1", requestId: "stale" }),
+    );
+    registry.set(
+      requestsAtom,
+      AsyncResult.success({ type: "cancel", connectionId: "connection-2", requestId: "active" }),
+    );
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith("active"));
+    expect(cancel).not.toHaveBeenCalledWith("stale");
+    registry.dispose();
+  });
+
+  it("cancels in-flight native work when the host connection unmounts", async () => {
+    const requestsAtom = Atom.make<AsyncResult.AsyncResult<ComputerUseStreamEvent, Error>>(
+      AsyncResult.initial(false),
+    );
+    let finish!: () => void;
+    const handle = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const cancel = vi.fn();
+    const consumer = createComputerUseRequestConsumerAtom({
+      requestsAtom,
+      clientId: "client-1",
+      requestHandlerAtom: Atom.make({ handle, cancel }),
+      respond: vi.fn(async () => undefined),
+      label: "test:computer-use-dispose",
+    });
+    const registry = AtomRegistry.make();
+    registry.mount(consumer);
+    registry.set(requestsAtom, AsyncResult.success(requestEvent("in-flight")));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledOnce());
+
+    registry.dispose();
+
+    expect(cancel).toHaveBeenCalledWith("in-flight");
+    finish();
   });
 });

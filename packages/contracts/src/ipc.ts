@@ -77,11 +77,18 @@ import {
   PreviewAutomationWaitForInput,
 } from "./previewAutomation.ts";
 import {
+  ComputerUseClickInput,
+  ComputerUseAppTargetInput,
   ComputerUseDevice,
+  ComputerUseDragInput,
+  ComputerUseMoveInput,
   ComputerUseOperation,
+  ComputerUsePressKeyInput,
   ComputerUseRequest,
   ComputerUseResponse,
+  ComputerUseScrollInput,
   ComputerUseStreamEvent,
+  ComputerUseTypeTextInput,
 } from "./computerUse.ts";
 import type {
   ClientOrchestrationCommand,
@@ -1072,7 +1079,13 @@ export interface DesktopBridge {
   /** Native input and screen-capture host exposed only by T3 Desktop. */
   computerUse?: {
     describe: () => Promise<ComputerUseDevice>;
-    execute: (operation: ComputerUseOperation, input: unknown) => Promise<unknown>;
+    execute: (
+      requestId: string,
+      operation: ComputerUseOperation,
+      input: unknown,
+    ) => Promise<unknown>;
+    cancel: (requestId: string) => Promise<void>;
+    cancelAll: () => Promise<void>;
   };
 }
 
@@ -1324,8 +1337,49 @@ export interface EnvironmentApi {
   };
 }
 
-export const DesktopComputerUseExecuteInput = Schema.Struct({
-  operation: ComputerUseOperation,
-  input: Schema.Unknown,
-});
+const ComputerUseRequestId = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256));
+
+export const DesktopComputerUseExecuteInput = Schema.Union([
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("listApps"),
+    input: Schema.Struct({ refresh: Schema.optional(Schema.Boolean) }),
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("getAppState"),
+    input: ComputerUseAppTargetInput,
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("move"),
+    input: ComputerUseMoveInput,
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("click"),
+    input: ComputerUseClickInput,
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("drag"),
+    input: ComputerUseDragInput,
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("pressKey"),
+    input: ComputerUsePressKeyInput,
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("scroll"),
+    input: ComputerUseScrollInput,
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("typeText"),
+    input: ComputerUseTypeTextInput,
+  }),
+]);
+export const DesktopComputerUseCancelInput = Schema.Struct({ requestId: ComputerUseRequestId });
 export const DesktopComputerUseRequest = ComputerUseRequest;

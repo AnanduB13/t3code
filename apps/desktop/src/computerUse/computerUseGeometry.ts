@@ -121,3 +121,18 @@ export const selectUniqueWindowByTitle = <T extends { readonly title: string }>(
   }
   throw new Error(`No visible application window matches ${JSON.stringify(requestedTitle)}.`);
 };
+
+export const selectWindowCaptureSource = <T extends { readonly id: string; readonly name: string }>(
+  sources: ReadonlyArray<T>,
+  target: { readonly nativeKey: string; readonly title: string },
+): T | undefined => {
+  const nativeHandle = target.nativeKey.startsWith("handle:")
+    ? target.nativeKey.slice("handle:".length)
+    : null;
+  if (nativeHandle) {
+    const handleMatch = sources.find((source) => source.id.split(":")[1] === nativeHandle);
+    if (handleMatch) return handleMatch;
+  }
+  const titleMatches = sources.filter((source) => source.name === target.title);
+  return titleMatches.length === 1 ? titleMatches[0] : undefined;
+};

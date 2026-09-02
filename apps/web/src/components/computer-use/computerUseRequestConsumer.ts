@@ -13,6 +13,7 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
   readonly clientId: ComputerUseHost["clientId"];
   readonly requestHandlerAtom: Atom.Atom<{
     readonly handle: (request: ComputerUseRequest) => Promise<unknown>;
+    readonly cancel: (requestId: string) => void;
   }>;
   readonly respond: (response: ComputerUseResponse) => Promise<unknown>;
   readonly label: string;
@@ -23,6 +24,7 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
     let activeConnectionId: ComputerUseStreamEvent["connectionId"] | null = null;
     let connectionExplicitlyAnnounced = false;
     let requestsVersion = 0;
+    const activeRequestIds = new Set<string>();
 
     const consume = (result: RequestStreamResult<E>) => {
       if (!AsyncResult.isSuccess(result)) return;
@@ -32,6 +34,14 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
         connectionExplicitlyAnnounced = true;
         return;
       }
+      if (event.type === "cancel") {
+        if (activeConnectionId === null) activeConnectionId = event.connectionId;
+        if (activeConnectionId === event.connectionId) {
+          get.once(options.requestHandlerAtom).cancel(event.requestId);
+          activeRequestIds.delete(event.requestId);
+        }
+        return;
+      }
       if (activeConnectionId === null) {
         activeConnectionId = event.connectionId;
       } else if (activeConnectionId !== event.connectionId) {
@@ -39,6 +49,7 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
         activeConnectionId = event.connectionId;
       }
       const request = event.request;
+      activeRequestIds.add(request.requestId);
       void get
         .once(options.requestHandlerAtom)
         .handle(request)
@@ -62,11 +73,15 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
                 message: cause instanceof Error ? cause.message : String(cause),
               },
             }),
-        );
+        )
+        .finally(() => activeRequestIds.delete(request.requestId));
     };
 
     get.addFinalizer(() => {
       disposed = true;
+      const handler = get.once(options.requestHandlerAtom);
+      for (const requestId of activeRequestIds) handler.cancel(requestId);
+      activeRequestIds.clear();
     });
     const initialRequest = get.once(options.requestsAtom);
     if (AsyncResult.isSuccess(initialRequest) && initialRequest.value.type === "connected") {

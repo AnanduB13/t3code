@@ -80,3 +80,5 @@ export const PREVIEW_STATE_CHANGE_CHANNEL = "desktop:preview-state-change";
 export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
 export const COMPUTER_USE_DESCRIBE_CHANNEL = "desktop:computer-use-describe";
 export const COMPUTER_USE_EXECUTE_CHANNEL = "desktop:computer-use-execute";
+export const COMPUTER_USE_CANCEL_CHANNEL = "desktop:computer-use-cancel";
+export const COMPUTER_USE_CANCEL_ALL_CHANNEL = "desktop:computer-use-cancel-all";

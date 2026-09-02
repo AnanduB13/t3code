@@ -9,8 +9,10 @@ import {
   type ComputerUseHost,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ComputerUseBroker from "./ComputerUseBroker.ts";
 
@@ -81,7 +83,7 @@ it.effect("keeps a provider session pinned to the selected named desktop", () =>
       const routed: string[] = [];
       const consume = (clientId: string, events: typeof boxEvents) =>
         Stream.runForEach(events, (event) => {
-          if (event.type === "connected") return Effect.void;
+          if (event.type !== "request") return Effect.void;
           routed.push(clientId);
           return broker.respond({
             clientId,
@@ -100,6 +102,66 @@ it.effect("keeps a provider session pinned to the selected named desktop", () =>
       yield* broker.invoke({ scope, operation: "listApps", input: {} });
 
       expect(routed).toEqual(["client-laptop", "client-laptop"]);
+    }),
+  ),
+);
+
+it.effect("cancels host work when an invocation times out", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const events = yield* broker.connect(host("client-box", device("box", "K11 NUCBox")));
+      const collected: Array<{ readonly type: string; readonly requestId?: string }> = [];
+      const consumer = yield* Stream.runForEach(events, (event) => {
+        collected.push(
+          event.type === "cancel"
+            ? { type: event.type, requestId: event.requestId }
+            : { type: event.type },
+        );
+        return Effect.void;
+      }).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+
+      const invocation = yield* broker
+        .invoke({ scope, operation: "listApps", input: {}, timeoutMs: 1_000 })
+        .pipe(Effect.result, Effect.forkScoped);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(invocation);
+      yield* Effect.yieldNow;
+
+      expect(collected.map(({ type }) => type)).toEqual(["connected", "request", "cancel"]);
+      expect(collected[2]?.requestId).toBe("computer-use-0");
+      yield* Fiber.interrupt(consumer);
+    }),
+  ).pipe(Effect.provide(TestClock.layer())),
+);
+
+it.effect("cancels host work when the provider invocation is interrupted", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const events = yield* broker.connect(host("client-box", device("box", "K11 NUCBox")));
+      const collected: Array<{ readonly type: string; readonly requestId?: string }> = [];
+      yield* Stream.runForEach(events, (event) => {
+        collected.push(
+          event.type === "cancel"
+            ? { type: event.type, requestId: event.requestId }
+            : { type: event.type },
+        );
+        return Effect.void;
+      }).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+
+      const invocation = yield* broker
+        .invoke({ scope, operation: "listApps", input: {} })
+        .pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+      yield* Fiber.interrupt(invocation);
+      yield* Effect.yieldNow;
+
+      expect(collected.map(({ type }) => type)).toEqual(["connected", "request", "cancel"]);
+      expect(collected[2]?.requestId).toBe("computer-use-0");
     }),
   ),
 );

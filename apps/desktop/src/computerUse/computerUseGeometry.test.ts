@@ -4,6 +4,7 @@ import {
   absoluteBoundsToScreenshot,
   boundsMatch,
   fitScreenshotSize,
+  selectWindowCaptureSource,
   selectUniqueWindowByTitle,
   screenshotPointToScreen,
 } from "./computerUseGeometry.ts";
@@ -85,5 +86,24 @@ describe("Computer Use window coordinate mapping", () => {
     expect(() => selectUniqueWindowByTitle(windows, "Missing")).toThrow(
       "No visible application window",
     );
+  });
+
+  it("selects an unobscured native window capture by handle before title", () => {
+    const sources = [
+      { id: "window:41:0", name: "Editor" },
+      { id: "window:42:0", name: "Editor" },
+    ];
+    expect(
+      selectWindowCaptureSource(sources, { nativeKey: "handle:42", title: "Editor" })?.id,
+    ).toBe("window:42:0");
+    expect(
+      selectWindowCaptureSource(sources, { nativeKey: "fallback:Editor", title: "Editor" }),
+    ).toBeUndefined();
+    expect(
+      selectWindowCaptureSource([{ id: "window:9:0", name: "Settings" }], {
+        nativeKey: "fallback:Settings",
+        title: "Settings",
+      })?.id,
+    ).toBe("window:9:0");
   });
 });

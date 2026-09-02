@@ -1,18 +1,47 @@
-# T3 Code Mobile
+# T3 Code: After Dark Mobile
 
 > [!WARNING]
-> T3 Code Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
+> The After Dark Android edition is currently distributed from source. It uses a separate package
+> identity so it can be installed alongside the official T3 Code app.
 
 ## Quickstart
 
 > [!NOTE]
 > Uses native modules so using Expo Go is not supported. You need to use the Expo Dev Client.
 
-This app has three variants:
+This app has three After Dark variants:
 
-- `development`: Expo dev client, installable side-by-side as `T3 Code Dev`
-- `preview`: persistent internal preview build, installable side-by-side as `T3 Code Preview`
-- `production`: store/release build as `T3 Code`
+- `development`: Expo dev client, installable as `After Dark Dev`
+- `preview`: persistent internal preview build, installable as `After Dark Nightly`
+- `production`: store/release build as `T3 Code: After Dark`
+
+Android defaults to `com.anandub13.t3code.afterdark`, with `.dev` and `.preview` suffixes for the
+other variants. Set `T3CODE_ANDROID_PACKAGE` before publishing if your Play Console uses another
+package. OTA updates are deliberately disabled until `T3CODE_MOBILE_EAS_PROJECT_ID` points to an
+After Dark-owned Expo project; the fork must never consume the official app's update channel.
+
+## After Dark OTA updates
+
+The production APK checks the `production` EAS Update channel when it launches. It also exposes
+**Settings → App → Check for Updates**. Before building the one-time OTA-capable base APK, link an
+After Dark-owned Expo project in the repository-root `.env.local`:
+
+```bash
+T3CODE_MOBILE_EAS_PROJECT_ID=your-expo-project-uuid
+```
+
+After that APK is installed, publish JavaScript, styling, and asset changes without rebuilding it:
+
+```bash
+vpx eas-cli@latest update \
+  --channel production \
+  --environment production \
+  --platform android \
+  --message "Describe the update"
+```
+
+Native dependency, config-plugin, permission, package identity, or native source changes still need
+a new APK. The fingerprint runtime policy prevents an incompatible OTA from reaching an old binary.
 
 Run commands from `apps/mobile`.
 
@@ -21,6 +50,19 @@ repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 [`../../.env.example`](../../.env.example).
 
 ## Development
+
+Build and run the local Android dev client (Android SDK plus an emulator or connected device
+required):
+
+```bash
+vp run android:dev
+```
+
+Build a self-contained production-identity Android app locally:
+
+```bash
+vp run android:prod
+```
 
 Start Metro for the dev client:
 

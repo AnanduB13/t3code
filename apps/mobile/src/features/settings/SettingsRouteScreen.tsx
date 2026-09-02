@@ -9,7 +9,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import * as Effect from "effect/Effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Alert, Linking, Platform, Pressable, ScrollView, View } from "react-native";
+import { Alert, Linking, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -38,11 +38,7 @@ import { runtime } from "../../lib/runtime";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
-import {
-  type AppUpdateCheckState,
-  registerHiddenUpdateTap,
-  runAppUpdateCheck,
-} from "../updates/app-updates";
+import { type AppUpdateCheckState, runAppUpdateCheck } from "../updates/app-updates";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection } from "./components/SettingsSection";
@@ -570,7 +566,6 @@ function AppSettingsSection() {
   const icon = useThemeColor("--color-icon");
   const [updateState, setUpdateState] = useState<AppUpdateCheckState>("idle");
   const updateInFlight = useRef(false);
-  const hiddenUpdateTapCount = useRef(0);
 
   const version = Constants.expoConfig?.version ?? "0.0.0";
   // Fall back to "production" to match resolveAppVariant in app.config.ts, so a
@@ -603,15 +598,6 @@ function AppSettingsSection() {
       updateInFlight.current = false;
     }
   }, []);
-
-  const handleVersionPress = useCallback(() => {
-    if (!Updates.isEnabled || updateInFlight.current) return;
-    const tap = registerHiddenUpdateTap(hiddenUpdateTapCount.current);
-    hiddenUpdateTapCount.current = tap.nextCount;
-    if (tap.shouldCheck) {
-      void checkForUpdate();
-    }
-  }, [checkForUpdate]);
 
   const statusLabel =
     updateState === "checking"
@@ -648,17 +634,15 @@ function AppSettingsSection() {
       <SettingsRow icon="internaldrive" label="Client Storage" target="SettingsClientStorage" />
       <SettingsRow icon="doc.text" label="Legal" fullScreenTarget="SettingsLegal" />
       {Updates.isEnabled ? (
-        <Pressable
-          accessibilityLabel={`Version ${versionLabel}`}
-          accessibilityRole="text"
+        <SettingsRow
+          icon="arrow.clockwise"
+          label="Check for Updates"
           disabled={busy}
-          onPress={handleVersionPress}
-        >
-          {versionRow}
-        </Pressable>
-      ) : (
-        versionRow
-      )}
+          onPress={() => void checkForUpdate()}
+          value={statusLabel ?? undefined}
+        />
+      ) : null}
+      {versionRow}
     </SettingsSection>
   );
 }

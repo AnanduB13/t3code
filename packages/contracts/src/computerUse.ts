@@ -27,6 +27,7 @@ export const ComputerUseDevice = Schema.Struct({
   architecture: TrimmedNonEmptyString.check(Schema.isMaxLength(32)),
   kind: Schema.Literals(["backend-device", "prompting-device", "remote-desktop"]),
   sessionIsolation: Schema.Literals(["shared", "isolated"]),
+  platformSupport: Schema.optional(Schema.Literals(["verified", "experimental"])),
   available: Schema.Boolean,
   unavailableReason: Schema.optional(Schema.String),
   supportedOperations: Schema.Array(ComputerUseOperation),
@@ -195,6 +196,11 @@ export const ComputerUseStreamEvent = Schema.Union([
     type: Schema.Literal("request"),
     connectionId: ComputerUseConnectionId,
     request: ComputerUseRequest,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("cancel"),
+    connectionId: ComputerUseConnectionId,
+    requestId: TrimmedNonEmptyString,
   }),
 ]);
 export type ComputerUseStreamEvent = typeof ComputerUseStreamEvent.Type;

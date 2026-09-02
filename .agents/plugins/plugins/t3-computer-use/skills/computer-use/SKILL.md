@@ -13,6 +13,8 @@ T3 Code provides the `computer_*` tools through its authenticated, provider-scop
 2. If it returns no devices, explain that T3 Code Desktop must be open on the intended device,
    **Settings → General → Computer Use on this device** must be enabled, and screen/accessibility
    permissions must be granted. Include the returned availability reason when present.
+   If a device reports `platformSupport: experimental`, say so before the first action and do not
+   imply that its native integration has the same verification level as macOS.
 3. If exactly one available device is returned, use it. The broker selects it automatically for the current agent session.
 4. If `selectionRequired` is true, stop and ask the user which device should perform the task. Present the exact `label`, platform, and device ID for each choice. This is required even if one device appears to be the backend and another appears to be the prompting device.
 5. Only after the user chooses, call `computer_select_device` with the exact device ID. Never infer or silently choose a machine from its name.
@@ -35,6 +37,10 @@ T3 Code provides the `computer_*` tools through its authenticated, provider-scop
 5. Repeat until the user-visible result is verified.
 
 Observations are deliberately single-use. Coordinates and element rectangles are relative to that observation's original-resolution, window-only screenshot. The host maps them to the correct logical desktop coordinates, including Retina/display scaling. Re-list windows after a new dialog or window appears. Re-observe after every action, navigation, window movement, resize, animation, or layout change; stale observations are rejected instead of risking input in the wrong place.
+
+If the broker cancels a request because it timed out, the environment was deauthorized, or the host
+was stopped, do not retry automatically. Observe/list again only after the user has restored access
+or explicitly asks to continue.
 
 ## Navigating applications
 

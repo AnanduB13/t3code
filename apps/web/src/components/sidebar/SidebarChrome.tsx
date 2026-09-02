@@ -90,14 +90,19 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
           onBackdrop ? "text-white" : "text-foreground",
         )}
       >
-        <T3Wordmark />
-        <span
-          className={cn(
-            "truncate text-sm font-medium tracking-tight",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
-          )}
-        >
-          Code: {APP_EDITION_LABEL}
+        <span className="flex min-w-0 flex-col items-start">
+          <span className="flex items-center gap-1 text-sm leading-3.5 font-medium tracking-tight">
+            <T3Wordmark />
+            <span className={onBackdrop ? "text-white/70" : "text-muted-foreground"}>Code</span>
+          </span>
+          <span
+            className={cn(
+              "max-w-full truncate text-[10px] leading-3 tracking-tight",
+              onBackdrop ? "text-white/70" : "text-muted-foreground",
+            )}
+          >
+            {APP_EDITION_LABEL}
+          </span>
         </span>
         <ChevronDownIcon className="size-3 opacity-60" />
       </MenuTrigger>

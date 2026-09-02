@@ -327,7 +327,7 @@ const registerComputerUseSnapshot = Effect.fn("McpHttpServer.registerComputerUse
           readOnlyHint: true,
           destructiveHint: false,
           idempotentHint: true,
-          openWorldHint: false,
+          openWorldHint: true,
         },
       }),
       annotations: tool.annotations,

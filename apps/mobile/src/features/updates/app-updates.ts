@@ -47,29 +47,7 @@ interface Deferred {
   readonly resolve: () => void;
 }
 
-const HIDDEN_UPDATE_TAP_COUNT = 5;
 let appUpdateCheckInFlight: AppUpdateCheckInFlight | undefined;
-
-/**
- * Keeps the manual update affordance discoverable only to someone deliberately
- * tapping the version row five times.
- */
-export function registerHiddenUpdateTap(count: number): {
-  readonly nextCount: number;
-  readonly shouldCheck: boolean;
-} {
-  const nextCount = count + 1;
-  if (nextCount >= HIDDEN_UPDATE_TAP_COUNT) {
-    return {
-      nextCount: 0,
-      shouldCheck: true,
-    };
-  }
-  return {
-    nextCount,
-    shouldCheck: false,
-  };
-}
 
 export async function runAppUpdateCheck(options: AppUpdateCheckOptions = {}): Promise<void> {
   const client = options.client ?? Updates;

@@ -35,11 +35,16 @@ Computer Use is available only through T3 Code Desktop. To make a device availab
 3. Grant screen-capture and accessibility permissions in your operating-system settings, then turn
    the setting off and on once so T3 Code can refresh the device status.
 
-The setting is off by default and applies only to that Desktop installation. Enabling it makes the
-device available to agents in every environment currently connected to that Desktop app. The
-Computer Use monitor shows the latest captured application window and provides a **Stop** action
-that disconnects the device from agents. An action already handed to the operating system may finish
-before the host disconnects.
+The setting is off by default and applies only to that Desktop installation. When you enable it,
+choose which connected environments may use the device. Environments connected later remain off
+until you allow them explicitly. Removing an environment or using **Stop** cancels queued work and
+interruptible in-progress work. An input event already handed to the operating system may still
+finish before the host disconnects.
+
+The Computer Use monitor shows the latest captured application window and the current action. T3
+Code prefers an isolated native window capture, so another application's overlapping window is not
+normally included. Some systems require a display-crop fallback; the agent reports when capture or
+native input is unavailable.
 
 Most desktop sessions are shared sessions: Computer Use moves the real pointer and changes the real
 keyboard focus. Do not use the computer at the same time. Concurrent use requires a Desktop host
@@ -47,6 +52,10 @@ running in a genuinely separate virtual machine, remote login, or graphical sess
 
 If several devices are connected, the agent must ask which named device to use. It will keep using
 that device for the current provider session and will not silently switch after a disconnect.
+
+macOS is the verified native host. Windows and Linux hosts are marked experimental and run a native
+window-enumeration probe before becoming available. Wayland-only Linux sessions are not supported;
+use X11/XWayland or an isolated host.
 
 ## Confirmations and sensitive information
 
