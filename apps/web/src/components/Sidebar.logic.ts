@@ -654,6 +654,33 @@ export function filterSidebarProjectScopeItems<TItem extends { readonly value: s
   return input.activeScopeKey === null ? projectItems : input.items;
 }
 
+export function resolveSidebarProjectScopeKey(input: {
+  activeProjectRef: {
+    readonly environmentId: string;
+    readonly projectId: string;
+  } | null;
+  projectGroups: readonly {
+    readonly projectKey: string;
+    readonly memberProjectRefs: readonly {
+      readonly environmentId: string;
+      readonly projectId: string;
+    }[];
+  }[];
+}): string | null {
+  const activeProjectRef = input.activeProjectRef;
+  if (activeProjectRef === null) return null;
+
+  return (
+    input.projectGroups.find((group) =>
+      group.memberProjectRefs.some(
+        (projectRef) =>
+          projectRef.environmentId === activeProjectRef.environmentId &&
+          projectRef.projectId === activeProjectRef.projectId,
+      ),
+    )?.projectKey ?? null
+  );
+}
+
 export interface SidebarProjectScopeMenuState {
   readonly open: boolean;
   readonly query: string;

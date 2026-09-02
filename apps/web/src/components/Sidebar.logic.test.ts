@@ -10,6 +10,7 @@ import {
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
+  resolveSidebarProjectScopeKey,
   reduceSidebarProjectScopeMenuState,
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
@@ -799,6 +800,46 @@ describe("filterSidebarProjectScopeItems", () => {
   it("returns matching projects in source order and supports no-match results", () => {
     expect(filter(null, "WORK")).toEqual([items[1]]);
     expect(filter(null, "missing")).toEqual([]);
+  });
+});
+
+describe("resolveSidebarProjectScopeKey", () => {
+  const projectGroups = [
+    {
+      projectKey: "logical-alpha",
+      memberProjectRefs: [
+        { environmentId: "environment-local", projectId: "project-alpha" },
+        { environmentId: "environment-remote", projectId: "project-alpha-remote" },
+      ],
+    },
+    {
+      projectKey: "logical-beta",
+      memberProjectRefs: [{ environmentId: "environment-local", projectId: "project-beta" }],
+    },
+  ];
+
+  it("selects the logical project that owns the active thread's project", () => {
+    expect(
+      resolveSidebarProjectScopeKey({
+        activeProjectRef: {
+          environmentId: "environment-remote",
+          projectId: "project-alpha-remote",
+        },
+        projectGroups,
+      }),
+    ).toBe("logical-alpha");
+  });
+
+  it("does not match the same project id from a different environment", () => {
+    expect(
+      resolveSidebarProjectScopeKey({
+        activeProjectRef: {
+          environmentId: "environment-remote",
+          projectId: "project-beta",
+        },
+        projectGroups,
+      }),
+    ).toBeNull();
   });
 });
 

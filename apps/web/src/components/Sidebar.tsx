@@ -140,6 +140,7 @@ import {
   planPinnedReorder,
   reduceSidebarProjectScopeMenuState,
   resolveAdjacentThreadId,
+  resolveSidebarProjectScopeKey,
   resolveSettledTimestamp,
   resolveSidebarThreadStatus,
   searchSidebarThreadsByTitle,
@@ -2028,6 +2029,33 @@ export default function Sidebar() {
   // Project scope: one menu above the list. Scoping filters the list without
   // making the header width depend on the number or length of project names.
   const [projectScopeKey, setProjectScopeKey] = useState<string | null>(null);
+  const activeProjectRef = useMemo(() => {
+    if (routeTarget?.kind === "draft" && routeDraftThread !== null) {
+      return scopeProjectRef(routeDraftThread.environmentId, routeDraftThread.projectId);
+    }
+    if (routeThreadRef === null) return null;
+
+    const routeThread = threads.find(
+      (thread) =>
+        thread.environmentId === routeThreadRef.environmentId &&
+        thread.id === routeThreadRef.threadId,
+    );
+    return routeThread === undefined
+      ? null
+      : scopeProjectRef(routeThread.environmentId, routeThread.projectId);
+  }, [routeDraftThread, routeTarget?.kind, routeThreadRef, threads]);
+  const activeProjectScopeKey = useMemo(
+    () => resolveSidebarProjectScopeKey({ activeProjectRef, projectGroups }),
+    [activeProjectRef, projectGroups],
+  );
+  // External navigation (notifications, deep links, command palette) bypasses
+  // the sidebar's local project selector. Follow each destination thread so
+  // its row and project context replace the previously selected project.
+  useEffect(() => {
+    if (activeProjectScopeKey !== null) {
+      setProjectScopeKey(activeProjectScopeKey);
+    }
+  }, [activeProjectScopeKey, routeThreadKey]);
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
