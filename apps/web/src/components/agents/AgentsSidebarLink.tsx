@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { BotIcon, CalendarClockIcon } from "lucide-react";
+import { BotIcon, CalendarClockIcon, FolderKanbanIcon } from "lucide-react";
 
 import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
 
@@ -29,6 +29,17 @@ export function AgentsSidebarLink() {
           >
             <CalendarClockIcon className="size-4" />
             <span>Scheduled</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            render={<Link to="/finder" />}
+            isActive={pathname.startsWith("/finder")}
+            tooltip="Finder & IDE"
+            className="gap-2 px-2 text-muted-foreground data-[active=true]:text-foreground"
+          >
+            <FolderKanbanIcon className="size-4" />
+            <span>Finder & IDE</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>

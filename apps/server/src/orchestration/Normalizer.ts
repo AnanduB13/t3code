@@ -8,11 +8,13 @@ import {
   type OrchestrationCommand,
   OrchestrationDispatchCommandError,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-  PROVIDER_SEND_TURN_MAX_PDF_BYTES,
 } from "@t3tools/contracts";
 
 import {
   createAttachmentId,
+  planAttachmentClaim,
+  PENDING_ATTACHMENT_THREAD_SEGMENT,
+  parseThreadSegmentFromAttachmentId,
   resolveAttachmentPath,
   resolvePdfTextPath,
 } from "../attachmentStore.ts";
@@ -48,6 +50,29 @@ export const canonicalizeClientCommandTimestamps = (
     },
   };
 };
+
+const removeClaimedAttachmentPaths = Effect.fn("Normalizer.removeClaimedAttachmentPaths")(
+  function* (attachmentPaths: ReadonlyArray<string>) {
+    if (attachmentPaths.length === 0) {
+      return;
+    }
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* Effect.forEach(
+      attachmentPaths,
+      (attachmentPath) =>
+        fileSystem.remove(attachmentPath, { force: true }).pipe(
+          Effect.tapError((cause) =>
+            Effect.logWarning("Failed to remove an unclaimed attachment copy.", {
+              attachmentPath,
+              cause,
+            }),
+          ),
+          Effect.orElseSucceed(() => undefined),
+        ),
+      { concurrency: 1 },
+    );
+  },
+);
 
 export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
   Effect.gen(function* () {
@@ -110,31 +135,117 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       return canonicalCommand as OrchestrationCommand;
     }
 
+    const claimedAttachmentPaths: string[] = [];
     const normalizedAttachments = yield* Effect.forEach(
       canonicalCommand.message.attachments,
       (attachment) =>
         Effect.gen(function* () {
+          if (!("dataUrl" in attachment)) {
+            const claim = planAttachmentClaim({
+              attachmentsDir: serverConfig.attachmentsDir,
+              threadId: canonicalCommand.threadId,
+              attachmentId: attachment.id,
+            });
+            if (!claim.ok) {
+              return yield* new OrchestrationDispatchCommandError({
+                message: `Attachment '${attachment.name}' cannot be sent: ${claim.reason}.`,
+              });
+            }
+
+            const info = yield* fileSystem.stat(claim.currentPath).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: `Attachment '${attachment.name}' cannot be sent: attachment not found.`,
+                    cause,
+                  }),
+              ),
+            );
+            if (Number(info.size) !== attachment.sizeBytes) {
+              return yield* new OrchestrationDispatchCommandError({
+                message: `Attachment '${attachment.name}' cannot be sent: stored size does not match.`,
+              });
+            }
+
+            const normalizedAttachment = {
+              ...attachment,
+              id: claim.finalId,
+              mimeType: attachment.mimeType.toLowerCase(),
+            };
+            const expectedPath = resolveAttachmentPath({
+              attachmentsDir: serverConfig.attachmentsDir,
+              attachment: normalizedAttachment,
+            });
+            if (expectedPath !== claim.finalPath) {
+              return yield* new OrchestrationDispatchCommandError({
+                message: `Attachment '${attachment.name}' cannot be sent: attachment type does not match the upload.`,
+              });
+            }
+
+            // Keep the pending copy until the turn succeeds. A failed thread
+            // bootstrap can then retry with a fresh thread id. A copy, not a
+            // hard link: an agent editing the delivered file in place must not
+            // mutate the retry source.
+            yield* fileSystem.copyFile(claim.currentPath, claim.finalPath).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: `Failed to claim attachment '${attachment.name}' for this thread.`,
+                    cause,
+                  }),
+              ),
+            );
+            claimedAttachmentPaths.push(claim.finalPath);
+
+            if (
+              normalizedAttachment.type === "file" &&
+              normalizedAttachment.mimeType === "application/pdf"
+            ) {
+              yield* Effect.gen(function* () {
+                const pdfTextPath = resolvePdfTextPath({
+                  attachmentsDir: serverConfig.attachmentsDir,
+                  attachmentId: normalizedAttachment.id,
+                });
+                if (!pdfTextPath) {
+                  return yield* new OrchestrationDispatchCommandError({
+                    message: `Failed to resolve extracted text path for '${attachment.name}'.`,
+                  });
+                }
+                const pdfBytes = yield* fileSystem.readFile(claim.finalPath);
+                const extractedPdf = yield* Effect.tryPromise({
+                  try: () => extractPdfText(pdfBytes),
+                  catch: (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: `Could not extract text from '${attachment.name}'.`,
+                      cause,
+                    }),
+                });
+                yield* fileSystem.writeFileString(pdfTextPath, extractedPdf.text);
+                claimedAttachmentPaths.push(pdfTextPath);
+              }).pipe(
+                Effect.catch((cause) =>
+                  Effect.logWarning(
+                    "PDF text extraction failed; the original PDF remains available to the provider.",
+                    { attachmentName: attachment.name, cause },
+                  ),
+                ),
+              );
+            }
+
+            return normalizedAttachment;
+          }
+
           const parsed = parseBase64DataUrl(attachment.dataUrl);
-          const expectedMimeType = attachment.type === "pdf" ? "application/pdf" : null;
-          const validMimeType =
-            parsed &&
-            (attachment.type === "image"
-              ? parsed.mimeType.startsWith("image/")
-              : parsed.mimeType === expectedMimeType);
-          if (!parsed || !validMimeType) {
+          if (!parsed || !parsed.mimeType.startsWith("image/")) {
             return yield* new OrchestrationDispatchCommandError({
-              message: `Invalid ${attachment.type} attachment payload for '${attachment.name}'.`,
+              message: `Invalid image attachment payload for '${attachment.name}'.`,
             });
           }
 
           const bytes = Buffer.from(parsed.base64, "base64");
-          const maximumBytes =
-            attachment.type === "pdf"
-              ? PROVIDER_SEND_TURN_MAX_PDF_BYTES
-              : PROVIDER_SEND_TURN_MAX_IMAGE_BYTES;
-          if (bytes.byteLength === 0 || bytes.byteLength > maximumBytes) {
+          if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
             return yield* new OrchestrationDispatchCommandError({
-              message: `${attachment.type === "pdf" ? "PDF" : "Image"} attachment '${attachment.name}' is empty or too large.`,
+              message: `Image attachment '${attachment.name}' is empty or too large.`,
             });
           }
 
@@ -145,36 +256,13 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
             });
           }
 
-          const persistedAttachment =
-            attachment.type === "pdf"
-              ? {
-                  type: "pdf" as const,
-                  id: attachmentId,
-                  name: attachment.name,
-                  mimeType: "application/pdf" as const,
-                  sizeBytes: bytes.byteLength,
-                }
-              : {
-                  type: "image" as const,
-                  id: attachmentId,
-                  name: attachment.name,
-                  mimeType: parsed.mimeType.toLowerCase(),
-                  sizeBytes: bytes.byteLength,
-                };
-
-          const extractedPdf =
-            attachment.type === "pdf"
-              ? yield* Effect.tryPromise({
-                  try: () => extractPdfText(bytes),
-                  catch: (cause) =>
-                    new OrchestrationDispatchCommandError({
-                      message:
-                        cause instanceof Error
-                          ? `Could not extract '${attachment.name}': ${cause.message}`
-                          : `Could not extract '${attachment.name}'.`,
-                    }),
-                })
-              : null;
+          const persistedAttachment = {
+            type: "image" as const,
+            id: attachmentId,
+            name: attachment.name,
+            mimeType: parsed.mimeType.toLowerCase(),
+            sizeBytes: bytes.byteLength,
+          };
 
           const attachmentPath = resolveAttachmentPath({
             attachmentsDir: serverConfig.attachmentsDir,
@@ -183,18 +271,6 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           if (!attachmentPath) {
             return yield* new OrchestrationDispatchCommandError({
               message: `Failed to resolve persisted path for '${attachment.name}'.`,
-            });
-          }
-          const pdfTextPath =
-            extractedPdf === null
-              ? null
-              : resolvePdfTextPath({
-                  attachmentsDir: serverConfig.attachmentsDir,
-                  attachmentId,
-                });
-          if (extractedPdf !== null && pdfTextPath === null) {
-            return yield* new OrchestrationDispatchCommandError({
-              message: `Failed to resolve extracted text path for '${attachment.name}'.`,
             });
           }
 
@@ -214,21 +290,11 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                 }),
             ),
           );
-          if (extractedPdf !== null && pdfTextPath !== null) {
-            yield* fileSystem.writeFileString(pdfTextPath, extractedPdf.text).pipe(
-              Effect.mapError(
-                () =>
-                  new OrchestrationDispatchCommandError({
-                    message: `Failed to persist extracted text for '${attachment.name}'.`,
-                  }),
-              ),
-            );
-          }
 
           return persistedAttachment;
         }),
       { concurrency: 1 },
-    );
+    ).pipe(Effect.tapError(() => removeClaimedAttachmentPaths(claimedAttachmentPaths)));
 
     return {
       ...canonicalCommand,
@@ -238,3 +304,42 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       },
     } satisfies OrchestrationCommand;
   });
+
+export const cleanupFailedUploadedAttachments = Effect.fn(
+  "Normalizer.cleanupFailedUploadedAttachments",
+)(function* (command: ClientOrchestrationCommand, normalizedCommand: OrchestrationCommand) {
+  if (command.type !== "thread.turn.start" || normalizedCommand.type !== "thread.turn.start") {
+    return;
+  }
+
+  const serverConfig = yield* ServerConfig;
+  const claimedPaths: string[] = [];
+  for (const [index, attachment] of normalizedCommand.message.attachments.entries()) {
+    const original = command.message.attachments[index];
+    if (
+      !original ||
+      "dataUrl" in original ||
+      parseThreadSegmentFromAttachmentId(original.id) !== PENDING_ATTACHMENT_THREAD_SEGMENT
+    ) {
+      continue;
+    }
+
+    const claimedPath = resolveAttachmentPath({
+      attachmentsDir: serverConfig.attachmentsDir,
+      attachment,
+    });
+    if (claimedPath) {
+      claimedPaths.push(claimedPath);
+    }
+    if (attachment.type === "file" && attachment.mimeType === "application/pdf") {
+      const pdfTextPath = resolvePdfTextPath({
+        attachmentsDir: serverConfig.attachmentsDir,
+        attachmentId: attachment.id,
+      });
+      if (pdfTextPath) {
+        claimedPaths.push(pdfTextPath);
+      }
+    }
+  }
+  yield* removeClaimedAttachmentPaths(claimedPaths);
+});

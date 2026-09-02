@@ -25,7 +25,6 @@ import {
   ProviderApprovalDecision,
   ThreadId,
   ProviderSendTurnInput,
-  type ThreadGoal,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
@@ -59,6 +58,7 @@ import { ServerConfig } from "../../config.ts";
 import {
   CodexResumeCursorSchema,
   CodexSessionRuntimeThreadIdMissingError,
+  describeMcpElicitation,
   makeCodexSessionRuntime,
   type CodexSessionRuntimeError,
   type CodexSessionRuntimeOptions,
@@ -304,6 +304,8 @@ function toRequestTypeFromMethod(method: string): CanonicalRequestType {
       return "file_read_approval";
     case "item/fileChange/requestApproval":
       return "file_change_approval";
+    case "mcpServer/elicitation/request":
+      return "mcp_elicitation_approval";
     case "applyPatchApproval":
       return "apply_patch_approval";
     case "execCommandApproval":
@@ -312,10 +314,6 @@ function toRequestTypeFromMethod(method: string): CanonicalRequestType {
       return "tool_user_input";
     case "item/tool/call":
       return "dynamic_tool_call";
-    case "mcpServer/elicitation/request":
-      return "computer_use_approval";
-    case "item/permissions/requestApproval":
-      return "command_execution_approval";
     case "account/chatgptAuthTokens/refresh":
       return "auth_tokens_refresh";
     default:
@@ -331,8 +329,8 @@ function toRequestTypeFromKind(kind: ProviderRequestKind | undefined): Canonical
       return "file_read_approval";
     case "file-change":
       return "file_change_approval";
-    case "computer-use":
-      return "computer_use_approval";
+    case "mcp-elicitation":
+      return "mcp_elicitation_approval";
     default:
       return "unknown";
   }
@@ -488,7 +486,9 @@ function mapItemLifecycle(
     lifecycle === "item.started"
       ? "inProgress"
       : lifecycle === "item.completed"
-        ? "completed"
+        ? "status" in item && (item.status === "failed" || item.status === "declined")
+          ? item.status
+          : "completed"
         : undefined;
 
   return {
@@ -536,12 +536,16 @@ function mapCollabAgentEvent(
   // finding: progress rows renamed math_one to its UUID).
   const knownName = nickname ?? pathLeaf;
   const title = knownName ?? agentThreadId;
+  const model = typeof payload.model === "string" ? payload.model.trim() : "";
+  const effort = typeof payload.effort === "string" ? payload.effort.trim() : "";
   // Identity repeated on every status patch so rows are self-describing when
   // the start row ages out of activity retention (review finding: a
   // reconstructed agent had a UUID name and no role/path).
-  const statusLinkage = {
+  const linkage = {
     role,
     ...(knownName ? { title: knownName } : {}),
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
     ...(agentPath ? { agentPath } : {}),
     timelineBypass: true,
   } as const;
@@ -556,13 +560,19 @@ function mapCollabAgentEvent(
             taskId,
             description: title,
             title,
-            role,
-            ...(agentPath ? { agentPath } : {}),
+            ...linkage,
             ...(typeof payload.parentThreadId === "string"
               ? { parentAgentId: payload.parentThreadId }
               : {}),
-            timelineBypass: true,
           },
+        },
+      ];
+    case "collabAgent/metadataUpdated":
+      return [
+        {
+          ...base,
+          type: "task.updated",
+          payload: { taskId, ...linkage },
         },
       ];
     case "collabAgent/activity": {
@@ -572,7 +582,7 @@ function mapCollabAgentEvent(
           {
             ...base,
             type: "task.updated",
-            payload: { taskId, status: "interrupted", ...statusLinkage },
+            payload: { taskId, status: "interrupted", ...linkage },
           },
         ];
       }
@@ -589,28 +599,21 @@ function mapCollabAgentEvent(
               taskId,
               description: title,
               title,
-              role,
-              ...(agentPath ? { agentPath } : {}),
-              timelineBypass: true,
+              ...linkage,
             },
           },
         ];
       }
-      // interacted → the child is (again) actively driven.
-      return [
-        {
-          ...base,
-          type: "task.updated",
-          payload: { taskId, status: "running", ...statusLinkage },
-        },
-      ];
+      // Reading a child's result also emits "interacted" after its turn is idle.
+      // Only the child's turn or thread lifecycle can prove it resumed work.
+      return [];
     }
     case "collabAgent/turnStarted":
       return [
         {
           ...base,
           type: "task.updated",
-          payload: { taskId, status: "running", ...statusLinkage },
+          payload: { taskId, status: "running", ...linkage },
         },
       ];
     case "collabAgent/turnCompleted": {
@@ -630,7 +633,7 @@ function mapCollabAgentEvent(
         {
           ...base,
           type: "task.updated",
-          payload: { taskId, status, ...statusLinkage },
+          payload: { taskId, status, ...linkage },
         },
       ];
     }
@@ -646,7 +649,7 @@ function mapCollabAgentEvent(
           {
             ...base,
             type: "task.updated",
-            payload: { taskId, status: "failed", ...statusLinkage },
+            payload: { taskId, status: "failed", ...linkage },
           },
         ];
       }
@@ -659,7 +662,7 @@ function mapCollabAgentEvent(
           {
             ...base,
             type: "task.updated",
-            payload: { taskId, status: waiting ? "waiting" : "running", ...statusLinkage },
+            payload: { taskId, status: waiting ? "waiting" : "running", ...linkage },
           },
         ];
       }
@@ -668,7 +671,7 @@ function mapCollabAgentEvent(
           {
             ...base,
             type: "task.updated",
-            payload: { taskId, status: "idle", ...statusLinkage },
+            payload: { taskId, status: "idle", ...linkage },
           },
         ];
       }
@@ -715,9 +718,8 @@ function mapCollabAgentEvent(
           payload: {
             taskId,
             description: title,
-            ...(knownName ? { title: knownName } : {}),
+            ...linkage,
             typedUsage,
-            timelineBypass: true,
           },
         },
       ];
@@ -747,9 +749,8 @@ function mapCollabAgentEvent(
           payload: {
             taskId,
             description: title,
-            ...(knownName ? { title: knownName } : {}),
+            ...linkage,
             summary,
-            timelineBypass: true,
           },
         },
       ];
@@ -759,7 +760,7 @@ function mapCollabAgentEvent(
         {
           ...base,
           type: "task.updated",
-          payload: { taskId, status: "interrupted", ...statusLinkage },
+          payload: { taskId, status: "interrupted", ...linkage },
         },
       ];
     default:
@@ -811,6 +812,11 @@ function mapToRuntimeEvents(
       ];
     }
 
+    const elicitation =
+      event.method === "mcpServer/elicitation/request"
+        ? readPayload(EffectCodexSchema.McpServerElicitationRequestParams, event.payload)
+        : undefined;
+    const elicitationApproval = elicitation ? describeMcpElicitation(elicitation) : undefined;
     const detail = (() => {
       switch (event.method) {
         case "item/commandExecution/requestApproval": {
@@ -827,6 +833,8 @@ function mapToRuntimeEvents(
           );
           return payload?.reason ?? undefined;
         }
+        case "mcpServer/elicitation/request":
+          return elicitation?.message;
         case "applyPatchApproval": {
           const payload = readPayload(
             EffectCodexSchema.ServerRequest__ApplyPatchApprovalParams,
@@ -848,37 +856,24 @@ function mapToRuntimeEvents(
           );
           return payload?.tool ?? undefined;
         }
-        case "mcpServer/elicitation/request": {
-          const payload = readPayload(
-            EffectCodexSchema.ServerRequest__McpServerElicitationRequestParams,
-            event.payload,
-          );
-          return payload?.message ?? undefined;
-        }
-        case "item/permissions/requestApproval": {
-          const payload = readPayload(
-            EffectCodexSchema.ServerRequest__PermissionsRequestApprovalParams,
-            event.payload,
-          );
-          return payload?.reason ?? undefined;
-        }
         default:
           return undefined;
       }
     })();
-
-    const requestType =
-      event.requestKind !== undefined
-        ? toRequestTypeFromKind(event.requestKind)
-        : toRequestTypeFromMethod(event.method);
 
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "request.opened",
         payload: {
-          requestType,
+          requestType: toRequestTypeFromMethod(event.method),
           ...(detail ? { detail } : {}),
+          ...(elicitationApproval
+            ? {
+                appName: elicitationApproval.appName,
+                options: elicitationApproval.options,
+              }
+            : {}),
           ...(event.payload !== undefined ? { args: event.payload } : {}),
         },
       },
@@ -1742,6 +1737,10 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ),
         );
 
+        // Fork into the session scope, not the calling fiber. `forkChild` makes
+        // this a child of `startSession`, and Effect interrupts a fiber's
+        // children when it completes, so the consumer died on return and every
+        // runtime event the session emitted afterwards was dropped.
         const eventFiber = yield* Stream.runForEach(runtime.events, (event) =>
           Effect.gen(function* () {
             yield* writeNativeEvent(event);
@@ -1757,7 +1756,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             }
             yield* Queue.offerAll(runtimeEventQueue, runtimeEvents);
           }),
-        ).pipe(Effect.forkChild);
+        ).pipe(Effect.forkIn(sessionScope));
 
         const started = yield* runtime.start().pipe(
           Effect.mapError(
@@ -1824,8 +1823,11 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   });
 
   const sendTurn: CodexAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
+    // Codex ingests images only. Anything else would be base64-encoded as an
+    // image and rejected or misread; generic files reach the agent through the
+    // path line ProviderService puts in the prompt.
     const codexAttachments = yield* Effect.forEach(
-      input.attachments ?? [],
+      (input.attachments ?? []).filter((attachment) => attachment.type === "image"),
       (attachment) => resolveAttachment(input, attachment),
       { concurrency: 1 },
     );
@@ -1919,69 +1921,16 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     );
   };
 
-  const toThreadGoal = (
-    threadId: ThreadId,
-    goal: EffectCodexSchema.V2ThreadGoalGetResponse__ThreadGoal,
-  ): ThreadGoal => ({
-    threadId,
-    objective: goal.objective,
-    status:
-      goal.status === "usageLimited"
-        ? "usage_limited"
-        : goal.status === "budgetLimited"
-          ? "budget_limited"
-          : goal.status,
-    tokenBudget: goal.tokenBudget ?? null,
-    tokensUsed: goal.tokensUsed,
-    timeUsedSeconds: goal.timeUsedSeconds,
-    createdAt: goal.createdAt,
-    updatedAt: goal.updatedAt,
-  });
-
-  const goal: NonNullable<CodexAdapterShape["goal"]> = {
-    get: (threadId) =>
-      requireSession(threadId).pipe(
-        Effect.flatMap((session) => session.runtime.getGoal),
-        Effect.map((response) => (response.goal ? toThreadGoal(threadId, response.goal) : null)),
-        Effect.mapError((cause) =>
-          cause._tag === "ProviderAdapterSessionNotFoundError"
-            ? cause
-            : mapCodexRuntimeError(threadId, "thread/goal/get", cause),
-        ),
+  const uploadFeedback: CodexAdapterShape["uploadFeedback"] = (input) =>
+    requireSession(input.threadId).pipe(
+      Effect.flatMap((session) => session.runtime.uploadFeedback(input.reason)),
+      Effect.map(({ threadId }) => ({ feedbackId: threadId })),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(input.threadId, "feedback/upload", cause),
       ),
-    set: (threadId, input) =>
-      requireSession(threadId).pipe(
-        Effect.flatMap((session) => {
-          const status =
-            input.status === "usage_limited"
-              ? "usageLimited"
-              : input.status === "budget_limited"
-                ? "budgetLimited"
-                : input.status;
-          return session.runtime.setGoal({
-            ...(input.objective !== undefined ? { objective: input.objective } : {}),
-            ...(status !== undefined ? { status } : {}),
-            ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
-          });
-        }),
-        Effect.map((response) => toThreadGoal(threadId, response.goal)),
-        Effect.mapError((cause) =>
-          cause._tag === "ProviderAdapterSessionNotFoundError"
-            ? cause
-            : mapCodexRuntimeError(threadId, "thread/goal/set", cause),
-        ),
-      ),
-    clear: (threadId) =>
-      requireSession(threadId).pipe(
-        Effect.flatMap((session) => session.runtime.clearGoal),
-        Effect.map((response) => response.cleared),
-        Effect.mapError((cause) =>
-          cause._tag === "ProviderAdapterSessionNotFoundError"
-            ? cause
-            : mapCodexRuntimeError(threadId, "thread/goal/clear", cause),
-        ),
-      ),
-  };
+    );
 
   const respondToRequest: CodexAdapterShape["respondToRequest"] = (threadId, requestId, decision) =>
     requireSession(threadId).pipe(
@@ -2070,7 +2019,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     interruptTurn,
     readThread,
     rollbackThread,
-    goal,
+    uploadFeedback,
     respondToRequest,
     respondToUserInput,
     stopSession,

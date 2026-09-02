@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { RpcClientError } from "effect/unstable/rpc";
 
@@ -62,6 +63,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   const session: RpcSession.RpcSession = {
     client,
     initialConfig: Effect.never,
+    subscribeServerConfig: (input) => client.subscribeServerConfig(input),
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,
@@ -153,6 +155,7 @@ describe("environment commands", () => {
       const session = (client: WsRpcProtocolClient): RpcSession.RpcSession => ({
         client,
         initialConfig: Effect.never,
+        subscribeServerConfig: () => Stream.never,
         ready: Effect.void,
         probe: Effect.void,
         closed: Effect.never,

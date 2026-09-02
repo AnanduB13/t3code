@@ -1,9 +1,13 @@
 import {
+  type AssetCreateUrlInput,
+  type AssetCreateUrlResult,
+  type ChatFileAttachment,
   type EnvironmentId,
   isProviderDriverKind,
   ProjectId,
+  type MessageId,
   type ModelSelection,
-  type OrchestrationQueuedMessage,
+  type ProviderInteractionMode,
   type ProviderDriverKind,
   type ServerProvider,
   type ScopedProjectRef,
@@ -11,7 +15,24 @@ import {
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
-import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } from "../types";
+import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
+import {
+  squashAtomCommandFailure,
+  type AtomCommandResult,
+} from "@t3tools/client-runtime/state/runtime";
+import { videoMimeType } from "@t3tools/shared/video";
+import {
+  appendCodexArtifactTemplateUsePrompt,
+  codexArtifactTemplateUsePrompt,
+  type CodexArtifactTemplate,
+} from "@t3tools/client-runtime/codex-artifact-templates";
+import {
+  type ChatMessage,
+  isImageAttachment,
+  type SessionPhase,
+  type Thread,
+  type ThreadShell,
+} from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -22,6 +43,8 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
+import type { ComposerSubmissionIntent } from "../composer-logic";
+import type { TimelineEntry } from "../session-logic";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
@@ -29,6 +52,103 @@ export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+
+export function codexArtifactTemplatePromptToAppend(
+  currentDraft: string,
+  template: CodexArtifactTemplate,
+): string | null {
+  return appendCodexArtifactTemplateUsePrompt(currentDraft, template) === currentDraft
+    ? null
+    : codexArtifactTemplateUsePrompt(template);
+}
+
+export function shouldDockDraftHeroForSubmission(input: {
+  isDraftHeroState: boolean;
+  activeThreadKey: string | null;
+  submissionIntent: ComposerSubmissionIntent;
+}): boolean {
+  return (
+    input.submissionIntent === "foreground" &&
+    input.isDraftHeroState &&
+    input.activeThreadKey !== null
+  );
+}
+
+export function shouldReleaseTimelineAnchorForToolActivity(input: {
+  anchorMessageId: MessageId | null;
+  liveFollowEnabled: boolean;
+  runningTurnId: TurnId | null;
+  timelineEntries: ReadonlyArray<TimelineEntry>;
+}): boolean {
+  if (input.anchorMessageId === null || !input.liveFollowEnabled || input.runningTurnId === null) {
+    return false;
+  }
+
+  return input.timelineEntries.some((timelineEntry) => {
+    if (timelineEntry.kind !== "work" || timelineEntry.entry.turnId !== input.runningTurnId) {
+      return false;
+    }
+
+    const entry = timelineEntry.entry;
+    return (
+      entry.tone === "tool" ||
+      entry.itemType !== undefined ||
+      entry.requestKind !== undefined ||
+      (entry.command?.trim().length ?? 0) > 0
+    );
+  });
+}
+
+export function toolGroupConsumesUpwardNavigation(target: EventTarget | null): boolean {
+  const elementTarget = target instanceof Element ? target : null;
+  const group = elementTarget?.closest<HTMLElement>("[data-tool-group-scroll]");
+  if (!group) return false;
+
+  // A nested result or the group itself can consume an upward scroll.
+  for (let element = elementTarget; element; element = element.parentElement) {
+    if (element.scrollTop > 0) {
+      const overflowY = getComputedStyle(element).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") return true;
+    }
+    if (element === group) break;
+  }
+  return false;
+}
+
+export function resolveDraftHeroState(input: {
+  isLocalDraftThread: boolean;
+  hasTimelineEntries: boolean;
+  isWorking: boolean;
+  draftHeroDockRequested: boolean;
+  backgroundSubmissionPending: boolean;
+}): boolean {
+  if (input.backgroundSubmissionPending) {
+    return true;
+  }
+  return (
+    input.isLocalDraftThread &&
+    !input.hasTimelineEntries &&
+    !input.isWorking &&
+    !input.draftHeroDockRequested
+  );
+}
+
+export function resolveDraftPromotionNavigationTarget(input: {
+  serverThreadRef: ScopedThreadRef | null;
+  serverThread: Pick<Thread, "latestTurn" | "session"> | null | undefined;
+  backgroundSubmissionPending: boolean;
+}): ScopedThreadRef | null {
+  if (input.backgroundSubmissionPending) {
+    return null;
+  }
+  const sessionStatus = input.serverThread?.session?.status;
+  const turnStarted = input.serverThread?.latestTurn?.startedAt != null;
+  const startupStopped =
+    sessionStatus === "error" || sessionStatus === "stopped" || sessionStatus === "interrupted";
+  // Keep local preparation feedback mounted until the server can render the
+  // running turn or its startup error on the canonical thread route.
+  return turnStarted || startupStopped ? input.serverThreadRef : null;
+}
 
 export function scheduleEnvironmentReconnectWarning(showWarning: () => void): () => void {
   const timeoutId = globalThis.setTimeout(showWarning, ENVIRONMENT_RECONNECT_WARNING_GRACE_MS);
@@ -40,129 +160,6 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   elapsedEnvironmentId: EnvironmentId | null,
 ): boolean {
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
-}
-
-export function formatDraftHeroHeading(projectTitle: string | null | undefined): string {
-  const title = projectTitle?.trim();
-  return title ? `What would you like to change in ${title}?` : "What would you like to build?";
-}
-
-export function isChatWorkActive(input: {
-  phase: SessionPhase;
-  isSendBusy: boolean;
-  isConnecting: boolean;
-  isRevertingCheckpoint: boolean;
-}): boolean {
-  return (
-    input.phase === "connecting" ||
-    input.phase === "running" ||
-    input.isSendBusy ||
-    input.isConnecting ||
-    input.isRevertingCheckpoint
-  );
-}
-
-export function filterPendingOptimisticMessages(input: {
-  optimisticMessages: ReadonlyArray<ChatMessage>;
-  projectedMessages: Thread["messages"];
-  queuedMessages: Thread["queuedMessages"];
-}): ReadonlyArray<ChatMessage> {
-  if (input.optimisticMessages.length === 0) {
-    return input.optimisticMessages;
-  }
-  const acknowledgedMessageIds = new Set<string>();
-  for (const message of input.projectedMessages) acknowledgedMessageIds.add(message.id);
-  for (const message of input.queuedMessages) acknowledgedMessageIds.add(message.messageId);
-  return input.optimisticMessages.filter((message) => !acknowledgedMessageIds.has(message.id));
-}
-
-export interface ComposerContentSnapshot {
-  readonly prompt: string;
-  readonly imageIds: ReadonlyArray<string>;
-  readonly pastedTextIds: ReadonlyArray<string>;
-  readonly terminalContextIds: ReadonlyArray<string>;
-  readonly elementContextIds: ReadonlyArray<string>;
-  readonly previewAnnotationIds: ReadonlyArray<string>;
-  readonly reviewCommentIds: ReadonlyArray<string>;
-}
-
-interface ComposerContentLike {
-  readonly prompt: string;
-  readonly images: ReadonlyArray<{ readonly id: string }>;
-  readonly pastedTexts: ReadonlyArray<{ readonly id: string }>;
-  readonly terminalContexts: ReadonlyArray<{ readonly id: string }>;
-  readonly elementContexts: ReadonlyArray<{ readonly id: string }>;
-  readonly previewAnnotations: ReadonlyArray<{ readonly id: string }>;
-  readonly reviewComments: ReadonlyArray<{ readonly id: string }>;
-}
-
-export function snapshotComposerContent(content: ComposerContentLike): ComposerContentSnapshot {
-  return {
-    prompt: content.prompt,
-    imageIds: content.images.map((entry) => entry.id),
-    pastedTextIds: content.pastedTexts.map((entry) => entry.id),
-    terminalContextIds: content.terminalContexts.map((entry) => entry.id),
-    elementContextIds: content.elementContexts.map((entry) => entry.id),
-    previewAnnotationIds: content.previewAnnotations.map((entry) => entry.id),
-    reviewCommentIds: content.reviewComments.map((entry) => entry.id),
-  };
-}
-
-export function composerContentMatchesSnapshot(
-  content: ComposerContentLike | null | undefined,
-  snapshot: ComposerContentSnapshot,
-): boolean {
-  if (!content || content.prompt !== snapshot.prompt) {
-    return false;
-  }
-  const sameIds = (
-    entries: ReadonlyArray<{ readonly id: string }>,
-    expectedIds: ReadonlyArray<string>,
-  ) =>
-    entries.length === expectedIds.length &&
-    entries.every((entry, index) => entry.id === expectedIds[index]);
-  return (
-    sameIds(content.images, snapshot.imageIds) &&
-    sameIds(content.pastedTexts, snapshot.pastedTextIds) &&
-    sameIds(content.terminalContexts, snapshot.terminalContextIds) &&
-    sameIds(content.elementContexts, snapshot.elementContextIds) &&
-    sameIds(content.previewAnnotations, snapshot.previewAnnotationIds) &&
-    sameIds(content.reviewComments, snapshot.reviewCommentIds)
-  );
-}
-
-export function mergeDisplayedQueuedMessages(input: {
-  readonly optimisticQueuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
-  readonly projectedMessages: Thread["messages"];
-  readonly serverQueuedMessages: Thread["queuedMessages"];
-}): ReadonlyArray<OrchestrationQueuedMessage> {
-  if (input.optimisticQueuedMessages.length === 0) return input.serverQueuedMessages;
-
-  const acknowledgedMessageIds = new Set<string>();
-  for (const message of input.projectedMessages) acknowledgedMessageIds.add(message.id);
-  for (const message of input.serverQueuedMessages) acknowledgedMessageIds.add(message.messageId);
-
-  const pendingQueueMessages = input.optimisticQueuedMessages.filter(
-    (message) => !acknowledgedMessageIds.has(message.messageId),
-  );
-  return pendingQueueMessages.length === 0
-    ? input.serverQueuedMessages
-    : [...input.serverQueuedMessages, ...pendingQueueMessages];
-}
-
-export function shouldOptimisticallyQueueMessage(input: {
-  readonly isServerThread: boolean;
-  readonly createsWorktree: boolean;
-  readonly sessionStatus: "starting" | "running" | "other" | null;
-  readonly hasPendingTurnStart: boolean;
-}): boolean {
-  return (
-    input.isServerThread &&
-    !input.createsWorktree &&
-    (input.sessionStatus === "starting" ||
-      input.sessionStatus === "running" ||
-      input.hasPendingTurnStart)
-  );
 }
 
 export function startNewThreadForProject(
@@ -331,12 +328,49 @@ export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {
   URL.revokeObjectURL(previewUrl);
 }
 
+/** Signs an attachment URL without reading its bytes, so video playback can request byte ranges. */
+export async function resolveFileAttachmentUrl(input: {
+  attachment: ChatFileAttachment;
+  environmentId: EnvironmentId;
+  httpBaseUrl: string;
+  createAssetUrl: (input: {
+    environmentId: EnvironmentId;
+    input: AssetCreateUrlInput;
+  }) => Promise<AtomCommandResult<AssetCreateUrlResult, unknown>>;
+}): Promise<string> {
+  const { attachment } = input;
+  const result = await input.createAssetUrl({
+    environmentId: input.environmentId,
+    input: {
+      resource: {
+        _tag: "attachment",
+        attachmentId: attachment.id,
+        fileName: attachment.name,
+        mimeType: videoMimeType(attachment) ?? attachment.mimeType,
+      },
+    },
+  });
+  if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+  const url = resolveAssetUrl(input.httpBaseUrl, result.value.relativeUrl);
+  if (url === null) throw new Error("The environment returned an invalid attachment URL.");
+  return url;
+}
+
+export function isVideoPreviewRequestCurrent(
+  requestThreadKey: string,
+  currentThreadKey: string,
+  requestId: number,
+  currentRequestId: number,
+): boolean {
+  return requestThreadKey === currentThreadKey && requestId === currentRequestId;
+}
+
 export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
   if (message.role !== "user" || !message.attachments) {
     return;
   }
   for (const attachment of message.attachments) {
-    if (attachment.type !== "image") {
+    if (!isImageAttachment(attachment)) {
       continue;
     }
     revokeBlobPreviewUrl(attachment.previewUrl);
@@ -349,7 +383,7 @@ export function collectUserMessageBlobPreviewUrls(message: ChatMessage): string[
   }
   const previewUrls: string[] = [];
   for (const attachment of message.attachments) {
-    if (attachment.type !== "image") continue;
+    if (!isImageAttachment(attachment)) continue;
     if (!attachment.previewUrl || !attachment.previewUrl.startsWith("blob:")) continue;
     previewUrls.push(attachment.previewUrl);
   }
@@ -369,10 +403,10 @@ export function readFileAsDataUrl(file: File): Promise<string> {
         resolve(reader.result);
         return;
       }
-      reject(new Error("Could not read attachment data."));
+      reject(new Error("Could not read image data."));
     });
     reader.addEventListener("error", () => {
-      reject(reader.error ?? new Error("Failed to read attachment."));
+      reject(reader.error ?? new Error("Failed to read image."));
     });
     reader.readAsDataURL(file);
   });
@@ -385,14 +419,28 @@ export function resolveSendEnvMode(input: {
   return input.isGitRepo ? input.requestedEnvMode : "local";
 }
 
+export function resolveBackgroundDraftWorkspaceOptions(input: {
+  envMode: DraftThreadEnvMode;
+  branch: string | null;
+  startFromOrigin: boolean;
+}): {
+  envMode: DraftThreadEnvMode;
+  branch: string | null;
+  worktreePath: null;
+  startFromOrigin: boolean;
+} {
+  return {
+    envMode: input.envMode,
+    branch: input.branch,
+    worktreePath: null,
+    startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,
+  };
+}
+
 export function cloneComposerImageForRetry(
   image: ComposerImageAttachment,
 ): ComposerImageAttachment {
-  if (
-    image.type !== "image" ||
-    typeof URL === "undefined" ||
-    !image.previewUrl.startsWith("blob:")
-  ) {
+  if (typeof URL === "undefined" || !image.previewUrl.startsWith("blob:")) {
     return image;
   }
   try {
@@ -408,7 +456,6 @@ export function cloneComposerImageForRetry(
 export function deriveComposerSendState(options: {
   prompt: string;
   imageCount: number;
-  pastedTextCount?: number;
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   /**
    * Optional element-pick attachment count. Element contexts contribute to
@@ -434,7 +481,6 @@ export function deriveComposerSendState(options: {
     hasSendableContent:
       trimmedPrompt.length > 0 ||
       options.imageCount > 0 ||
-      (options.pastedTextCount ?? 0) > 0 ||
       sendableTerminalContexts.length > 0 ||
       elementContextCount > 0,
   };
@@ -484,6 +530,22 @@ export function shouldShowBranchMismatchBanner(input: {
     return false;
   }
   return input.composerHasContent || input.wasShownForCurrentMismatch;
+}
+
+export function shouldShowPlanFollowUpPrompt(input: {
+  pendingUserInputCount: number;
+  interactionMode: ProviderInteractionMode;
+  latestTurnSettled: boolean;
+  hasActionableProposedPlan: boolean;
+  hasComposerAttachments: boolean;
+}): boolean {
+  return (
+    input.pendingUserInputCount === 0 &&
+    input.interactionMode === "plan" &&
+    input.latestTurnSettled &&
+    input.hasActionableProposedPlan &&
+    !input.hasComposerAttachments
+  );
 }
 
 // Session-scoped (module-level so it survives ChatView remounts, e.g. route
@@ -625,13 +687,7 @@ export async function waitForStartedServerThread(
 export interface LocalDispatchSnapshot {
   startedAt: string;
   preparingWorktree: boolean;
-  /**
-   * The messageId of the send this dispatch is waiting on, when the send
-   * path knows it. Acknowledgment then correlates with this exact message
-   * being projected (timeline or queue) instead of global tail heuristics
-   * that other clients' activity could satisfy.
-   */
-  expectedMessageId: ChatMessage["id"] | null;
+  submissionIntent: ComposerSubmissionIntent;
   latestUserMessageId: ChatMessage["id"] | null;
   latestTurnTurnId: TurnId | null;
   latestTurnRequestedAt: string | null;
@@ -643,7 +699,10 @@ export interface LocalDispatchSnapshot {
 
 export function createLocalDispatchSnapshot(
   activeThread: Thread | undefined,
-  options?: { preparingWorktree?: boolean; messageId?: ChatMessage["id"] },
+  options?: {
+    preparingWorktree?: boolean;
+    submissionIntent?: ComposerSubmissionIntent;
+  },
 ): LocalDispatchSnapshot {
   const latestTurn = activeThread?.latestTurn ?? null;
   const session = activeThread?.session ?? null;
@@ -651,7 +710,7 @@ export function createLocalDispatchSnapshot(
   return {
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
-    expectedMessageId: options?.messageId ?? null,
+    submissionIntent: options?.submissionIntent ?? "foreground",
     latestUserMessageId: latestUserMessage?.id ?? null,
     latestTurnTurnId: latestTurn?.turnId ?? null,
     latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
@@ -667,7 +726,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
   latestUserMessageId: ChatMessage["id"] | null;
-  projectedMessageIds: ReadonlySet<string>;
   session: Thread["session"] | null;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
@@ -679,10 +737,12 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
     return true;
   }
+  if (input.phase === "connecting") {
+    return false;
+  }
 
   const latestTurn = input.latestTurn ?? null;
   const session = input.session ?? null;
-  const expectedMessageId = input.localDispatch.expectedMessageId;
   const latestUserMessageChanged =
     input.localDispatch.latestUserMessageId !== input.latestUserMessageId;
   const latestTurnChanged =
@@ -691,18 +751,12 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.localDispatch.latestTurnStartedAt !== (latestTurn?.startedAt ?? null) ||
     input.localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null);
 
-  // The dispatched message being projected (timeline or queue) is the
-  // strongest acknowledgment in every phase: the server also queues sends
-  // while a session is starting ("connecting" phase), where neither turn
-  // nor session fields necessarily change.
-  if (expectedMessageId !== null && input.projectedMessageIds.has(expectedMessageId)) {
-    return true;
-  }
-
   if (input.phase === "running") {
-    // Dispatches without a known messageId (e.g. plan-implementation flows)
-    // keep the legacy latest-user-message heuristic.
-    if (expectedMessageId === null && latestUserMessageChanged) {
+    // Steering adds a user message to the current running turn without
+    // necessarily changing any of the turn timestamps. Treat that projected
+    // message as the server acknowledgment so the composer does not remain
+    // stuck in its local "Sending" state until the turn settles.
+    if (latestUserMessageChanged) {
       return true;
     }
     if (!latestTurnChanged) {

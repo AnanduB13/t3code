@@ -13,7 +13,19 @@ layer("043_ProjectionQueuedMessagePosition", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 42 });
+      yield* runMigrations({ toMigrationInclusive: 43 });
+      yield* sql`
+        CREATE TABLE projection_queued_messages (
+          message_id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          text TEXT NOT NULL,
+          attachments_json TEXT NOT NULL,
+          model_selection_json TEXT,
+          source_proposed_plan_thread_id TEXT,
+          source_proposed_plan_id TEXT,
+          queued_at TEXT NOT NULL
+        )
+      `;
       for (const [messageId, threadId] of [
         ["message-a", "thread-1"],
         ["message-b", "thread-2"],
@@ -28,7 +40,7 @@ layer("043_ProjectionQueuedMessagePosition", (it) => {
         `;
       }
 
-      yield* runMigrations({ toMigrationInclusive: 43 });
+      yield* runMigrations({ toMigrationInclusive: 44 });
 
       const rows = yield* sql<{
         readonly messageId: string;

@@ -1,7 +1,6 @@
 "use client";
 
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   FILL_PREVIEW_VIEWPORT,
@@ -21,7 +20,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
@@ -38,13 +37,15 @@ import {
   stopBrowserRecording,
 } from "~/browser/browserRecording";
 import { resolveBrowserRecordingStopTarget } from "~/browser/browserRecordingScope";
-import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
-import { environmentCatalog } from "~/connection/catalog";
+import {
+  acquireBrowserSurfaceActivity,
+  useBrowserSurfaceStore,
+} from "~/browser/browserSurfaceStore";
+import { browserDefaultOpenViewport, resolveBrowserDefaults } from "~/browser/browserDefaults";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
-import { isLatestTurnSettled } from "~/session-logic";
-import { useThreadShells } from "~/state/entities";
+import { useEnvironments } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -68,11 +69,6 @@ import {
 } from "./previewNavigationReadiness";
 import { createPreviewAutomationRequestConsumerAtom } from "./previewAutomationRequestConsumer";
 import { createPreviewAutomationClientId } from "./previewAutomationClientId";
-import { closePreviewSession } from "./closePreviewSession";
-import {
-  markPreviewTabAutomationOwned,
-  prepareCompletedThreadPreviewCleanup,
-} from "./previewAutomationOwnership";
 import {
   needsPreviewAutomationSessionSync,
   resolvePreviewAutomationOpenTab,
@@ -105,7 +101,7 @@ const waitForDesktopOverlay = async (
       operation,
       requestId,
     });
-    if (state.desktopByTabId[tabId] && previewBridge) {
+    if (state.desktopByTabId[tabId] && previewBridge && isPreviewWebviewRendering(runtimeTabId)) {
       const status = await previewBridge.automation.status(runtimeTabId);
       if (status.available) return;
     }
@@ -127,6 +123,11 @@ const findPreviewWebview = (tabId: string): ExecutablePreviewWebview | null =>
   Array.from(document.querySelectorAll<ExecutablePreviewWebview>("webview[data-preview-tab]")).find(
     (candidate) => candidate.getAttribute("data-preview-tab") === tabId,
   ) ?? null;
+
+const isPreviewWebviewRendering = (runtimeTabId: string): boolean => {
+  const wrapper = findPreviewWebview(runtimeTabId)?.closest<HTMLElement>("[data-preview-viewport]");
+  return wrapper?.getAttribute("data-preview-rendering") === "active";
+};
 
 const readWebviewViewport = async (
   webview: ExecutablePreviewWebview,
@@ -219,8 +220,12 @@ const currentStatus = async (
   const visible = runtimeTabId
     ? (useBrowserSurfaceStore.getState().byTabId[runtimeTabId]?.visible ?? false)
     : false;
+  const renderingActive = runtimeTabId ? isPreviewWebviewRendering(runtimeTabId) : false;
   const viewportSetting = snapshot ? (snapshot.viewport ?? FILL_PREVIEW_VIEWPORT) : undefined;
-  const viewport = runtimeTabId ? await readRenderedViewport(runtimeTabId).catch(() => null) : null;
+  const viewport =
+    runtimeTabId && renderingActive
+      ? await readRenderedViewport(runtimeTabId).catch(() => null)
+      : null;
   const viewportStatus = {
     ...(viewportSetting === undefined ? {} : { viewportSetting }),
     ...(viewport === null ? {} : { viewport }),
@@ -252,47 +257,20 @@ const raisePreviewAutomationHostError = (
 };
 
 export function PreviewAutomationHosts() {
-  const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
-  const threadShells = useThreadShells();
-  const closePreview = useAtomCommand(previewEnvironment.close, { reportFailure: false });
-  const settledByThreadRef = useRef(new Map<string, boolean>());
-  useEffect(() => {
-    const previous = settledByThreadRef.current;
-    const next = new Map<string, boolean>();
-    for (const thread of threadShells) {
-      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-      const threadKey = scopedThreadKey(threadRef);
-      const settled = isLatestTurnSettled(thread.latestTurn, thread.session);
-      next.set(threadKey, settled);
-      if (previous.get(threadKey) !== false || !settled) continue;
-
-      const previewState = readThreadPreviewState(threadRef);
-      for (const tabId of prepareCompletedThreadPreviewCleanup(threadRef)) {
-        const snapshot = previewState.sessions[tabId];
-        if (!snapshot) continue;
-        void closePreviewSession({
-          closePreview,
-          snapshot,
-          tabId,
-          threadRef,
-        }).then((result) => {
-          if (result._tag === "Failure") markPreviewTabAutomationOwned(threadRef, tabId);
-        });
-      }
-    }
-    settledByThreadRef.current = next;
-  }, [closePreview, threadShells]);
+  const { environments } = useEnvironments();
   if (!isElectron || !previewBridge?.automation) return null;
   return (
     <>
       {/*
-       * Register directly from the connection catalog instead of waiting for
-       * environment presentation data. Presentation depends on a successful
-       * shell handshake, which allowed a newly started provider to call
-       * preview_status before the desktop automation host existed.
+       * Host lifetime follows the desktop runtime's environment connections,
+       * not the routed thread. This keeps background threads automatable and
+       * lets the subscription runtime own reconnects for every saved target.
        */}
-      {[...catalog.entries.keys()].map((environmentId) => (
-        <PreviewAutomationHost key={environmentId} environmentId={environmentId} />
+      {environments.map((environment) => (
+        <PreviewAutomationHost
+          key={environment.environmentId}
+          environmentId={environment.environmentId}
+        />
       ))}
     </>
   );
@@ -341,6 +319,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
         threadId: request.threadId,
       };
       let tabId = request.tabId ?? null;
+      const browserActivity = { release: null as (() => void) | null };
       try {
         let state = readThreadPreviewState(threadRef);
         const needsSessionSync = needsPreviewAutomationSessionSync(state, request.tabId);
@@ -374,6 +353,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           const readyState = readThreadPreviewState(threadRef);
           const runtimeTabId = previewRuntimeTabId(threadRef, readyState.serverEpoch, readyTabId);
+          browserActivity.release ??= acquireBrowserSurfaceActivity(runtimeTabId);
           await waitForDesktopOverlay(
             threadRef,
             request.requestId,
@@ -415,6 +395,9 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 input: {
                   threadId: request.threadId,
                   ...(resolvedInputUrl ? { url: resolvedInputUrl } : {}),
+                  // An agent that didn't state a size gets the user's
+                  // configured default, same as a hand-opened tab.
+                  viewport: browserDefaultOpenViewport(await resolveBrowserDefaults()),
                 },
               });
               if (result._tag === "Failure") {
@@ -422,7 +405,6 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               }
               const snapshot = result.value;
               applyPreviewServerSnapshot(threadRef, snapshot);
-              markPreviewTabAutomationOwned(threadRef, snapshot.tabId);
               activeTabId = snapshot.tabId;
               activeSnapshot = snapshot;
               tabId = activeTabId;
@@ -464,19 +446,15 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 updatePreviewServerSnapshot(threadRef, resizeResult.value);
               }
             }
-            const shouldPresentPreview = shouldOpenPreviewMiniPlayer(input);
+            const shouldPresentPreview = shouldOpenPreviewMiniPlayer(
+              input,
+              (await resolveBrowserDefaults()).autoShowFloatingPreview,
+            );
             if (shouldPresentPreview) {
               usePreviewMiniPlayerStore.getState().open(threadRef, activeTabId);
             }
             if (activeSnapshot && previewAutomationOpenNeedsOverlay(input, activeSnapshot)) {
-              await waitForDesktopOverlay(
-                threadRef,
-                request.requestId,
-                activeTabId,
-                activeRuntimeTabId,
-                request.operation,
-                request.timeoutMs,
-              );
+              await requireReadyTab();
             }
             if (shouldPresentPreview) {
               // React commits the thread-bound surface asynchronously. Settle
@@ -707,6 +685,8 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           tabId,
           cause,
         });
+      } finally {
+        browserActivity.release?.();
       }
     },
     [environmentId, listPreviews, open, registry, resize],

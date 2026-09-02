@@ -22,11 +22,13 @@ import {
   ProviderSendTurnInput,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
+  ProviderUploadFeedbackInput,
   type ProviderInstanceId,
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
   type ProviderSession,
 } from "@t3tools/contracts";
+import { expandAssistantCitationsForProvider } from "@t3tools/shared/assistantCitations";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -60,6 +62,7 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import { buildProviderInputWithAttachments } from "../attachmentPrompt.ts";
 const isModelSelection = Schema.is(ModelSelection);
 
@@ -70,6 +73,15 @@ const isModelSelection = Schema.is(ModelSelection);
  */
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogger?: EventNdjsonLogger;
+  /**
+   * Overrides MCP credential issuance. The real issuer reads a module-global
+   * registry that only a running MCP server installs, which makes the
+   * agent-browser-access gate unobservable from a unit test; this seam lets a
+   * test see whether a credential was requested at all.
+   */
+  readonly issueMcpCredential?: typeof McpSessionRegistry.issueActiveMcpCredential;
+  /** Same seam as `issueMcpCredential`, for observing the deny path's revoke. */
+  readonly revokeMcpCredential?: typeof McpSessionRegistry.revokeActiveMcpThread;
 }
 
 type ProviderServiceMethod<Name extends keyof ProviderService.ProviderService["Service"]> =
@@ -219,21 +231,58 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const issueMcpCredential =
+    options?.issueMcpCredential ?? McpSessionRegistry.issueActiveMcpCredential;
+  const revokeMcpCredential =
+    options?.revokeMcpCredential ?? McpSessionRegistry.revokeActiveMcpThread;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
-  // Adapter session timestamps describe lifecycle transitions, not ongoing
-  // turn activity. Keep a process-local heartbeat from canonical turn events
-  // so the reaper can distinguish a live, progressing turn from a runtime
-  // that still claims a turn id after its event stream has wedged.
-  const lastTurnActivityAtByThread = new Map<ThreadId, string>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+  /**
+   * Attach the `t3-code` MCP server to the session that is about to start.
+   *
+   * This is the only place a credential is minted, so withholding one here is
+   * what disables agent browser access everywhere: every adapter already
+   * treats a missing session as "no MCP server", and the `/mcp` endpoint
+   * accepts nothing but tokens issued from this path.
+   */
+  /**
+   * Deny on an unreadable settings file rather than letting the read failure
+   * escape: adding `ServerSettingsError` to `ProviderServiceError` would widen
+   * a union every caller handles, for a branch that only decides whether one
+   * optional toolset is attached. Denying is the safe direction — an explicit
+   * "off" silently becoming "on" would violate the user's stated choice,
+   * whereas the reverse costs an agent one toolset and is visible immediately.
+   */
+  const agentBrowserAccessEnabled = serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.enableAgentBrowserAccess),
+    Effect.catch((cause) =>
+      Effect.logWarning(
+        "Could not read server settings; withholding agent browser access for this session.",
+        { cause },
+      ).pipe(Effect.as(false)),
+    ),
+  );
+
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
-    McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
-      Effect.tap((credential) =>
-        credential
-          ? Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config))
-          : Effect.void,
-      ),
-    );
+    Effect.gen(function* () {
+      if (!(yield* agentBrowserAccessEnabled)) {
+        // Revoke as well as clear. Every other prepare path reaches
+        // `issueActiveMcpCredential`, which revokes the thread first, so
+        // skipping it here would leave a previously issued bearer token valid
+        // against `/mcp` for the rest of its liveness window — and later turns
+        // would keep refreshing it. A session restart (runtime mode, cwd,
+        // model) re-prepares without stopping, so it relies on this.
+        yield* revokeMcpCredential(threadId);
+        yield* Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId));
+        return undefined;
+      }
+      const credential = yield* issueMcpCredential({ threadId, providerInstanceId });
+      if (credential) {
+        yield* Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config));
+      }
+      return credential;
+    });
   const clearMcpSession = (threadId: ThreadId) =>
     McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
       Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
@@ -301,13 +350,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     event: ProviderRuntimeEvent,
   ): Effect.Effect<void> =>
     Effect.sync(() => correlateRuntimeEventWithInstance(source, event)).pipe(
-      Effect.tap((canonicalEvent) =>
-        canonicalEvent.turnId !== undefined
-          ? Effect.sync(() => {
-              lastTurnActivityAtByThread.set(canonicalEvent.threadId, canonicalEvent.createdAt);
-            })
-          : Effect.void,
-      ),
       Effect.flatMap((canonicalEvent) =>
         increment(providerRuntimeEventsTotal, {
           provider: canonicalEvent.provider,
@@ -692,23 +734,33 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
-    // Keep originals addressable to provider tools. PDFs also get a plain-text
-    // sidecar: ordinary documents are inlined, while unusually large ones are
-    // referenced without silently truncating their contents.
+    const inputTextWithCitations =
+      parsed.input === undefined ? undefined : expandAssistantCitationsForProvider(parsed.input);
+    if (inputTextWithCitations !== parsed.input) {
+      yield* decodeInputOrValidationError({
+        operation: "ProviderService.sendTurn",
+        schema: ProviderSendTurnInput.fields.input,
+        payload: inputTextWithCitations,
+      });
+    }
+
+    // Keep every uploaded file addressable to provider tools. For PDFs, use
+    // After Dark's extracted-text sidecar when available; scanned or encrypted
+    // PDFs still go through as ordinary files instead of blocking the turn.
     const resolvedAttachments = yield* Effect.forEach(attachments, (attachment) =>
       Effect.gen(function* () {
-        const attachmentPath = resolveAttachmentPath({
+        const originalPath = resolveAttachmentPath({
           attachmentsDir: serverConfig.attachmentsDir,
           attachment,
         });
-        if (attachmentPath === null) {
+        if (originalPath === null) {
           return yield* toValidationError(
             "ProviderService.sendTurn",
             `Could not resolve attachment '${attachment.name}'`,
           );
         }
-        if (attachment.type === "image") {
-          return { attachment, originalPath: attachmentPath };
+        if (attachment.type !== "file" || attachment.mimeType !== "application/pdf") {
+          return { attachment, originalPath };
         }
 
         const extractedTextPath = resolvePdfTextPath({
@@ -716,10 +768,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           attachmentId: attachment.id,
         });
         if (extractedTextPath === null) {
-          return yield* toValidationError(
-            "ProviderService.sendTurn",
-            `Could not resolve extracted text for '${attachment.name}'`,
-          );
+          return { attachment, originalPath };
         }
         const extractedText = yield* Effect.tryPromise({
           try: () => NodeFSP.readFile(extractedTextPath, "utf8"),
@@ -729,20 +778,20 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
               `Could not read extracted text for '${attachment.name}'`,
               cause,
             ),
-        });
-        return { attachment, originalPath: attachmentPath, extractedTextPath, extractedText };
+        }).pipe(Effect.catch(() => Effect.void));
+        return extractedText === undefined
+          ? { attachment, originalPath }
+          : { attachment, originalPath, extractedTextPath, extractedText };
       }),
     );
     const inputTextWithAttachments = buildProviderInputWithAttachments({
-      ...(parsed.input !== undefined ? { text: parsed.input } : {}),
+      ...(inputTextWithCitations !== undefined ? { text: inputTextWithCitations } : {}),
       attachments: resolvedAttachments,
     });
-    const adapterAttachments = attachments.filter((attachment) => attachment.type === "image");
 
     const input = {
       ...parsed,
       ...(inputTextWithAttachments !== undefined ? { input: inputTextWithAttachments } : {}),
-      attachments: adapterAttachments,
     };
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "send-turn",
@@ -983,21 +1032,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ),
       );
       const activeSessions = sessionsByProvider.flatMap((sessions) => sessions);
-      const persistedBindings = yield* directory.listThreadIds().pipe(
-        Effect.flatMap((threadIds) =>
-          Effect.forEach(
-            threadIds,
-            (threadId) =>
-              directory
-                .getBinding(threadId)
-                .pipe(
-                  Effect.orElseSucceed(() =>
-                    Option.none<ProviderSessionDirectory.ProviderRuntimeBinding>(),
-                  ),
-                ),
-            { concurrency: "unbounded" },
-          ),
-        ),
+      // Only live adapter sessions appear in this response. Resolving every
+      // historical binding here makes each call scale with the full thread
+      // history instead of the active session set.
+      const persistedBindings = yield* Effect.forEach(
+        [...new Set(activeSessions.map((session) => session.threadId))],
+        (threadId) =>
+          directory
+            .getBinding(threadId)
+            .pipe(
+              Effect.orElseSucceed(() =>
+                Option.none<ProviderSessionDirectory.ProviderRuntimeBinding>(),
+              ),
+            ),
+        { concurrency: "unbounded" },
+      ).pipe(
         Effect.orElseSucceed(
           () => [] as Array<Option.Option<ProviderSessionDirectory.ProviderRuntimeBinding>>,
         ),
@@ -1015,14 +1064,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const sessions: ProviderSession[] = [];
       for (const session of activeSessions) {
-        const lastTurnActivityAt = lastTurnActivityAtByThread.get(session.threadId);
-        const activityAwareSession =
-          lastTurnActivityAt !== undefined && lastTurnActivityAt > session.updatedAt
-            ? { ...session, updatedAt: lastTurnActivityAt }
-            : session;
         const binding = bindingsByThreadId.get(session.threadId);
         if (!binding) {
-          sessions.push(activityAwareSession);
+          sessions.push(session);
           continue;
         }
 
@@ -1055,7 +1099,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (binding.runtimeMode !== undefined) {
           overrides.runtimeMode = binding.runtimeMode;
         }
-        sessions.push(Object.assign({}, activityAwareSession, overrides));
+        sessions.push(Object.assign({}, session, overrides));
       }
       return sessions;
     },
@@ -1107,6 +1151,47 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }),
     );
   });
+
+  const uploadFeedback: ProviderServiceMethod<"uploadFeedback"> = Effect.fn("uploadFeedback")(
+    function* (rawInput) {
+      const input = yield* decodeInputOrValidationError({
+        operation: "ProviderService.uploadFeedback",
+        schema: ProviderUploadFeedbackInput,
+        payload: rawInput,
+      });
+      let routed = yield* resolveRoutableSession({
+        threadId: input.threadId,
+        operation: "ProviderService.uploadFeedback",
+        allowRecovery: false,
+      });
+      if (routed.adapter.uploadFeedback === undefined) {
+        return yield* toValidationError(
+          "ProviderService.uploadFeedback",
+          `Provider '${routed.adapter.provider}' does not support feedback uploads.`,
+        );
+      }
+      if (!routed.isActive) {
+        routed = yield* resolveRoutableSession({
+          threadId: input.threadId,
+          operation: "ProviderService.uploadFeedback",
+          allowRecovery: true,
+        });
+      }
+      const uploadFeedback = routed.adapter.uploadFeedback;
+      if (uploadFeedback === undefined) {
+        return yield* toValidationError(
+          "ProviderService.uploadFeedback",
+          `Provider '${routed.adapter.provider}' does not support feedback uploads.`,
+        );
+      }
+      yield* Effect.annotateCurrentSpan({
+        "provider.operation": "upload-feedback",
+        "provider.kind": routed.adapter.provider,
+        "provider.thread_id": input.threadId,
+      });
+      return yield* uploadFeedback(input);
+    },
+  );
 
   const runStopAll = Effect.fn("runStopAll")(function* () {
     const threadIds = yield* directory.listThreadIds();
@@ -1179,6 +1264,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     getCapabilities,
     getInstanceInfo,
     rollbackConversation,
+    uploadFeedback,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each
     // independently receive all runtime events.

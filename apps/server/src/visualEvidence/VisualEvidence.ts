@@ -364,7 +364,14 @@ export const make = Effect.gen(function* () {
         mimeType: "image/jpeg",
         sizeBytes: image.data.byteLength,
       };
-      const destination = NodePath.join(config.attachmentsDir, attachmentRelativePath(attachment));
+      const relativePath = attachmentRelativePath(attachment);
+      if (relativePath === null) {
+        return yield* new VisualEvidenceCaptureError({
+          reason: "storage-failed",
+          message: "Could not resolve storage for the captured screenshot.",
+        });
+      }
+      const destination = NodePath.join(config.attachmentsDir, relativePath);
       yield* Effect.tryPromise({
         try: () => NodeFS.promises.writeFile(destination, image.data),
         catch: () =>

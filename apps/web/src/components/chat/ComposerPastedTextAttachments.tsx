@@ -1,7 +1,7 @@
 import { FileTextIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
-import type { ComposerPastedTextAttachment } from "~/composerDraftStore";
+import type { ComposerPastedTextAttachment } from "./composerPastedText";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import {

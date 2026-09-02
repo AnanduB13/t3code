@@ -1,4 +1,7 @@
-import type { ComposerPastedTextAttachment } from "~/composerDraftStore";
+export interface ComposerPastedTextAttachment {
+  readonly id: string;
+  readonly text: string;
+}
 
 export const PASTED_TEXT_ATTACHMENT_THRESHOLD = 1_000;
 

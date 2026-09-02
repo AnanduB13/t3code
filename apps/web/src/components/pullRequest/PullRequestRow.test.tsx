@@ -1,10 +1,11 @@
-import { ProjectId, type PullRequestListEntry } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, type PullRequestListEntry } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import { PullRequestRow } from "./PullRequestRow";
 
 const entry = {
+  environmentId: EnvironmentId.make("environment-1"),
   provider: "github",
   host: "github.com",
   projectId: ProjectId.make("project-1"),
@@ -25,7 +26,7 @@ const entry = {
   updatedAt: "2026-08-02T00:00:00Z",
   viewerReviewRequested: false,
   labels: [],
-} as PullRequestListEntry;
+} as PullRequestListEntry & { environmentId: EnvironmentId };
 
 describe("PullRequestRow", () => {
   it("shows both the local project and repository identities", () => {

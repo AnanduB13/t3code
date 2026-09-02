@@ -14,7 +14,11 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import type * as PlatformError from "effect/PlatformError";
 
-import { OrchestrationCommandInvariantError } from "./Errors.ts";
+import {
+  OrchestrationCommandInvariantError,
+  OrchestrationThreadSettleBlockedError,
+  type OrchestrationCommandRejection,
+} from "./Errors.ts";
 import {
   listThreadsByProjectId,
   requireActiveProjectWorkspaceRootAbsent,
@@ -26,13 +30,9 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-
-// Session adoption takes seconds; a user message still unadopted after this
-// window is a failed/stale start, not pending work. Mirrors the client's
-// QUEUED_TURN_START_GRACE_MS in client-runtime threadSettled.ts.
-const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
 /**
  * Blocked-on-you work derived from the thread's retained activities: an
@@ -91,59 +91,28 @@ function hasOpenBlockingRequest(thread: {
   return openRequestIds.size > 0;
 }
 
-/**
- * A queued turn start — a user message no turn has picked up yet — is work
- * in flight even though session is still null (turn.start emits
- * message-sent + turn-start-requested; the session arrives later). Detection
- * mirrors the client's hasQueuedTurnStart: the newest user message is
- * strictly newer than every latestTurn timestamp (adoption stamps the new
- * turn's requestedAt with the message time, clearing this), and only within
- * the adoption grace window — historical threads whose last user message
- * postdates their turn timestamps (older-server data, mid-turn messages)
- * must not be blocked forever. A failed session start (status "error")
- * clears the block immediately.
- *
- * The age check is bounded on BOTH sides: message timestamps are
- * client-supplied, so a client clock ahead of the server yields a negative
- * age. Without the lower bound that negative age satisfies `<= grace` for
- * as long as the skew lasts, extending the block far past the intended two
- * minutes.
- */
-function threadHasQueuedTurnStart(
-  thread: {
-    readonly messages: ReadonlyArray<{ readonly role: string; readonly createdAt: string }>;
-    readonly latestTurn: {
-      readonly requestedAt: string;
-      readonly startedAt: string | null;
-      readonly completedAt: string | null;
-    } | null;
-    readonly session: { readonly status: string } | null;
-  },
-  occurredAt: string,
+/** Apply the shared shell-level rule to the detailed command read model. */
+function hasQueuedTurnStartForThread(
+  thread: Pick<OrchestrationThread, "messages" | "latestTurn" | "session">,
+  now: string,
 ): boolean {
-  const latestUserMessageAtMs = thread.messages.reduce(
-    (latest, message) =>
-      message.role === "user" ? Math.max(latest, Date.parse(message.createdAt)) : latest,
-    Number.NEGATIVE_INFINITY,
-  );
-  const latestTurnAtMs =
-    thread.latestTurn === null
-      ? Number.NEGATIVE_INFINITY
-      : Math.max(
-          ...[
-            thread.latestTurn.requestedAt,
-            thread.latestTurn.startedAt,
-            thread.latestTurn.completedAt,
-          ].map((candidate) =>
-            candidate == null ? Number.NEGATIVE_INFINITY : Date.parse(candidate),
-          ),
-        );
-  const queuedAgeMs = Date.parse(occurredAt) - latestUserMessageAtMs;
-  return (
-    thread.session?.status !== "error" &&
-    Number.isFinite(latestUserMessageAtMs) &&
-    latestUserMessageAtMs > latestTurnAtMs &&
-    Math.abs(queuedAgeMs) <= QUEUED_TURN_START_GRACE_MS
+  let latestUserMessageAt: string | null = null;
+  let latestUserMessageAtMs = Number.NEGATIVE_INFINITY;
+  for (const message of thread.messages) {
+    if (message.role !== "user") continue;
+    const messageAtMs = Date.parse(message.createdAt);
+    latestUserMessageAtMs = Math.max(latestUserMessageAtMs, messageAtMs);
+    if (messageAtMs === latestUserMessageAtMs) {
+      latestUserMessageAt = message.createdAt;
+    }
+  }
+  return threadHasQueuedTurnStart(
+    {
+      latestUserMessageAt: Number.isFinite(latestUserMessageAtMs) ? latestUserMessageAt : null,
+      latestTurn: thread.latestTurn,
+      session: thread.session,
+    },
+    now,
   );
 }
 
@@ -184,13 +153,9 @@ type DecideOrchestrationCommandResult =
   | ReadonlyArray<PlannedOrchestrationEvent>;
 
 function isThreadTurnActive(thread: OrchestrationThread): boolean {
-  const status = thread.session?.status;
-  return status === "running" || status === "starting";
+  return thread.session?.status === "running" || thread.session?.status === "starting";
 }
 
-// Threads replayed from projections created before queued prompts existed can
-// lack this field at runtime. Treat those records as having an empty queue so
-// a new prompt still reaches the provider instead of crashing the command.
 function queuedMessagesForThread(
   thread: OrchestrationThread,
 ): ReadonlyArray<OrchestrationQueuedMessage> {
@@ -198,116 +163,7 @@ function queuedMessagesForThread(
   return Array.isArray(queuedMessages) ? (queuedMessages as OrchestrationQueuedMessage[]) : [];
 }
 
-interface TurnStartMessageInput {
-  readonly messageId: OrchestrationQueuedMessage["messageId"];
-  readonly text: string;
-  readonly attachments: OrchestrationQueuedMessage["attachments"];
-  readonly modelSelection?: OrchestrationQueuedMessage["modelSelection"];
-  readonly titleSeed?: string;
-  readonly sourceProposedPlan?: OrchestrationQueuedMessage["sourceProposedPlan"];
-}
-
-const planTurnStartEvents = Effect.fn("planTurnStartEvents")(function* ({
-  commandId,
-  thread,
-  message,
-  occurredAt,
-}: {
-  readonly commandId: OrchestrationCommand["commandId"];
-  readonly thread: OrchestrationThread;
-  readonly message: TurnStartMessageInput;
-  readonly occurredAt: string;
-}): Effect.fn.Return<
-  ReadonlyArray<PlannedOrchestrationEvent>,
-  PlatformError.PlatformError,
-  Crypto.Crypto
-> {
-  const userMessageEvent: PlannedOrchestrationEvent = {
-    ...(yield* withEventBase({
-      aggregateKind: "thread",
-      aggregateId: thread.id,
-      occurredAt,
-      commandId,
-    })),
-    type: "thread.message-sent",
-    payload: {
-      threadId: thread.id,
-      messageId: message.messageId,
-      role: "user",
-      text: message.text,
-      attachments: message.attachments,
-      turnId: null,
-      streaming: false,
-      createdAt: occurredAt,
-      updatedAt: occurredAt,
-    },
-  };
-  const turnStartRequestedEvent: PlannedOrchestrationEvent = {
-    ...(yield* withEventBase({
-      aggregateKind: "thread",
-      aggregateId: thread.id,
-      occurredAt,
-      commandId,
-    })),
-    causationEventId: userMessageEvent.eventId,
-    type: "thread.turn-start-requested",
-    payload: {
-      threadId: thread.id,
-      messageId: message.messageId,
-      ...(message.modelSelection !== undefined ? { modelSelection: message.modelSelection } : {}),
-      ...(message.titleSeed !== undefined ? { titleSeed: message.titleSeed } : {}),
-      runtimeMode: thread.runtimeMode,
-      interactionMode: thread.interactionMode,
-      ...(message.sourceProposedPlan !== undefined
-        ? { sourceProposedPlan: message.sourceProposedPlan }
-        : {}),
-      createdAt: occurredAt,
-    },
-  };
-  const lifecycleResetEvents: PlannedOrchestrationEvent[] = [];
-  if (thread.settledOverride !== null) {
-    lifecycleResetEvents.push({
-      ...(yield* withEventBase({
-        aggregateKind: "thread",
-        aggregateId: thread.id,
-        occurredAt,
-        commandId,
-      })),
-      type: "thread.unsettled",
-      payload: {
-        threadId: thread.id,
-        reason: "activity",
-        updatedAt: occurredAt,
-      },
-    });
-  }
-  if (thread.snoozedUntil !== null) {
-    lifecycleResetEvents.push({
-      ...(yield* withEventBase({
-        aggregateKind: "thread",
-        aggregateId: thread.id,
-        occurredAt,
-        commandId,
-      })),
-      type: "thread.unsnoozed",
-      payload: {
-        threadId: thread.id,
-        reason: "activity",
-        updatedAt: occurredAt,
-      },
-    });
-  }
-  return [...lifecycleResetEvents, userMessageEvent, turnStartRequestedEvent];
-});
-
-const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(function* ({
-  commandId,
-  readModel,
-  thread,
-  queuedMessages,
-  commandType,
-  occurredAt,
-}: {
+const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(function* (input: {
   readonly commandId: OrchestrationCommand["commandId"];
   readonly readModel: OrchestrationReadModel;
   readonly thread: OrchestrationThread;
@@ -319,64 +175,93 @@ const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(functio
   OrchestrationCommandInvariantError | PlatformError.PlatformError,
   Crypto.Crypto
 > {
-  const queuedMessage = queuedMessages.at(-1)!;
+  const queuedMessage = input.queuedMessages.at(-1)!;
   const sourceProposedPlan = queuedMessage.sourceProposedPlan;
   const sourceThread = sourceProposedPlan
-    ? readModel.threads.find((entry) => entry.id === sourceProposedPlan.threadId)
+    ? input.readModel.threads.find((thread) => thread.id === sourceProposedPlan.threadId)
     : undefined;
   const sourcePlanStillValid =
     sourceProposedPlan !== undefined &&
     sourceThread !== undefined &&
-    sourceThread.projectId === thread.projectId &&
-    sourceThread.proposedPlans.some((entry) => entry.id === sourceProposedPlan.planId);
+    sourceThread.projectId === input.thread.projectId &&
+    sourceThread.proposedPlans.some((plan) => plan.id === sourceProposedPlan.planId);
+  const text = input.queuedMessages.map((message) => message.text).join("\n\n");
+  const attachments = input.queuedMessages.flatMap((message) => message.attachments);
 
-  const text = queuedMessages.map((message) => message.text).join("\n\n");
-  const attachments = queuedMessages.flatMap((message) => message.attachments);
   if (text.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
     return yield* new OrchestrationCommandInvariantError({
-      commandType,
+      commandType: input.commandType,
       detail: `Queued prompts through '${queuedMessage.messageId}' exceed the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS}-character steer limit.`,
     });
   }
   if (attachments.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
     return yield* new OrchestrationCommandInvariantError({
-      commandType,
+      commandType: input.commandType,
       detail: `Queued prompts through '${queuedMessage.messageId}' exceed the ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS}-attachment steer limit.`,
     });
   }
+
   const removedEvents: PlannedOrchestrationEvent[] = [];
-  for (const message of queuedMessages) {
+  for (const message of input.queuedMessages) {
     removedEvents.push({
       ...(yield* withEventBase({
         aggregateKind: "thread",
-        aggregateId: thread.id,
-        occurredAt,
-        commandId,
+        aggregateId: input.thread.id,
+        occurredAt: input.occurredAt,
+        commandId: input.commandId,
       })),
       type: "thread.queued-message-removed",
       payload: {
-        threadId: thread.id,
+        threadId: input.thread.id,
         messageId: message.messageId,
         reason: "dispatched",
-        removedAt: occurredAt,
+        removedAt: input.occurredAt,
       },
     });
   }
-  const turnStartEvents = yield* planTurnStartEvents({
-    commandId,
-    thread,
-    message: {
+
+  const userMessageEvent: PlannedOrchestrationEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.thread.id,
+      occurredAt: input.occurredAt,
+      commandId: input.commandId,
+    })),
+    type: "thread.message-sent",
+    payload: {
+      threadId: input.thread.id,
       messageId: queuedMessage.messageId,
+      role: "user",
       text,
       attachments,
+      turnId: null,
+      streaming: false,
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    },
+  };
+  const turnStartEvent: PlannedOrchestrationEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.thread.id,
+      occurredAt: input.occurredAt,
+      commandId: input.commandId,
+    })),
+    causationEventId: userMessageEvent.eventId,
+    type: "thread.turn-start-requested",
+    payload: {
+      threadId: input.thread.id,
+      messageId: queuedMessage.messageId,
       ...(queuedMessage.modelSelection !== undefined
         ? { modelSelection: queuedMessage.modelSelection }
         : {}),
+      runtimeMode: input.thread.runtimeMode,
+      interactionMode: input.thread.interactionMode,
       ...(sourcePlanStillValid ? { sourceProposedPlan } : {}),
+      createdAt: input.occurredAt,
     },
-    occurredAt,
-  });
-  return [...removedEvents, ...turnStartEvents];
+  };
+  return [...removedEvents, userMessageEvent, turnStartEvent];
 });
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
@@ -387,7 +272,7 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
   ReadonlyArray<PlannedOrchestrationEvent>,
-  OrchestrationCommandInvariantError | PlatformError.PlatformError,
+  OrchestrationCommandRejection | PlatformError.PlatformError,
   Crypto.Crypto
 > {
   let nextReadModel = readModel;
@@ -421,7 +306,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
-  OrchestrationCommandInvariantError | PlatformError.PlatformError,
+  OrchestrationCommandRejection | PlatformError.PlatformError,
   Crypto.Crypto
 > {
   switch (command.type) {
@@ -651,43 +536,36 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.settle": {
+    case "thread.settle":
+    case "thread.auto-settle": {
       const thread = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
-      // Server-side twin of the client's canSettle session check: a stale
-      // or raced client must not settle a thread whose session is coming
-      // alive or working.
-      if (thread.session?.status === "starting" || thread.session?.status === "running") {
+      if (command.type === "thread.auto-settle" && thread.settledOverride !== null) {
         return yield* Effect.fail(
           new OrchestrationCommandInvariantError({
             commandType: command.type,
-            detail: `thread ${command.threadId} has an active session and cannot be settled`,
+            detail: `thread ${command.threadId} changed before automatic settlement`,
           }),
         );
+      }
+      // The server owns settle eligibility. A stale command must not settle
+      // a thread whose session is coming alive or working.
+      if (thread.session?.status === "starting" || thread.session?.status === "running") {
+        return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
       }
       // Pending approval / user-input requests are blocked-on-you work: a
       // raced or stale client must not park them behind a settled override
       // that would surface only after the request resolves.
       if (hasOpenBlockingRequest(thread)) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `thread ${command.threadId} has a pending approval or user-input request and cannot be settled`,
-          }),
-        );
+        return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
       }
       const occurredAt = yield* nowIso;
       // Settling inside the adoption window would hide just-requested work.
-      if (threadHasQueuedTurnStart(thread, occurredAt)) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `thread ${command.threadId} has a queued turn start and cannot be settled`,
-          }),
-        );
+      if (hasQueuedTurnStartForThread(thread, occurredAt)) {
+        return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
       }
       // Settling an already-settled thread re-emits with the original
       // settledAt: the engine rejects zero-event commands, and bulk-settle /
@@ -710,16 +588,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: alreadySettled ? thread.updatedAt : occurredAt,
         },
       };
-      // Settling is "I'm done with this": it clears a pin the same way it
-      // parks the thread. Without this, settling a pinned thread would only
-      // stamp invisible state — the pin would hold the card in place until
-      // a separate unpin.
-      if (thread.pinnedAt == null) {
-        return settledEvent;
-      }
-      return [
-        settledEvent,
-        {
+      // Settling is "I'm done with this": clear states that would keep the
+      // row pinned or snoozed instead of showing the new settled state.
+      const companionEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+      if (thread.pinnedAt != null) {
+        companionEvents.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
             aggregateId: command.threadId,
@@ -731,8 +604,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: command.threadId,
             updatedAt: occurredAt,
           },
-        },
-      ];
+        });
+      }
+      if (thread.snoozedUntil != null) {
+        companionEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.unsnoozed",
+          payload: {
+            threadId: command.threadId,
+            reason: "user",
+            updatedAt: occurredAt,
+          },
+        });
+      }
+      return companionEvents.length > 0 ? [settledEvent, ...companionEvents] : settledEvent;
     }
 
     case "thread.unsettle": {
@@ -799,7 +689,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // invisible pending work: no session, no pending flags. Snoozing in
       // that window would hide a just-requested turn exactly the way settle
       // would.
-      if (threadHasQueuedTurnStart(thread, occurredAt)) {
+      if (hasQueuedTurnStartForThread(thread, occurredAt)) {
         return yield* Effect.fail(
           new OrchestrationCommandInvariantError({
             commandType: command.type,
@@ -1036,6 +926,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.linkedPullRequest !== undefined
+            ? { linkedPullRequest: command.linkedPullRequest }
+            : {}),
           updatedAt: occurredAt,
         },
       };
@@ -1173,45 +1066,105 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         };
       }
-
-      return yield* planTurnStartEvents({
-        commandId: command.commandId,
-        thread: targetThread,
-        message: {
+      const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.message-sent",
+        payload: {
+          threadId: command.threadId,
           messageId: command.message.messageId,
+          role: "user",
           text: command.message.text,
           attachments: command.message.attachments,
+          turnId: null,
+          streaming: false,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+      const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        causationEventId: userMessageEvent.eventId,
+        type: "thread.turn-start-requested",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.message.messageId,
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
           ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
+          runtimeMode: targetThread.runtimeMode,
+          interactionMode: targetThread.interactionMode,
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
+          createdAt: command.createdAt,
         },
-        occurredAt: command.createdAt,
-      });
+      };
+      // Real activity resets ANY override: it wakes an explicitly settled
+      // thread, and it clears a keep-active pin back to neutral so the
+      // thread can auto-settle again after this burst of work goes stale.
+      // A snooze clears the same way — sending a message to a snoozed
+      // thread is the user re-engaging, so the return ticket is spent.
+      const lifecycleResetEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+      if (targetThread.settledOverride !== null) {
+        lifecycleResetEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.unsettled",
+          payload: {
+            threadId: command.threadId,
+            reason: "activity",
+            updatedAt: command.createdAt,
+          },
+        });
+      }
+      if (targetThread.snoozedUntil != null) {
+        lifecycleResetEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.unsnoozed",
+          payload: {
+            threadId: command.threadId,
+            reason: "activity",
+            updatedAt: command.createdAt,
+          },
+        });
+      }
+      return [...lifecycleResetEvents, userMessageEvent, turnStartRequestedEvent];
     }
 
     case "thread.queue.steer": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
       const queuedMessages = queuedMessagesForThread(thread);
-      const queuedMessageIndex = queuedMessages.findIndex(
-        (entry) => entry.messageId === command.messageId,
+      const messageIndex = queuedMessages.findIndex(
+        (message) => message.messageId === command.messageId,
       );
-      const queuedMessage = queuedMessages[queuedMessageIndex];
-      if (!queuedMessage) {
+      if (messageIndex < 0) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Queued message '${command.messageId}' does not exist on thread '${command.threadId}'.`,
         });
       }
-      const steerRacesPendingStart =
+      const racesPendingStart =
         (thread.session?.status === "starting" && thread.session.activeTurnId === null) ||
         (thread.session?.status !== "running" && thread.pendingTurnStart !== null);
-      if (steerRacesPendingStart) {
+      if (racesPendingStart) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Thread '${command.threadId}' is still starting a turn; steer once it is running.`,
@@ -1221,22 +1174,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         commandId: command.commandId,
         readModel,
         thread,
-        queuedMessages: queuedMessages.slice(0, queuedMessageIndex + 1),
+        queuedMessages: queuedMessages.slice(0, messageIndex + 1),
         commandType: command.type,
         occurredAt: command.createdAt,
       });
     }
 
     case "thread.queue.remove": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const queuedMessage = queuedMessagesForThread(thread).find(
-        (entry) => entry.messageId === command.messageId,
-      );
-      if (!queuedMessage) {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (
+        !queuedMessagesForThread(thread).some((message) => message.messageId === command.messageId)
+      ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Queued message '${command.messageId}' does not exist on thread '${command.threadId}'.`,
@@ -1260,13 +1208,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.queue.update": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
       const queuedMessage = queuedMessagesForThread(thread).find(
-        (entry) => entry.messageId === command.messageId,
+        (message) => message.messageId === command.messageId,
       );
       if (!queuedMessage) {
         return yield* new OrchestrationCommandInvariantError({
@@ -1298,19 +1242,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.queue.reorder": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
       const queuedMessages = queuedMessagesForThread(thread);
-      const currentIds = new Set(queuedMessages.map((entry) => entry.messageId));
+      const currentIds = new Set(queuedMessages.map((message) => message.messageId));
       const requestedIds = new Set(command.messageIds);
-      const isExactPermutation =
+      const exactPermutation =
         command.messageIds.length === queuedMessages.length &&
         requestedIds.size === command.messageIds.length &&
         command.messageIds.every((messageId) => currentIds.has(messageId));
-      if (!isExactPermutation) {
+      if (!exactPermutation) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Queue reorder for thread '${command.threadId}' must contain every queued message exactly once.`,
@@ -1333,11 +1273,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.queue.drain": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
       const queuedMessage = queuedMessagesForThread(thread).at(0);
       if (!queuedMessage) {
         return yield* new OrchestrationCommandInvariantError({
@@ -1345,10 +1281,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Thread '${command.threadId}' has no queued messages to drain.`,
         });
       }
-      const drainsJustFinalizedTurn =
+      const drainsFinalizedTurn =
         command.afterTurnId !== undefined && thread.session?.activeTurnId === command.afterTurnId;
       if (
-        (isThreadTurnActive(thread) && !drainsJustFinalizedTurn) ||
+        (isThreadTurnActive(thread) && !drainsFinalizedTurn) ||
         thread.pendingTurnStart !== null
       ) {
         return yield* new OrchestrationCommandInvariantError({
@@ -1479,7 +1415,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         if (
           thread.settledOverride !== "settled" ||
           sessionComingAlive ||
-          threadHasQueuedTurnStart(thread, command.createdAt)
+          hasQueuedTurnStartForThread(thread, command.createdAt)
         ) {
           return yield* Effect.fail(
             new OrchestrationCommandInvariantError({
@@ -1604,7 +1540,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           messageId: command.messageId,
           role: "assistant",
           text: "",
-          ...(command.attachments === undefined ? {} : { attachments: command.attachments }),
           turnId: command.turnId ?? null,
           streaming: false,
           createdAt: command.createdAt,

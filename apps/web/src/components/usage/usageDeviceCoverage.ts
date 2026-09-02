@@ -3,6 +3,7 @@ import type { UsageSource } from "@t3tools/contracts";
 const SOURCE_LABEL = {
   codex: "Codex",
   claude: "Claude Code",
+  grok: "Grok",
 } as const;
 
 export function describeUsageSources(sources: readonly UsageSource[]): string {

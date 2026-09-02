@@ -19,7 +19,7 @@ const IPAD_NATIVE_LEADING_TITLE_OFFSET = 7;
  * Horizontal correction applied to content rendered in the brand title slot,
  * shared with the connection-status swap so both align identically.
  */
-export function brandTitleOffset(nativeLeadingItem: boolean): number {
+export function brandTitleOffset(nativeLeadingItem = false): number {
   if (Platform.OS !== "ios") return 0;
   if (nativeLeadingItem) {
     return Platform.isPad ? IPAD_NATIVE_LEADING_TITLE_OFFSET : IOS_NATIVE_LEADING_TITLE_OFFSET;

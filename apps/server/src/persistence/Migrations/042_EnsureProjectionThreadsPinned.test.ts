@@ -8,7 +8,7 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("042_EnsureProjectionThreadsPinned", (it) => {
+layer("044_AfterDarkUpstreamCompatibility", (it) => {
   it.effect("repairs databases where the legacy queue migration occupied ID 36", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -19,7 +19,7 @@ layer("042_EnsureProjectionThreadsPinned", (it) => {
         VALUES (36, 'ProjectionQueuedMessages')
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 42 });
+      yield* runMigrations({ toMigrationInclusive: 44 });
 
       const columns = yield* sql<{ readonly name: string }>`
         PRAGMA table_info(projection_threads)
@@ -29,12 +29,12 @@ layer("042_EnsureProjectionThreadsPinned", (it) => {
       const migrations = yield* sql<{ readonly migration_id: number; readonly name: string }>`
         SELECT migration_id, name
         FROM effect_sql_migrations
-        WHERE migration_id = 42
+        WHERE migration_id = 44
       `;
       assert.deepStrictEqual(migrations, [
         {
-          migration_id: 42,
-          name: "EnsureProjectionThreadsPinned",
+          migration_id: 44,
+          name: "AfterDarkUpstreamCompatibility",
         },
       ]);
     }),

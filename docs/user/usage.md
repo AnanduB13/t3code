@@ -1,21 +1,13 @@
-# Usage and local CLI history
+# Review usage
 
-Open **Usage** in the sidebar to see token activity recorded in the local Codex and Claude Code
-history on every connected environment. The totals include both T3 Code sessions and sessions run
-directly from a terminal.
+The Usage page combines Codex, Claude Code, and Grok Build activity from your connected
+environments. It reads the providers' local session history and shows API-equivalent token cost,
+processed tokens, cache savings, provider shares, and model breakdowns. Subscription billing is
+separate from the raw token cost shown here.
 
-Choose **7 days**, **30 days**, **90 days**, or **All time** to change the reporting window. **All
-time** reads every available provider transcript while the chart begins at the first day that has
-recorded activity.
+Grok Build totals come from persisted session updates. Interactive turns that never wrote a
+completed-turn record will not appear.
 
-The **Device usage** row shows which environment machines contributed and how many Codex and Claude
-Code sessions were found. When T3 is connected to a remote environment, the listed device is the
-remote environment's machine, not the phone or browser viewing it.
-
-T3 extracts only the token-usage fields needed for the summary and sends aggregate counts to the
-client; transcript content is not returned. Sessions without token telemetry are not included.
-Older Codex CLI releases did not record token events for every interactive session, so their device
-total can be lower than actual account usage.
-
-Provider quota cards in chat and Profile settings are separate from this token history. They show
-the current plan windows reported by Codex or Claude Code.
+Use **Past 24h** for an hourly chart covering the exact rolling 24-hour period. The **7 days**,
+**30 days**, and **90 days** ranges use daily resolution. Cost and token toggles update both the
+headline and chart, and refreshing rescans every connected environment.

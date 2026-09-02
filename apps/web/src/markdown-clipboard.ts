@@ -1,7 +1,27 @@
-/** Serialization helpers for the explicit table copy actions in rendered chat. */
+/**
+ * Converts a DOM selection inside rendered chat markdown back into markdown
+ * source so highlight-and-copy keeps formatting (links, emphasis, lists,
+ * fences, tables) instead of flattening to plain text. The `text/plain`
+ * clipboard flavor carries the markdown; `text/html` carries a sanitized
+ * copy of the rendered fragment for rich-paste targets.
+ */
 
 const SKIPPED_TAGS = new Set(["BUTTON", "INPUT", "SCRIPT", "STYLE", "TEMPLATE"]);
 const SKIPPED_CLASS_NAMES = ["select-none", "sr-only"];
+const SANITIZED_HTML_SELECTOR = [
+  "button",
+  "input",
+  "script",
+  "style",
+  "svg",
+  '[aria-hidden="true"]',
+  ...SKIPPED_CLASS_NAMES.map((className) => `.${className}`),
+].join(", ");
+
+export interface MarkdownClipboardPayload {
+  text: string;
+  html: string;
+}
 
 function isSkippedElement(element: Element): boolean {
   if (SKIPPED_TAGS.has(element.tagName) || element.localName === "svg") return true;
@@ -15,6 +35,22 @@ function wrapInlineMarker(content: string, marker: string): string {
   const core = match?.[2] ?? "";
   if (!core) return content;
   return `${match?.[1] ?? ""}${marker}${core}${marker}${match?.[3] ?? ""}`;
+}
+
+/**
+ * A code element whose pre wrapper fell outside the copied range is still
+ * block code, recognizable by its highlighter line spans or embedded
+ * newlines. Wrapping it like inline code produces backtick-surrounded
+ * shell commands on paste.
+ */
+function isBlockCodeElement(element: Element, content: string): boolean {
+  if (content.includes("\n")) return true;
+  for (const child of element.childNodes) {
+    if (child.nodeType === Node.ELEMENT_NODE && (child as Element).classList.contains("line")) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function wrapInlineCode(code: string): string {
@@ -181,8 +217,10 @@ function serializeNode(node: Node): string {
       return `${serializeChildren(element).trim()}\n\n`;
     case "PRE":
       return serializeCodeBlock(element);
-    case "CODE":
-      return wrapInlineCode(element.textContent ?? "");
+    case "CODE": {
+      const content = element.textContent ?? "";
+      return isBlockCodeElement(element, content) ? content : wrapInlineCode(content);
+    }
     case "STRONG":
     case "B":
       return wrapInlineMarker(serializeChildren(element), "**");
@@ -253,4 +291,50 @@ export function serializeTableElementToCsv(table: Element): string {
     lines.push(cells.map((cell) => csvCell(cell.textContent ?? "")).join(","));
   }
   return lines.join("\n");
+}
+
+function sanitizedHtmlFrom(container: Element): string {
+  for (const node of container.querySelectorAll(SANITIZED_HTML_SELECTOR)) {
+    if (
+      node.classList.contains("chat-markdown-file-link") ||
+      node.closest(".chat-markdown-file-link")
+    ) {
+      if (node.getAttribute("aria-hidden") === "true" || node.localName === "svg") {
+        node.remove();
+      }
+      continue;
+    }
+    node.remove();
+  }
+  return `<meta charset="utf-8">${container.innerHTML}`;
+}
+
+export function chatMarkdownClipboardPayload(
+  selection: Selection,
+): MarkdownClipboardPayload | null {
+  const texts: string[] = [];
+  const htmls: string[] = [];
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    if (range.collapsed) continue;
+    const container = document.createElement("div");
+    container.appendChild(range.cloneContents());
+    const ancestor = range.commonAncestorContainer;
+    const ancestorElement =
+      ancestor.nodeType === Node.ELEMENT_NODE ? (ancestor as Element) : ancestor.parentElement;
+    if (ancestorElement?.closest("pre")) {
+      const text = range.toString();
+      if (text) {
+        texts.push(text);
+        htmls.push(sanitizedHtmlFrom(container));
+      }
+      continue;
+    }
+    const text = serializeRenderedMarkdownFragment(container);
+    if (!text) continue;
+    texts.push(text);
+    htmls.push(sanitizedHtmlFrom(container));
+  }
+  if (texts.length === 0) return null;
+  return { text: texts.join("\n\n"), html: htmls.join("") };
 }

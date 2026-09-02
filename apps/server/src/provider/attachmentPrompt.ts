@@ -1,8 +1,4 @@
-import {
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  type ChatAttachment,
-  type ChatPdfAttachment,
-} from "@t3tools/contracts";
+import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS, type ChatAttachment } from "@t3tools/contracts";
 
 export interface ResolvedProviderAttachment {
   readonly attachment: ChatAttachment;
@@ -12,7 +8,7 @@ export interface ResolvedProviderAttachment {
 }
 
 const pdfPathPrompt = (
-  attachment: ChatPdfAttachment,
+  attachment: ChatAttachment,
   originalPath: string,
   extractedTextPath: string,
 ) =>
@@ -36,9 +32,21 @@ export function buildProviderInputWithAttachments(input: {
       continue;
     }
 
+    if (resolved.attachment.mimeType.toLowerCase() !== "application/pdf") {
+      parts.push(
+        `[Attached file "${resolved.attachment.name}" is saved at: ${resolved.originalPath}]`,
+      );
+      continue;
+    }
+
     const extractedTextPath = resolved.extractedTextPath;
     const extractedText = resolved.extractedText;
-    if (!extractedTextPath || extractedText === undefined) continue;
+    if (!extractedTextPath || extractedText === undefined) {
+      parts.push(
+        `[Attached PDF "${resolved.attachment.name}" is saved at: ${resolved.originalPath}]`,
+      );
+      continue;
+    }
 
     const pathPrompt = pdfPathPrompt(resolved.attachment, resolved.originalPath, extractedTextPath);
     const inlinePrompt = [
