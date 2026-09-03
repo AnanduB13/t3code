@@ -4,7 +4,6 @@ import {
   createAppUpdateDeferral,
   createAppUpdateLaunchCheck,
   FOREGROUND_APP_UPDATE_RECHECK_AFTER_MS,
-  registerHiddenUpdateTap,
   runAppUpdateCheck,
   shouldRecheckAppUpdateOnForeground,
   type AppUpdateCheckState,
@@ -635,19 +634,5 @@ describe("shouldRecheckAppUpdateOnForeground", () => {
         true,
       ),
     ).toBe(false);
-  });
-});
-
-describe("registerHiddenUpdateTap", () => {
-  it("unlocks the manual check on the fifth tap", () => {
-    let count = 0;
-
-    for (let tap = 1; tap <= 5; tap += 1) {
-      const result = registerHiddenUpdateTap(count);
-      expect(result.shouldCheck).toBe(tap === 5);
-      count = result.nextCount;
-    }
-
-    expect(count).toBe(0);
   });
 });

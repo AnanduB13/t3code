@@ -9,8 +9,11 @@ export interface HomeListFilterMenuEnvironment {
 }
 
 export interface HomeListFilterMenuProject {
+  readonly environmentId?: EnvironmentId;
+  readonly faviconPath?: string | null;
   readonly key: string;
   readonly label: string;
+  readonly workspaceRoot?: string | null;
 }
 
 type HomeListFilterMenuAction = {

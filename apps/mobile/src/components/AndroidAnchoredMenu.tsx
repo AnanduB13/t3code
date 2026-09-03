@@ -41,6 +41,7 @@ export type AndroidAnchoredMenuProps = {
   readonly actions: readonly MenuAction[];
   readonly title?: string;
   readonly onPressAction?: MenuComponentProps["onPressAction"];
+  readonly renderLeadingAction?: (action: MenuAction) => ReactNode;
   /** Applied to the anchor wrapper — call sites flex these to fill toolbars. */
   readonly className?: string;
   readonly style?: StyleProp<ViewStyle>;
@@ -280,6 +281,7 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
                         )}
                         onPress={() => onPressItem(action)}
                       >
+                        {props.renderLeadingAction?.(action)}
                         <View className="flex-1 gap-0.5">
                           <Text
                             className={cn(

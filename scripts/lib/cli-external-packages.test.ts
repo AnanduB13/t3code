@@ -48,6 +48,7 @@ describe("shouldBundleCliDependency", () => {
       "@yuuang/ffi-rs-win32-x64-msvc",
       "@ff-labs/fff-node",
       "@clerk/electron-passkeys",
+      "playwright-core",
       "msgpackr-extract",
       "@msgpackr-extract/msgpackr-extract-win32-x64",
     ]) {
@@ -87,7 +88,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@ff-labs/fff-node", "msgpackr-extract", "node-pty"],
+      ["@ff-labs/fff-node", "msgpackr-extract", "node-pty", "playwright-core"],
     );
   });
 });

@@ -90,8 +90,11 @@ export function HomeRouteScreen() {
         environmentId: selectedEnvironmentId,
         projectGroupingMode: listOptions.projectGroupingMode,
       }).map((scope) => ({
+        environmentId: scope.representative.environmentId,
+        faviconPath: scope.representative.faviconPath,
         key: scope.key,
         label: scope.title,
+        workspaceRoot: scope.representative.workspaceRoot,
       })),
     [listOptions.projectGroupingMode, projects, selectedEnvironmentId],
   );

@@ -12,6 +12,7 @@ import {
   activeThreadAnchorTimestampMs,
   sortPinnedThreadsByOrderKey,
 } from "@t3tools/client-runtime/state/thread-sort";
+import type { ThreadSortInput } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
@@ -161,17 +162,12 @@ function firstValidTimestampMs(...candidates: ReadonlyArray<string | null | unde
 }
 
 /**
- * v2 sort: static order, newest anchor on top. Activity NEVER reorders the
- * list — a row holds its position between lifecycle transitions. The anchor
- * is creation time until an un-settle re-anchors it (see
- * activeThreadAnchorTimestampMs), so an un-settled thread surfaces at the
- * top instead of sinking back to its creation-order slot. Mirrors web's
- * sortThreadsForSidebar.
+ * v2 sort: most recently created, messaged, or re-entered active thread first.
+ * Mirrors web's sortThreadsForSidebar.
  */
 export function sortThreadsForListV2<
-  T extends {
+  T extends ThreadSortInput & {
     readonly id: string;
-    readonly createdAt: string;
     readonly unsettledAt?: string | null | undefined;
   },
 >(threads: readonly T[]): T[] {

@@ -3,8 +3,11 @@ import type {
   EnvironmentId,
   MessageId,
   ModelSelection,
+  OrchestrationQueuedMessage,
   OrchestrationThreadShell,
   ProviderInteractionMode,
+  ProviderInstanceId,
+  ProviderUsageWindow,
   RuntimeMode,
   ServerConfig as T3ServerConfig,
 } from "@t3tools/contracts";
@@ -20,7 +23,16 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { ActivityIndicator, Platform, Pressable, View, type ViewStyle } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+  type ViewStyle,
+} from "react-native";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import {
   composerAttachmentUploadBlockReason,
@@ -40,6 +52,7 @@ import Animated, {
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { providerUsageQuery } from "../../state/provider-usage";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
@@ -49,6 +62,7 @@ import {
 } from "../../components/ComposerAttachmentStrip";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
 import { GlassSurface } from "../../components/GlassSurface";
+import { SymbolView } from "../../components/AppSymbol";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import {
   ComposerActionButton,
@@ -115,6 +129,7 @@ export interface ThreadComposerProps {
   readonly selectedThread: OrchestrationThreadShell;
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
+  readonly queuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
@@ -124,6 +139,8 @@ export interface ThreadComposerProps {
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
+  readonly onSteerQueuedMessage: (messageId: MessageId) => Promise<void>;
+  readonly onRemoveQueuedMessage: (messageId: MessageId) => Promise<void>;
   readonly onSendMessage: () => Promise<MessageId | null>;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
@@ -152,6 +169,182 @@ export const COMPOSER_LAYOUT_TRANSITION =
     : LinearTransition.duration(COMPOSER_TRANSITION_DURATION_MS).reduceMotion(ReduceMotion.System);
 
 const AnimatedGlassSurface = Animated.createAnimatedComponent(GlassSurface);
+
+function preferredUsageWindow(
+  windows: ReadonlyArray<ProviderUsageWindow>,
+): ProviderUsageWindow | null {
+  return (
+    windows.find((window) => window.windowDurationMins === 10_080) ??
+    windows.find((window) => window.id === "seven_day") ??
+    windows[0] ??
+    null
+  );
+}
+
+const ProviderUsagePill = memo(function ProviderUsagePill(props: {
+  readonly environmentId: EnvironmentId;
+  readonly instanceId: ProviderInstanceId;
+}) {
+  const result = useAtomValue(
+    providerUsageQuery({ environmentId: props.environmentId, input: {} }),
+  );
+  if (!AsyncResult.isSuccess(result)) return null;
+
+  const provider = result.value.providers.find(
+    (candidate) => candidate.instanceId === props.instanceId && candidate.status === "available",
+  );
+  const usageWindow = provider ? preferredUsageWindow(provider.windows) : null;
+  if (!provider || !usageWindow) return null;
+
+  const remaining = Math.round(Math.max(0, Math.min(100, usageWindow.remainingPercent)));
+  const used = Math.max(0, Math.min(100, usageWindow.usedPercent));
+  const resetAt = usageWindow.resetsAt ? new Date(usageWindow.resetsAt) : null;
+  const resetLabel =
+    resetAt && Number.isFinite(resetAt.getTime())
+      ? `\nResets ${resetAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`
+      : "";
+
+  return (
+    <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}>
+      <Pressable
+        accessibilityLabel={`${provider.displayName} plan usage: ${remaining}% remaining`}
+        accessibilityRole="button"
+        onPress={() =>
+          Alert.alert(
+            `${provider.displayName} usage`,
+            `${usageWindow.label}: ${remaining}% remaining${resetLabel}`,
+          )
+        }
+        className="h-8 min-w-12 justify-center gap-1 rounded-full bg-subtle px-2.5 active:opacity-65"
+      >
+        <Text className="text-center text-2xs font-t3-bold tabular-nums text-foreground-muted">
+          {remaining}%
+        </Text>
+        <View className="h-1 overflow-hidden rounded-full bg-subtle-strong">
+          <View
+            className={
+              used >= 90
+                ? "h-full bg-red-500"
+                : used >= 75
+                  ? "h-full bg-amber-500"
+                  : "h-full bg-primary"
+            }
+            style={{ width: `${used}%` }}
+          />
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+});
+
+const QueuedPromptStack = memo(function QueuedPromptStack(props: {
+  readonly messages: ReadonlyArray<OrchestrationQueuedMessage>;
+  readonly onSteer: (messageId: MessageId) => Promise<void>;
+  readonly onRemove: (messageId: MessageId) => Promise<void>;
+}) {
+  const [busyMessageId, setBusyMessageId] = useState<MessageId | null>(null);
+
+  const runAction = useCallback(
+    async (messageId: MessageId, action: (messageId: MessageId) => Promise<void>) => {
+      setBusyMessageId(messageId);
+      try {
+        await action(messageId);
+      } finally {
+        setBusyMessageId((current) => (current === messageId ? null : current));
+      }
+    },
+    [],
+  );
+
+  if (props.messages.length === 0) return null;
+
+  return (
+    <Animated.View
+      accessibilityLabel="Prompt queue"
+      entering={FadeInDown.duration(180).reduceMotion(ReduceMotion.System)}
+      exiting={FadeOutDown.duration(120).reduceMotion(ReduceMotion.System)}
+      className="mx-3 -mb-3 overflow-hidden rounded-t-[20px]"
+    >
+      <GlassSurface
+        chrome="none"
+        fallbackClassName="border border-border bg-card-translucent"
+        style={{ borderRadius: 20 }}
+      >
+        <ScrollView
+          accessibilityLabel={`${props.messages.length} queued prompt${props.messages.length === 1 ? "" : "s"}`}
+          bounces={false}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={props.messages.length > 3}
+          style={{ maxHeight: 168 }}
+        >
+          {props.messages.map((message, index) => {
+            const isBusy = busyMessageId === message.messageId;
+            const attachmentLabel =
+              message.attachments.length > 0
+                ? `${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`
+                : null;
+            const promptLabel = message.text.trim() || attachmentLabel || "Queued prompt";
+
+            return (
+              <Animated.View
+                key={message.messageId}
+                entering={FadeInDown.duration(180).reduceMotion(ReduceMotion.System)}
+                exiting={FadeOut.duration(100).reduceMotion(ReduceMotion.System)}
+                className={`min-h-12 flex-row items-center gap-2 px-3 py-2 ${index > 0 ? "border-t border-border" : ""}`}
+              >
+                <View className="size-6 shrink-0 items-center justify-center rounded-full bg-subtle">
+                  <Text className="text-2xs font-t3-bold text-foreground-muted">{index + 1}</Text>
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm text-foreground" numberOfLines={1}>
+                    {promptLabel}
+                  </Text>
+                  {message.text.trim() && attachmentLabel ? (
+                    <Text className="text-2xs text-foreground-muted" numberOfLines={1}>
+                      {attachmentLabel}
+                    </Text>
+                  ) : null}
+                </View>
+                <Pressable
+                  accessibilityLabel={`Steer queued prompt ${index + 1}`}
+                  accessibilityRole="button"
+                  disabled={isBusy}
+                  onPress={() => void runAction(message.messageId, props.onSteer)}
+                  className="h-8 flex-row items-center gap-1 rounded-full bg-subtle px-2.5 active:opacity-65 disabled:opacity-40"
+                >
+                  <SymbolView
+                    name="arrow.turn.left.up"
+                    size={13}
+                    tintColorClassName="accent-foreground-muted"
+                  />
+                  <Text className="text-xs font-t3-bold text-foreground-muted">Steer</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel={`Remove queued prompt ${index + 1}`}
+                  accessibilityRole="button"
+                  disabled={isBusy}
+                  onPress={() => void runAction(message.messageId, props.onRemove)}
+                  className="size-8 items-center justify-center rounded-full active:bg-subtle active:opacity-65 disabled:opacity-40"
+                >
+                  {isBusy ? (
+                    <ActivityIndicator size="small" colorClassName="accent-icon-muted" />
+                  ) : (
+                    <SymbolView
+                      name="trash"
+                      size={15}
+                      tintColorClassName="accent-foreground-muted"
+                    />
+                  )}
+                </Pressable>
+              </Animated.View>
+            );
+          })}
+        </ScrollView>
+        <View className="h-3" />
+      </GlassSurface>
+    </Animated.View>
+  );
+});
 
 export function ComposerSurface(props: {
   readonly children: ReactNode;
@@ -319,13 +512,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
   const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
-  const showStopAction =
-    !hasContent &&
-    (props.selectedThread.session?.status === "running" ||
-      props.selectedThread.session?.status === "starting");
+  const isThreadWorking =
+    props.selectedThread.session?.status === "running" ||
+    props.selectedThread.session?.status === "starting";
+  const showStopAction = !hasContent && isThreadWorking;
 
   const sendLabel =
-    props.connectionState !== "connected" || props.queueCount > 0 ? "Queue" : "Send";
+    props.connectionState !== "connected" ||
+    props.queueCount > 0 ||
+    props.queuedMessages.length > 0 ||
+    isThreadWorking
+      ? "Queue"
+      : "Send";
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const connectionStatus = composerConnectionStatus({
@@ -590,6 +788,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           />
         ) : null}
 
+        <QueuedPromptStack
+          messages={props.queuedMessages}
+          onSteer={props.onSteerQueuedMessage}
+          onRemove={props.onRemoveQueuedMessage}
+        />
+
         <ComposerSurface
           style={
             isExpanded
@@ -769,13 +973,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     onDismissError={voiceInput.cancel}
                   />
                 ) : (
-                  <View className="min-w-0 flex-1 flex-row items-center justify-between">
+                  <View className="min-w-0 flex-1 flex-row items-center">
                     <ComposerAttachmentButton
                       supportsFiles={Boolean(
                         props.serverConfig?.environment.capabilities.fileAttachments,
                       )}
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
+                    />
+                    <View className="flex-1" />
+                    <ProviderUsagePill
+                      environmentId={props.environmentId}
+                      instanceId={currentModelSelection.instanceId}
                     />
                     <View className="min-w-0 shrink" style={{ maxWidth: 152 }}>
                       <ComposerInlineControl

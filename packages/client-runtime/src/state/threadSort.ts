@@ -70,18 +70,19 @@ export function getThreadSortTimestamp(
 }
 
 /**
- * Sort anchor for the active thread list: creation time, re-anchored to
- * unsettledAt when the thread last re-entered the active list (an explicit
- * un-settle, or a settled thread waking on activity). The list stays static
- * between lifecycle transitions, but an un-settled thread surfaces at the
- * top instead of sinking back to its creation-order slot. Shared by web and
- * mobile so both render the same order. Malformed timestamps sink to 0.
+ * Sort anchor for the active thread list: latest activity, creation, or
+ * the time the thread re-entered the active list. Shared by web and mobile so
+ * a newly created, resumed, or newly messaged thread consistently surfaces at
+ * the top. Malformed timestamps sink to 0.
  */
-export function activeThreadAnchorTimestampMs(thread: {
-  readonly createdAt: string;
-  readonly unsettledAt?: string | null | undefined;
-}): number {
+export function activeThreadAnchorTimestampMs(
+  thread: ThreadSortInput & {
+    readonly unsettledAt?: string | null | undefined;
+  },
+): number {
   return Math.max(
+    getThreadSortTimestamp(thread, "updated_at"),
+    toSortableTimestamp(thread.updatedAt) ?? 0,
     toSortableTimestamp(thread.createdAt) ?? 0,
     toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
   );

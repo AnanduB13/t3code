@@ -147,6 +147,10 @@ export function ControlPillMenu(
   props: Omit<ComponentProps<typeof MenuView>, "children" | "themeVariant"> & {
     readonly children: ReactNode;
     readonly className?: string;
+    /** Android-only custom content rendered before an action's title. */
+    readonly renderLeadingAction?: (
+      action: ComponentProps<typeof MenuView>["actions"][number],
+    ) => ReactNode;
   },
 ) {
   const { themeAppearance } = useAppearancePreferences();
@@ -167,6 +171,7 @@ export function ControlPillMenu(
           title={props.title}
           style={props.style}
           onPressAction={props.onPressAction}
+          renderLeadingAction={props.renderLeadingAction}
         >
           {(open) =>
             cloneElement(child, {
@@ -186,13 +191,14 @@ export function ControlPillMenu(
         title={props.title}
         style={props.style}
         onPressAction={props.onPressAction}
+        renderLeadingAction={props.renderLeadingAction}
       >
         {props.children}
       </AndroidAnchoredMenu>
     );
   }
 
-  const { className: _className, ...menuProps } = props;
+  const { className: _className, renderLeadingAction: _renderLeadingAction, ...menuProps } = props;
   let children = menuProps.children;
   if (props.shouldOpenOnLongPress && isValidElement(children)) {
     const child = children as ReactElement<Pick<PressableProps, "onTouchStart" | "onPress">>;

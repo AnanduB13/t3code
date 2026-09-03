@@ -14,6 +14,7 @@ Object.assign(process.env, repoEnv);
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
 const appIdentity = resolveMobileAppIdentity(APP_VARIANT, repoEnv.T3CODE_ANDROID_PACKAGE);
 const expoProjectId = resolveExpoProjectId(repoEnv.T3CODE_MOBILE_EAS_PROJECT_ID);
+const updateChannel = APP_VARIANT === "production" ? "after-dark" : APP_VARIANT;
 const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
 const runtimeVersionPolicy =
   process.env.MOBILE_VERSION_POLICY ??
@@ -176,7 +177,7 @@ const config: ExpoConfig = {
         enabled: true,
         url: `https://u.expo.dev/${expoProjectId}`,
         requestHeaders: {
-          "expo-channel-name": APP_VARIANT,
+          "expo-channel-name": updateChannel,
         },
         checkAutomatically: "ON_LOAD",
         fallbackToCacheTimeout: 0,

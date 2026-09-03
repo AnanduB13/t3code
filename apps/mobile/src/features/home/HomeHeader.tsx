@@ -7,6 +7,7 @@ import type { SearchBarCommands } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ControlPillMenu } from "../../components/ControlPill";
+import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { SymbolView } from "../../components/AppSymbol";
 import { T3Wordmark } from "../../components/T3Wordmark";
 import { HOME_HORIZONTAL_INSET } from "../../lib/layoutMetrics";
@@ -73,8 +74,8 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
   // key the "customized" icon state off the environment filter alone.
   const threadListV2Enabled = useThreadListV2Enabled();
   const hasCustomListOptions = threadListV2Enabled
-    ? props.selectedEnvironmentId !== null || props.selectedProjectKey !== null
-    : hasCustomHomeListOptions(props);
+    ? props.selectedEnvironmentId !== null
+    : hasCustomHomeListOptions({ ...props, selectedProjectKey: null });
   const menuActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -93,26 +94,6 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
           })),
         ],
       },
-      ...(props.projects.length === 0
-        ? []
-        : ([
-            {
-              id: "project",
-              title: "Project",
-              subactions: [
-                {
-                  id: "project:all",
-                  title: "All projects",
-                  state: checkedMenuState(props.selectedProjectKey === null),
-                },
-                ...props.projects.map((project) => ({
-                  id: `project:${project.key}`,
-                  title: project.label,
-                  state: checkedMenuState(props.selectedProjectKey === project.key),
-                })),
-              ],
-            },
-          ] satisfies MenuAction[])),
       ...(threadListV2Enabled
         ? []
         : ([
@@ -139,12 +120,52 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
     [
       props.environments,
       props.projectSortOrder,
-      props.projects,
       props.selectedEnvironmentId,
-      props.selectedProjectKey,
       props.threadSortOrder,
       threadListV2Enabled,
     ],
+  );
+  const projectActions = useMemo<MenuAction[]>(
+    () => [
+      {
+        id: "project:all",
+        title: "All projects",
+        state: checkedMenuState(props.selectedProjectKey === null),
+      },
+      ...props.projects.map((project) => ({
+        id: `project:${project.key}`,
+        title: project.label,
+        state: checkedMenuState(props.selectedProjectKey === project.key),
+      })),
+    ],
+    [props.projects, props.selectedProjectKey],
+  );
+  const selectedProjectLabel =
+    props.projects.find((project) => project.key === props.selectedProjectKey)?.label ??
+    "All projects";
+  const selectedProject =
+    props.projects.find((project) => project.key === props.selectedProjectKey) ?? null;
+  const renderProjectFavicon = useCallback(
+    (action: MenuAction) => {
+      const project = props.projects.find((candidate) => action.id === `project:${candidate.key}`);
+      if (project?.environmentId === undefined) {
+        return (
+          <View className="size-5 items-center justify-center">
+            <SymbolView name="folder" size={17} tintColor={mutedColor} type="monochrome" />
+          </View>
+        );
+      }
+      return (
+        <ProjectFavicon
+          environmentId={project.environmentId}
+          faviconPath={project.faviconPath}
+          projectTitle={project.label}
+          size={20}
+          workspaceRoot={project.workspaceRoot}
+        />
+      );
+    },
+    [mutedColor, props.projects],
   );
   const handleMenuAction = useCallback(
     (event: { nativeEvent: { event: string } }) => {
@@ -264,31 +285,75 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
             </Pressable>
           </View>
 
-          <View className="min-h-12 flex-row items-center gap-2.5 rounded-2xl border border-input-border bg-input px-3.5">
-            <SymbolView name="magnifyingglass" size={17} tintColor={mutedColor} type="monochrome" />
-            <TextInput
-              accessibilityLabel="Search threads"
-              autoCapitalize="none"
-              onChangeText={props.onSearchQueryChange}
-              placeholder="Search threads"
-              placeholderTextColorClassName="accent-placeholder"
-              className="flex-1 py-2.5 text-base font-sans text-foreground"
-              value={props.searchQuery}
-            />
-            {props.searchQuery.length > 0 ? (
+          <View className="min-h-12 flex-row gap-2.5">
+            <ControlPillMenu
+              actions={projectActions}
+              className="w-[42%]"
+              onPressAction={handleMenuAction}
+              renderLeadingAction={renderProjectFavicon}
+            >
               <Pressable
-                accessibilityLabel="Clear search"
-                hitSlop={10}
-                onPress={() => props.onSearchQueryChange("")}
+                accessibilityLabel={`Project: ${selectedProjectLabel}`}
+                accessibilityRole="button"
+                className="min-h-12 flex-row items-center gap-2 rounded-2xl border border-input-border bg-input px-3"
               >
+                {selectedProject?.environmentId === undefined ? (
+                  <SymbolView name="folder" size={17} tintColor={mutedColor} type="monochrome" />
+                ) : (
+                  <ProjectFavicon
+                    environmentId={selectedProject.environmentId}
+                    faviconPath={selectedProject.faviconPath}
+                    projectTitle={selectedProject.label}
+                    size={18}
+                    workspaceRoot={selectedProject.workspaceRoot}
+                  />
+                )}
+                <RNText
+                  numberOfLines={1}
+                  className="min-w-0 flex-1 text-sm font-t3-medium text-foreground"
+                >
+                  {selectedProjectLabel}
+                </RNText>
                 <SymbolView
-                  name="xmark.circle.fill"
-                  size={17}
+                  name="chevron.down"
+                  size={14}
                   tintColor={mutedColor}
                   type="monochrome"
                 />
               </Pressable>
-            ) : null}
+            </ControlPillMenu>
+
+            <View className="min-h-12 min-w-0 flex-1 flex-row items-center gap-2 rounded-2xl border border-input-border bg-input px-3">
+              <SymbolView
+                name="magnifyingglass"
+                size={17}
+                tintColor={mutedColor}
+                type="monochrome"
+              />
+              <TextInput
+                accessibilityLabel="Search threads"
+                autoCapitalize="none"
+                onChangeText={props.onSearchQueryChange}
+                placeholder="Search"
+                placeholderTextColorClassName="accent-placeholder"
+                className="min-w-0 flex-1 py-2.5 text-base font-sans text-foreground"
+                value={props.searchQuery}
+              />
+              {props.searchQuery.length > 0 ? (
+                <Pressable
+                  accessibilityLabel="Clear search"
+                  hitSlop={10}
+                  onPress={() => props.onSearchQueryChange("")}
+                >
+                  <SymbolView
+                    name="xmark.circle.fill"
+                    size={17}
+                    tintColor={mutedColor}
+                    type="monochrome"
+                  />
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         </View>
       </View>

@@ -21,7 +21,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useWindowDimensions, View } from "react-native";
+import { Platform, useWindowDimensions, View } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { AsyncResult } from "effect/unstable/reactivity";
 
@@ -47,6 +47,7 @@ import {
 } from "../keyboard/hardwareKeyboardCommands";
 import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
 import { HomeListOptionsProvider } from "../home/home-list-options";
+import { MobileBottomDock } from "../navigation/MobileBottomDock";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
@@ -190,6 +191,7 @@ export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefi
 
 export function AdaptiveWorkspaceLayout(props: {
   readonly children: ReactNode;
+  readonly navigationPathname: string;
   readonly pathname: string;
 }) {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
@@ -213,6 +215,7 @@ export function AdaptiveWorkspaceLayout(props: {
 function AdaptiveWorkspaceLayoutContent(
   props: {
     readonly children: ReactNode;
+    readonly navigationPathname: string;
     readonly pathname: string;
   } & {
     readonly projectGroupingMode: SidebarProjectGroupingMode;
@@ -560,6 +563,9 @@ function AdaptiveWorkspaceLayoutContent(
             >
               {props.children}
             </View>
+            {Platform.OS === "android" && !layout.usesSplitView ? (
+              <MobileBottomDock pathname={props.navigationPathname} />
+            ) : null}
           </View>
           <WorkspaceInspectorPane
             active={workspaceInspector?.active ?? false}

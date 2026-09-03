@@ -34,6 +34,11 @@ import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
+import {
+  MobileAgentsRouteScreen,
+  MobilePullRequestsRouteScreen,
+  MobileScheduledRouteScreen,
+} from "./features/navigation/MobileUnavailableRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectRepositoryRoute } from "./features/projects/AddProjectRepositoryRoute";
@@ -406,7 +411,7 @@ function RootStackLayout(props: {
       <ThreadOutboxDrainWorker />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
-        <AdaptiveWorkspaceLayout pathname={workspacePathname}>
+        <AdaptiveWorkspaceLayout pathname={workspacePathname} navigationPathname={pathname}>
           {props.children}
         </AdaptiveWorkspaceLayout>
       </ExistingThreadSettingsRouteProvider>
@@ -469,6 +474,21 @@ export const RootStack = createNativeStackNavigator({
         headerBackVisible: false,
         ...getCompactBrandHeaderOptions(),
       },
+    }),
+    Agents: createNativeStackScreen({
+      screen: MobileAgentsRouteScreen,
+      linking: "agents",
+      options: { headerShown: false },
+    }),
+    Scheduled: createNativeStackScreen({
+      screen: MobileScheduledRouteScreen,
+      linking: "scheduled",
+      options: { headerShown: false },
+    }),
+    PullRequests: createNativeStackScreen({
+      screen: MobilePullRequestsRouteScreen,
+      linking: "pull-requests",
+      options: { headerShown: false },
     }),
     Thread: createNativeStackScreen({
       screen: ThreadRouteScreen,

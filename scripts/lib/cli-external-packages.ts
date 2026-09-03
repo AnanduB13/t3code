@@ -31,6 +31,11 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "@yuuang/",
   "@ff-labs/",
   "@clerk/electron-passkeys",
+  // Playwright ships pre-bundled CommonJS helpers that resolve assets relative
+  // to their own package directory (for example open/xdg-open). Rebundling
+  // those helpers into the ESM CLI erases their module-scoped __dirname and
+  // crashes the server before startup.
+  "playwright-core",
   "@msgpackr-extract/",
   "msgpackr-extract",
   "node-gyp-build",

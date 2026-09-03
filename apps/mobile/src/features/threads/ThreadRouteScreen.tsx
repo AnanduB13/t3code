@@ -7,13 +7,17 @@ import {
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
-import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type MessageId, type ProjectScript } from "@t3tools/contracts";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { Platform, ScrollView, View } from "react-native";
+import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
@@ -214,6 +218,12 @@ function ThreadRouteContent(
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
+  const steerQueuedMessage = useAtomCommand(threadEnvironment.steerQueuedMessage, {
+    reportFailure: false,
+  });
+  const removeQueuedMessage = useAtomCommand(threadEnvironment.removeQueuedMessage, {
+    reportFailure: false,
+  });
   const navigation = useNavigation();
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
@@ -223,6 +233,40 @@ function ThreadRouteContent(
     environmentIdRaw !== null && threadId !== null ? `${environmentIdRaw}:${threadId}` : null;
   const [inspectorSelection, setInspectorSelection] = useState<ThreadInspectorSelection | null>(
     () => (props.renderInspector ? { routeThreadIdentity, mode: "route" } : null),
+  );
+  const handleSteerQueuedMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!selectedThread) return;
+      const result = await steerQueuedMessage({
+        environmentId: selectedThread.environmentId,
+        input: { threadId: selectedThread.id, messageId },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        Alert.alert(
+          "Couldn’t steer prompt",
+          error instanceof Error ? error.message : "Try again in a moment.",
+        );
+      }
+    },
+    [selectedThread, steerQueuedMessage],
+  );
+  const handleRemoveQueuedMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!selectedThread) return;
+      const result = await removeQueuedMessage({
+        environmentId: selectedThread.environmentId,
+        input: { threadId: selectedThread.id, messageId },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        Alert.alert(
+          "Couldn’t remove prompt",
+          error instanceof Error ? error.message : "Try again in a moment.",
+        );
+      }
+    },
+    [removeQueuedMessage, selectedThread],
   );
   const inspectorMode = (() => {
     if (inspectorSelection?.routeThreadIdentity === routeThreadIdentity) {
@@ -789,6 +833,7 @@ function ThreadRouteContent(
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           threadCwd={selectedThreadCwd}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
+          selectedThreadQueuedMessages={composer.selectedThreadQueuedMessages}
           layoutVariant={layout.variant}
           usesAutomaticContentInsets={usesNativeHeaderGlass}
           onOpenConnectionEditor={handleOpenConnectionEditor}
@@ -799,6 +844,8 @@ function ThreadRouteContent(
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
           onStopThread={handleStopThread}
+          onSteerQueuedMessage={handleSteerQueuedMessage}
+          onRemoveQueuedMessage={handleRemoveQueuedMessage}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}

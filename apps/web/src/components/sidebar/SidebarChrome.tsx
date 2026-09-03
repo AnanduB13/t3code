@@ -1,12 +1,15 @@
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  ChevronDownIcon,
+  Code2Icon,
+  FolderKanbanIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
-import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
+import { useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { APP_EDITION_LABEL } from "../../branding";
@@ -21,6 +24,7 @@ import {
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import {
   SidebarFooter,
   SidebarHeader,
@@ -82,35 +86,50 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+  const navigate = useNavigate();
+
   return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      <T3Wordmark aria-label="T3" className="h-2.5 w-auto shrink-0" />
-      <span className="flex min-w-0 flex-col items-start">
-        <span
-          className={cn(
-            "-translate-y-px truncate text-sm leading-3.5 font-medium tracking-tight",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
-          )}
-        >
-          Code
+    <Menu>
+      <MenuTrigger
+        aria-label="Switch T3 Code workspace mode"
+        className={cn(
+          "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md px-1 outline-hidden ring-ring hover:bg-white/10 focus-visible:ring-2",
+          onBackdrop ? "text-white" : "text-foreground",
+        )}
+      >
+        <span className="flex min-w-0 flex-col items-start">
+          <span className="flex items-center gap-1 text-sm leading-3.5 font-medium tracking-tight">
+            <T3Wordmark aria-label="T3" className="h-2.5 w-auto shrink-0" />
+            <span className={onBackdrop ? "text-white/70" : "text-muted-foreground"}>Code</span>
+          </span>
+          <span
+            className={cn(
+              "max-w-full truncate text-[10px] leading-3 tracking-tight",
+              onBackdrop ? "text-white/70" : "text-muted-foreground",
+            )}
+          >
+            {APP_EDITION_LABEL}
+          </span>
         </span>
-        <span
-          className={cn(
-            "max-w-full truncate text-[10px] leading-3 tracking-tight",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
-          )}
-        >
-          {APP_EDITION_LABEL}
-        </span>
-      </span>
-    </Link>
+        <ChevronDownIcon className="size-3 opacity-60" />
+      </MenuTrigger>
+      <MenuPopup align="start" className="w-56">
+        <MenuItem onClick={() => void navigate({ to: "/" })}>
+          <Code2Icon />
+          <span className="flex flex-col">
+            <span>T3 Code</span>
+            <span className="text-xs text-muted-foreground">Agents and conversations</span>
+          </span>
+        </MenuItem>
+        <MenuItem onClick={() => void navigate({ to: "/finder" })}>
+          <FolderKanbanIcon />
+          <span className="flex flex-col">
+            <span>Finder &amp; IDE</span>
+            <span className="text-xs text-muted-foreground">Browse and edit project files</span>
+          </span>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 

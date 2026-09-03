@@ -243,35 +243,48 @@ export interface ThreadFeedProps {
 
 function MessageAttachmentImage(props: {
   readonly environmentId: EnvironmentId;
-  readonly attachmentId: string;
-  readonly name: string;
-  readonly className: string;
+  readonly attachment: ChatImageAttachment;
   readonly onPressPreview: (source: FilePreviewSource) => void;
 }) {
   const sourceIdentifier = useId();
   const uri = useAssetUrl(props.environmentId, {
     _tag: "attachment",
-    attachmentId: props.attachmentId,
+    attachmentId: props.attachment.id,
   });
 
-  if (uri === null) {
-    return (
-      <View className={`${props.className} items-center justify-center`}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
-
   return (
-    <PresentationSource identifier={sourceIdentifier}>
+    <PresentationSource identifier={sourceIdentifier} style={{ width: 224, maxWidth: "100%" }}>
       <Pressable
         accessibilityRole="imagebutton"
-        accessibilityLabel={`Open ${props.name}`}
+        accessibilityLabel={`Open ${props.attachment.name}`}
+        accessibilityValue={{ text: formatAttachmentSize(props.attachment.sizeBytes) }}
+        accessibilityState={{ disabled: uri === null }}
+        disabled={uri === null}
+        className="h-16 w-full flex-row items-center gap-2.5 rounded-lg border border-border/80 bg-background px-3 active:bg-subtle"
         onPress={() =>
-          props.onPressPreview({ kind: "image", uri, name: props.name, sourceIdentifier })
+          props.onPressPreview({
+            kind: "image",
+            uri: uri!,
+            name: props.attachment.name,
+            sourceIdentifier,
+          })
         }
       >
-        <Image source={{ uri }} className={props.className} resizeMode="cover" />
+        <View className="h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-subtle">
+          {uri === null ? (
+            <ActivityIndicator size="small" />
+          ) : (
+            <Image source={{ uri }} className="h-full w-full" resizeMode="cover" />
+          )}
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className="font-t3-medium text-sm text-foreground" numberOfLines={1}>
+            {props.attachment.name}
+          </Text>
+          <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+            {formatAttachmentSize(props.attachment.sizeBytes)}
+          </Text>
+        </View>
       </Pressable>
     </PresentationSource>
   );
@@ -1527,6 +1540,7 @@ function renderFeedEntry(
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = message.attachments ?? [];
+    const imageAttachments = attachments.filter(isImageAttachment);
     const hasReviewCommentContext = message.text.includes("<review_comment");
     // A bubble that sizes itself from its content cannot lay out a block whose
     // intrinsic width overflows `maxWidth`: Android positions the bubble's
@@ -1573,17 +1587,20 @@ function renderFeedEntry(
                 renderImage={props.renderMarkdownImage}
               />
             ) : null}
+            {imageAttachments.length > 0 ? (
+              <View className="flex-row flex-wrap gap-2">
+                {imageAttachments.map((attachment) => (
+                  <MessageAttachmentImage
+                    key={attachment.id}
+                    environmentId={props.environmentId}
+                    attachment={attachment}
+                    onPressPreview={props.onPressPreview}
+                  />
+                ))}
+              </View>
+            ) : null}
             {attachments.map((attachment) => {
-              return isImageAttachment(attachment) ? (
-                <MessageAttachmentImage
-                  key={attachment.id}
-                  environmentId={props.environmentId}
-                  attachmentId={attachment.id}
-                  name={attachment.name}
-                  className="aspect-[1.3] w-full rounded-[14px] bg-white/15"
-                  onPressPreview={props.onPressPreview}
-                />
-              ) : isFileAttachment(attachment) ? (
+              return isImageAttachment(attachment) ? null : isFileAttachment(attachment) ? (
                 <MessageAttachmentFile
                   key={attachment.id}
                   environmentId={props.environmentId}
@@ -1636,17 +1653,20 @@ function renderFeedEntry(
             skills={props.skills}
           />
         ) : null}
+        {imageAttachments.length > 0 ? (
+          <View className="mt-1.5 flex-row flex-wrap gap-2">
+            {imageAttachments.map((attachment) => (
+              <MessageAttachmentImage
+                key={attachment.id}
+                environmentId={props.environmentId}
+                attachment={attachment}
+                onPressPreview={props.onPressPreview}
+              />
+            ))}
+          </View>
+        ) : null}
         {attachments.map((attachment) => {
-          return isImageAttachment(attachment) ? (
-            <MessageAttachmentImage
-              key={attachment.id}
-              environmentId={props.environmentId}
-              attachmentId={attachment.id}
-              name={attachment.name}
-              className="mt-1.5 aspect-[1.3] w-full rounded-[18px] bg-adaptive-neutral-200-800"
-              onPressPreview={props.onPressPreview}
-            />
-          ) : isFileAttachment(attachment) ? (
+          return isImageAttachment(attachment) ? null : isFileAttachment(attachment) ? (
             <MessageAttachmentFile
               key={attachment.id}
               environmentId={props.environmentId}

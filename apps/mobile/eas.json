@@ -46,7 +46,7 @@
         "APP_VARIANT": "production",
         "NODE_OPTIONS": "--max-old-space-size=4096"
       },
-      "channel": "production",
+      "channel": "after-dark",
       "environment": "production",
       "autoIncrement": true
     }

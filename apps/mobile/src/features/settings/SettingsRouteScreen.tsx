@@ -51,7 +51,6 @@ import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import {
   type AppUpdateCheckState,
   isAppUpdateCheckAvailable,
-  registerHiddenUpdateTap,
   runAppUpdateCheck,
 } from "../updates/app-updates";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -713,7 +712,6 @@ function LegacySettingsSection() {
 function AppSettingsSection() {
   const [updateState, setUpdateState] = useState<AppUpdateCheckState>("idle");
   const updateInFlight = useRef(false);
-  const hiddenUpdateTapCount = useRef(0);
 
   const version = Constants.expoConfig?.version ?? "0.0.0";
   // Fall back to "production" to match resolveAppVariant in app.config.ts, so a
@@ -739,7 +737,7 @@ function AppSettingsSection() {
     if (updateInFlight.current) return;
     updateInFlight.current = true;
     try {
-      // The user asked for this restart by tapping the version row, so it may
+      // The user asked for this restart from the update row, so it may
       // apply immediately instead of prompting.
       await runAppUpdateCheck({
         applyMode: "immediate",
@@ -750,15 +748,6 @@ function AppSettingsSection() {
       updateInFlight.current = false;
     }
   }, []);
-
-  const handleVersionPress = useCallback(() => {
-    if (!updateCheckAvailable || updateInFlight.current) return;
-    const tap = registerHiddenUpdateTap(hiddenUpdateTapCount.current);
-    hiddenUpdateTapCount.current = tap.nextCount;
-    if (tap.shouldCheck) {
-      void checkForUpdate();
-    }
-  }, [checkForUpdate, updateCheckAvailable]);
 
   const statusLabel =
     updateState === "checking"
@@ -799,17 +788,15 @@ function AppSettingsSection() {
       <SettingsRow icon="internaldrive" label="Client Storage" target="SettingsClientStorage" />
       <SettingsRow icon="doc.text" label="Legal" fullScreenTarget="SettingsLegal" />
       {updateCheckAvailable ? (
-        <Pressable
-          accessibilityLabel={`Version ${versionLabel}`}
-          accessibilityRole="text"
+        <SettingsRow
+          icon="arrow.down.circle"
+          label="Check for Updates"
+          value={statusLabel ?? undefined}
           disabled={busy}
-          onPress={handleVersionPress}
-        >
-          {versionRow}
-        </Pressable>
-      ) : (
-        versionRow
-      )}
+          onPress={() => void checkForUpdate()}
+        />
+      ) : null}
+      {versionRow}
     </SettingsSection>
   );
 }
