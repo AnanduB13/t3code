@@ -7,6 +7,21 @@ export type ThreadCompletionSnapshot = ReadonlyMap<
   { readonly turnId: string; readonly state: string }
 >;
 
+type CloseableNotification = {
+  close: () => void;
+};
+
+export function closeThreadSystemNotification<T extends CloseableNotification>(
+  notifications: Map<string, T>,
+  threadKey: string,
+): boolean {
+  const notification = notifications.get(threadKey);
+  if (!notification) return false;
+  notifications.delete(threadKey);
+  notification.close();
+  return true;
+}
+
 export function snapshotThreadCompletions(
   threads: readonly EnvironmentThreadShell[],
 ): ThreadCompletionSnapshot {

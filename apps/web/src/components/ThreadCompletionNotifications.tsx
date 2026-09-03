@@ -2,16 +2,17 @@
 
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef } from "react";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { isElectron } from "../env";
 import { useProjects, useThreadShells } from "../state/entities";
-import { buildThreadRouteParams } from "../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
 import { useUiStateStore } from "../uiStateStore";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import {
+  closeThreadSystemNotification,
   findNewlyCompletedThreads,
   shouldShowSystemCompletionNotification,
   snapshotThreadCompletions,
@@ -31,6 +32,13 @@ export function ThreadCompletionNotifications() {
   const navigate = useNavigate();
   const markThreadVisited = useUiStateStore((state) => state.markThreadVisited);
   const previousRef = useRef<ThreadCompletionSnapshot | null>(null);
+  const systemNotificationsRef = useRef(new Map<string, Notification>());
+  const routeTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
+  const activeThreadKey =
+    routeTarget?.kind === "server" ? scopedThreadKey(routeTarget.threadRef) : null;
   const projectLabels = useMemo(
     () =>
       new Map(
@@ -51,6 +59,22 @@ export function ThreadCompletionNotifications() {
     },
     [navigate],
   );
+
+  useEffect(() => {
+    if (activeThreadKey === null) return;
+
+    const closeActiveThreadNotification = () => {
+      closeThreadSystemNotification(systemNotificationsRef.current, activeThreadKey);
+    };
+
+    closeActiveThreadNotification();
+    window.addEventListener("focus", closeActiveThreadNotification);
+    document.addEventListener("visibilitychange", closeActiveThreadNotification);
+    return () => {
+      window.removeEventListener("focus", closeActiveThreadNotification);
+      document.removeEventListener("visibilitychange", closeActiveThreadNotification);
+    };
+  }, [activeThreadKey]);
 
   const notifyCompletion = useEffectEvent((thread: EnvironmentThreadShell) => {
     const projectLabel = projectLabelForThread(thread, projectLabels);
@@ -81,14 +105,22 @@ export function ThreadCompletionNotifications() {
       ) {
         return;
       }
+      const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      closeThreadSystemNotification(systemNotificationsRef.current, threadKey);
       const notification = new Notification(`${APP_DISPLAY_NAME} · Task completed`, {
         body: projectLabel ? `${thread.title}\n${projectLabel}` : thread.title,
-        tag: `thread-completed:${scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))}`,
+        tag: `thread-completed:${threadKey}`,
       });
+      systemNotificationsRef.current.set(threadKey, notification);
+      notification.onclose = () => {
+        if (systemNotificationsRef.current.get(threadKey) === notification) {
+          systemNotificationsRef.current.delete(threadKey);
+        }
+      };
       notification.onclick = () => {
         window.focus();
         handleOpen();
-        notification.close();
+        closeThreadSystemNotification(systemNotificationsRef.current, threadKey);
       };
     };
 

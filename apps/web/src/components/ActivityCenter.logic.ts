@@ -32,11 +32,13 @@ export function buildCompletionNotifications(input: {
       if (thread.archivedAt !== null || thread.latestTurn?.state !== "completed" || !completedAt) {
         return [];
       }
+      const unread = isThreadCompletionUnread(thread, input.lastVisitedAtByThreadKey);
+      if (!unread) return [];
       return [
         {
           thread,
           completedAt,
-          unread: isThreadCompletionUnread(thread, input.lastVisitedAtByThreadKey),
+          unread,
         },
       ];
     })

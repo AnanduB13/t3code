@@ -52,7 +52,7 @@ function thread(
 }
 
 describe("activity center completion notifications", () => {
-  it("sorts current completions and shares the existing visit-based read receipt", () => {
+  it("sorts unread completions and removes one after its thread is visited", () => {
     const older = thread({ id: "older", completedAt: "2026-08-25T10:05:00.000Z" });
     const newer = thread({ id: "newer", completedAt: "2026-08-25T11:05:00.000Z" });
     const notifications = buildCompletionNotifications({
@@ -63,8 +63,8 @@ describe("activity center completion notifications", () => {
       },
     });
 
-    expect(notifications.map((notification) => notification.thread.id)).toEqual(["newer", "older"]);
-    expect(notifications.map((notification) => notification.unread)).toEqual([true, false]);
+    expect(notifications.map((notification) => notification.thread.id)).toEqual(["newer"]);
+    expect(notifications[0]?.unread).toBe(true);
   });
 
   it("does not surface archived threads or manufacture a backlog without a visit marker", () => {
@@ -73,8 +73,7 @@ describe("activity center completion notifications", () => {
       lastVisitedAtByThreadKey: {},
     });
 
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0]?.unread).toBe(false);
+    expect(notifications).toEqual([]);
   });
 });
 

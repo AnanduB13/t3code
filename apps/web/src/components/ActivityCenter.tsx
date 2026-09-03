@@ -21,6 +21,7 @@ import { formatRelativeTimeLabel } from "../timestampFormat";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useUiStateStore } from "../uiStateStore";
 import { buildCompletionNotifications, buildRunningThreads } from "./ActivityCenter.logic";
+import { ProjectFavicon } from "./ProjectFavicon";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -51,12 +52,10 @@ export function ActivityCenter() {
     () => notifications.reduce((count, notification) => count + Number(notification.unread), 0),
     [notifications],
   );
-  const projectLabelByKey = useMemo(
+  const projectByKey = useMemo(
     () =>
       new Map(
-        projects.map(
-          (project) => [`${project.environmentId}:${project.id}`, project.title] as const,
-        ),
+        projects.map((project) => [`${project.environmentId}:${project.id}`, project] as const),
       ),
     [projects],
   );
@@ -89,13 +88,13 @@ export function ActivityCenter() {
       const projectLabel =
         thread.projectId === GENERAL_CHATS_PROJECT_ID
           ? "Chats"
-          : (projectLabelByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? "Project");
+          : (projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.title ?? "Project");
       const environmentLabel = environmentLabelById.get(thread.environmentId);
       return showEnvironment && environmentLabel
         ? `${projectLabel} · ${environmentLabel}`
         : projectLabel;
     },
-    [environmentLabelById, projectLabelByKey, showEnvironment],
+    [environmentLabelById, projectByKey, showEnvironment],
   );
 
   const triggerLabel = [
@@ -244,31 +243,52 @@ export function ActivityCenter() {
                   Nothing is running right now.
                 </EmptyState>
               ) : (
-                running.map((entry) => (
-                  <button
-                    key={threadKey(entry.thread)}
-                    type="button"
-                    onClick={() => openThread(entry.thread)}
-                    className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left [contain-intrinsic-block-size:62px] [content-visibility:auto] hover:bg-accent"
-                  >
-                    <LoaderCircleIcon className="mt-0.5 size-4 shrink-0 text-info" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium text-foreground">
-                        {entry.thread.title}
+                running.map((entry) => {
+                  const project = projectByKey.get(
+                    `${entry.thread.environmentId}:${entry.thread.projectId}`,
+                  );
+                  return (
+                    <button
+                      key={threadKey(entry.thread)}
+                      type="button"
+                      onClick={() => openThread(entry.thread)}
+                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left [contain-intrinsic-block-size:62px] [content-visibility:auto] hover:bg-accent"
+                    >
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
+                        {entry.thread.projectId === GENERAL_CHATS_PROJECT_ID ? (
+                          <MessageSquareIcon className="size-3.5 text-icon-muted" />
+                        ) : project ? (
+                          <ProjectFavicon
+                            environmentId={project.environmentId}
+                            cwd={project.workspaceRoot}
+                            faviconPath={project.faviconPath}
+                            className="size-4"
+                          />
+                        ) : (
+                          <FolderIcon className="size-3.5 text-icon-muted" />
+                        )}
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                        {entry.thread.planProgress?.step ?? entry.status}
-                      </span>
-                      <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
-                        <span className="min-w-0 truncate">{contextLabel(entry.thread)}</span>
-                        <span aria-hidden>·</span>
-                        <span className="shrink-0">
-                          started {formatRelativeTimeLabel(entry.startedAt)}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-foreground">
+                          {entry.thread.title}
+                        </span>
+                        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                          <LoaderCircleIcon className="size-3 shrink-0 text-info" />
+                          <span className="truncate">
+                            {entry.thread.planProgress?.step ?? entry.status}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                          <span className="min-w-0 truncate">{contextLabel(entry.thread)}</span>
+                          <span aria-hidden>·</span>
+                          <span className="shrink-0">
+                            started {formatRelativeTimeLabel(entry.startedAt)}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               )}
             </div>
           </section>

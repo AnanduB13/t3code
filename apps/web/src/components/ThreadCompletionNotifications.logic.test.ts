@@ -2,6 +2,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  closeThreadSystemNotification,
   findNewlyCompletedThreads,
   hasUnseenCompletionInProjectKind,
   shouldShowSystemCompletionNotification,
@@ -41,6 +42,28 @@ function thread(
 }
 
 describe("thread completion notifications", () => {
+  it("closes and forgets the system notification for a visited thread", () => {
+    let closed = false;
+    const otherNotification = { close: () => undefined };
+    const notifications = new Map([
+      [
+        "environment-1:thread-1",
+        {
+          close: () => {
+            closed = true;
+          },
+        },
+      ],
+      ["environment-1:thread-2", otherNotification],
+    ]);
+
+    expect(closeThreadSystemNotification(notifications, "environment-1:thread-1")).toBe(true);
+    expect(closed).toBe(true);
+    expect(notifications.has("environment-1:thread-1")).toBe(false);
+    expect(notifications.get("environment-1:thread-2")).toBe(otherNotification);
+    expect(closeThreadSystemNotification(notifications, "environment-1:missing")).toBe(false);
+  });
+
   it("emits a live running-to-completed edge once", () => {
     const previous = snapshotThreadCompletions([thread()]);
     const completed = thread({ state: "completed" });
