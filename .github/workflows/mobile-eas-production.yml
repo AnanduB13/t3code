@@ -16,7 +16,7 @@ name: Mobile EAS Production
 #      Store approval, Apple closes the release train and `version` must be
 #      bumped before another iOS build can be submitted. Releasing to the App
 #      Store stays a manual App Store Connect step.
-#   2. OTA: publish a production-channel update for each platform where at
+#   2. OTA: publish an after-dark-channel update for each platform where at
 #      least one finished production build matches the current native
 #      fingerprint. Old-version binaries with a matching fingerprint receive
 #      it too. When native drift means no binary could install the update,
@@ -224,7 +224,7 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           eas update \
-            --channel production \
+            --channel after-dark \
             --environment production \
             --platform ${{ inputs.platform }} \
             --message "${{ inputs.message || format('Production OTA ({0})', github.sha) }}" \
@@ -274,12 +274,12 @@ jobs:
             matching="$(eas build:list --platform "$platform" --build-profile production --status finished --fingerprint-hash "$hash" --limit 1 --json --non-interactive | jq 'length')"
             if [ "$matching" -gt 0 ]; then
               eas update \
-                --channel production \
+                --channel after-dark \
                 --environment production \
                 --platform "$platform" \
                 --message "$message" \
                 --non-interactive
-              echo ":white_check_mark: $platform: OTA published to production (fingerprint \`$hash\`)" >> "$GITHUB_STEP_SUMMARY"
+              echo ":white_check_mark: $platform: OTA published to after-dark (fingerprint \`$hash\`)" >> "$GITHUB_STEP_SUMMARY"
             else
               echo ":warning: $platform: no finished production build matches fingerprint \`$hash\` — OTA skipped; JS changes reach $platform only once a matching build ships" >> "$GITHUB_STEP_SUMMARY"
             fi
