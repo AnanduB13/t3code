@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const testState = vi.hoisted(() => ({
   useUsage: vi.fn(),
   metric: "cost" as "cost" | "tokens",
-  breakdown: "time" as "model" | "time",
+  breakdown: "model" as "model" | "day",
+  windowSelection: 30 as number | "all",
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -14,18 +15,8 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useState: vi.fn((initial: unknown) => [
-      typeof initial === "function"
-        ? {
-            days: 1,
-            window: {
-              sinceDay: "2026-08-10",
-              untilDay: "2026-08-11",
-              timeZone: "UTC",
-              resolution: "hour",
-              sinceTime: "2026-08-10T12:37:00.000Z",
-              untilTime: "2026-08-11T12:37:00.000Z",
-            },
-          }
+      initial === 30
+        ? testState.windowSelection
         : initial === "cost"
           ? testState.metric
           : initial === "model"
@@ -35,48 +26,40 @@ vi.mock("react", async (importOriginal) => {
     ]),
   };
 });
-
 vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../state/usage", () => ({ useUsage: testState.useUsage }));
-vi.mock("../ui/button", () => ({ Button: "button" }));
 vi.mock("../ui/scroll-area", () => ({ ScrollArea: "div" }));
-vi.mock("../ui/select", () => ({
-  Select: "div",
-  SelectItem: "div",
-  SelectPopup: "div",
-  SelectTrigger: "div",
-  SelectValue: "div",
-}));
 vi.mock("../ui/sidebar", () => ({ SidebarInset: "div" }));
-vi.mock("../ui/toggle-group", () => ({ Toggle: "button", ToggleGroup: "div" }));
 vi.mock("../WorkspaceBreadcrumb", () => ({
   WorkspaceBreadcrumb: "div",
   WorkspaceBreadcrumbItem: "div",
-  WorkspaceBreadcrumbSeparator: "span",
 }));
-vi.mock("../WorkspacePageContainer", () => ({ WorkspacePageContainer: "main" }));
-vi.mock("../WorkspacePageHeader", () => ({ WorkspacePageHeader: "header" }));
 vi.mock("./UsageProviderChart", () => ({ UsageProviderChart: "div" }));
-vi.mock("./usageProviders", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./usageProviders")>();
-  return {
-    ...actual,
-    PROVIDER_PRESENTATION: {
-      codex: { color: "white", label: "Codex", mark: "span" },
-      claude: { color: "orange", label: "Claude Code", mark: "span" },
-    },
-  };
-});
 
 import { UsagePage } from "./UsagePage";
 
-const providerTotals = (codex: number, claude: number) =>
-  new Map([
-    ["codex", { costUsd: codex, totalTokens: codex * 1_000 }],
-    ["claude", { costUsd: claude, totalTokens: claude * 1_000 }],
-  ] as const);
+const daily = [
+  {
+    day: "2026-08-10",
+    costUsd: 13,
+    totalTokens: 13_000,
+    byProvider: new Map([
+      ["codex", { costUsd: 7, totalTokens: 7_000 }],
+      ["claude", { costUsd: 6, totalTokens: 6_000 }],
+    ]),
+  },
+  {
+    day: "2026-08-11",
+    costUsd: 11,
+    totalTokens: 11_000,
+    byProvider: new Map([
+      ["codex", { costUsd: 6, totalTokens: 6_000 }],
+      ["claude", { costUsd: 5, totalTokens: 5_000 }],
+    ]),
+  },
+] as const;
 
-const modelTotals = Object.freeze([
+const models = [
   {
     model: "expensive-model",
     provider: "claude" as const,
@@ -93,37 +76,40 @@ const modelTotals = Object.freeze([
     records: 1,
     costShare: 5 / 16,
   },
-  {
-    model: "token-heavy-cheaper-model",
-    provider: "codex" as const,
-    costUsd: 1,
-    totalTokens: 1_000,
-    records: 1,
-    costShare: 1 / 16,
-  },
-]);
+];
 
 beforeEach(() => {
   testState.metric = "cost";
-  testState.breakdown = "time";
+  testState.breakdown = "model";
+  testState.windowSelection = 30;
+  testState.useUsage.mockReset();
   testState.useUsage.mockReturnValue({
     merged: {
       ...mergeUsage([], USAGE_CONTRACT_VERSION),
-      models: modelTotals,
-      hourly: [
+      totalTokens: 24_000,
+      cachedInputTokens: 18_000,
+      uncachedInputTokens: 4_000,
+      outputTokens: 2_000,
+      sessions: 2,
+      costUsd: 24,
+      daily,
+      models,
+      providers: [
         {
-          day: "2026-08-10",
-          hourStart: "2026-08-10T13:37:00.000Z",
+          provider: "codex",
           costUsd: 13,
           totalTokens: 13_000,
-          byProvider: providerTotals(7, 6),
+          sessions: 1,
+          costShare: 13 / 24,
+          tokenShare: 13 / 24,
         },
         {
-          day: "2026-08-11",
-          hourStart: "2026-08-11T11:37:00.000Z",
+          provider: "claude",
           costUsd: 11,
           totalTokens: 11_000,
-          byProvider: providerTotals(6, 5),
+          sessions: 1,
+          costShare: 11 / 24,
+          tokenShare: 11 / 24,
         },
       ],
     },
@@ -134,49 +120,52 @@ beforeEach(() => {
   });
 });
 
-describe("UsagePage hourly breakdown", () => {
-  it("keeps recent activity visible first without empty hourly rows", () => {
+describe("UsagePage restored dashboard", () => {
+  it("shows the device, origin, provider, totals, and breakdown sections", () => {
+    const markup = renderToStaticMarkup(<UsagePage />);
+
+    expect(markup).toContain("Device usage");
+    expect(markup).toContain("All device usage");
+    expect(markup).toContain("T3 Code usage");
+    expect(markup).toContain("Terminal usage");
+    expect(markup).toContain("Token cost");
+    expect(markup).toContain("Cache savings");
+    expect(markup).toContain("Breakdown");
+  });
+
+  it("offers the original date ranges including all time", () => {
+    const markup = renderToStaticMarkup(<UsagePage />);
+
+    expect(markup).toContain("7 days");
+    expect(markup).toContain("30 days");
+    expect(markup).toContain("90 days");
+    expect(markup).toContain("All time");
+    expect(markup).not.toContain("Past 24h");
+  });
+
+  it("requests the complete history when all time is selected", () => {
+    testState.windowSelection = "all";
+
+    renderToStaticMarkup(<UsagePage />);
+
+    expect(testState.useUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ sinceDay: "1970-01-01", resolution: "day" }),
+    );
+  });
+
+  it("shows the newest days first in the day breakdown", () => {
+    testState.breakdown = "day";
+
     const markup = renderToStaticMarkup(<UsagePage />);
     const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
 
-    expect(body.match(/<tr/g)).toHaveLength(2);
-    expect(body).toContain("$11.00");
-    expect(body).toContain("$13.00");
     expect(body.indexOf("$11.00")).toBeLessThan(body.indexOf("$13.00"));
   });
 
-  it("keeps chronological ordering when the token metric is selected", () => {
-    testState.metric = "tokens";
-
+  it("keeps the model breakdown ordered by merged usage", () => {
     const markup = renderToStaticMarkup(<UsagePage />);
     const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
 
-    expect(body).toMatch(/\$11\.00.*\$13\.00/);
-  });
-});
-
-describe("UsagePage model breakdown", () => {
-  it("sorts models by cost when the cost metric is selected", () => {
-    testState.breakdown = "model";
-
-    const markup = renderToStaticMarkup(<UsagePage />);
-    const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
-
-    expect(body).toMatch(/expensive-model.*token-heavy-model.*token-heavy-cheaper-model/);
-  });
-
-  it("sorts models by token usage when the token metric is selected", () => {
-    testState.metric = "tokens";
-    testState.breakdown = "model";
-
-    const markup = renderToStaticMarkup(<UsagePage />);
-    const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
-
-    expect(body).toMatch(/token-heavy-model.*token-heavy-cheaper-model.*expensive-model/);
-    expect(modelTotals.map((model) => model.model)).toEqual([
-      "expensive-model",
-      "token-heavy-model",
-      "token-heavy-cheaper-model",
-    ]);
+    expect(body).toMatch(/expensive-model.*token-heavy-model/);
   });
 });

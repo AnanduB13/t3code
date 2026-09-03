@@ -8,6 +8,6 @@ separate from the raw token cost shown here.
 Grok Build totals come from persisted session updates. Interactive turns that never wrote a
 completed-turn record will not appear.
 
-Use **Past 24h** for an hourly chart covering the exact rolling 24-hour period. The **7 days**,
-**30 days**, and **90 days** ranges use daily resolution. Cost and token toggles update both the
-headline and chart, and refreshing rescans every connected environment.
+On web and desktop, use the **7 days**, **30 days**, **90 days**, and **All time** ranges to review
+daily usage. Mobile also offers **Past 24h** with hourly detail. Cost and token toggles update both
+the headline and chart, and refreshing rescans every connected environment.
