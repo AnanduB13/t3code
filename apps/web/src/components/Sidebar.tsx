@@ -42,6 +42,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
+  LoaderIcon,
   MessageSquareIcon,
   PinIcon,
   PlusIcon,
@@ -110,6 +111,7 @@ import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
+import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import { AgentsSidebarLink } from "./agents/AgentsSidebarLink";
@@ -180,6 +182,7 @@ import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import {
   deriveProviderEntriesByEnvironment,
+  resolveDefaultProviderModelSelection,
   shouldShowInstanceBadge,
   type ProviderInstanceEntry,
 } from "../providerInstances";
@@ -197,8 +200,15 @@ import {
   ComboboxTrigger,
   useComboboxFilter,
 } from "./ui/combobox";
-import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarMenuButton,
+  SidebarSeparator,
+  useSidebar,
+} from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { hasUnseenCompletionInProjectKind } from "./ThreadCompletionNotifications.logic";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -208,11 +218,20 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
+import {
+  findGeneralChatsProject,
+  GENERAL_CHAT_NEW_THREAD_OPTIONS,
+  GENERAL_CHATS_PROJECT_ID,
+  GENERAL_CHATS_PROJECT_TITLE,
+  GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
+} from "../generalChats";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
+type SidebarMode = "projects" | "chats";
 // Keep the v2 key so existing preferences survive the v2-to-default rename.
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:settled-expanded";
 
@@ -1808,6 +1827,9 @@ export default function Sidebar() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const createProject = useAtomCommand(projectEnvironment.create, {
+    reportFailure: false,
+  });
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -1870,6 +1892,13 @@ export default function Sidebar() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const generalChatsProject = useMemo(
+    () => findGeneralChatsProject(projects, primaryEnvironmentId),
+    [primaryEnvironmentId, projects],
+  );
+  const [isCreatingGeneralChat, setIsCreatingGeneralChat] = useState(false);
+  const creatingGeneralChatRef = useRef(false);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("projects");
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1909,10 +1938,32 @@ export default function Sidebar() {
       ),
     [environments],
   );
+  const projectModeProjects = useMemo(
+    () => projects.filter((project) => project.id !== GENERAL_CHATS_PROJECT_ID),
+    [projects],
+  );
+  const hasUnreadChats = useMemo(
+    () =>
+      hasUnseenCompletionInProjectKind({
+        threads,
+        lastVisitedAtByThreadKey: threadLastVisitedAtById,
+        isIncludedProject: (thread) => thread.projectId === GENERAL_CHATS_PROJECT_ID,
+      }),
+    [threadLastVisitedAtById, threads],
+  );
+  const hasUnreadProjects = useMemo(
+    () =>
+      hasUnseenCompletionInProjectKind({
+        threads,
+        lastVisitedAtByThreadKey: threadLastVisitedAtById,
+        isIncludedProject: (thread) => thread.projectId !== GENERAL_CHATS_PROJECT_ID,
+      }),
+    [threadLastVisitedAtById, threads],
+  );
   const orderedProjects = useMemo(
     () =>
       orderItemsByPreferredIds({
-        items: projects,
+        items: projectModeProjects,
         preferredIds: projectOrder,
         getId: getProjectOrderKey,
         getPreferenceIds: (project) => [
@@ -1920,12 +1971,12 @@ export default function Sidebar() {
           legacyProjectCwdPreferenceKey(project.workspaceRoot),
         ],
       }),
-    [projectOrder, projects],
+    [projectModeProjects, projectOrder],
   );
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
+        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projectModeProjects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
@@ -1935,7 +1986,7 @@ export default function Sidebar() {
       orderedProjects,
       primaryEnvironmentId,
       projectGroupingSettings,
-      projects,
+      projectModeProjects,
       sidebarProjectSortOrder,
     ],
   );
@@ -1975,6 +2026,64 @@ export default function Sidebar() {
   const projectGroupsRef = useRef(projectGroups);
   projectGroupsRef.current = projectGroups;
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
+  const createGeneralChat = useCallback(() => {
+    if (creatingGeneralChatRef.current) return;
+    if (primaryEnvironmentId === null) {
+      toastManager.add({ type: "error", title: "Connect an environment before starting a chat." });
+      return;
+    }
+
+    creatingGeneralChatRef.current = true;
+    setIsCreatingGeneralChat(true);
+    void (async () => {
+      const projectRef = scopeProjectRef(primaryEnvironmentId, GENERAL_CHATS_PROJECT_ID);
+      try {
+        if (generalChatsProject === null) {
+          const providers = serverConfigs.get(primaryEnvironmentId)?.providers ?? [];
+          const result = await createProject({
+            environmentId: primaryEnvironmentId,
+            input: {
+              projectId: GENERAL_CHATS_PROJECT_ID,
+              title: GENERAL_CHATS_PROJECT_TITLE,
+              workspaceRoot: GENERAL_CHATS_WORKSPACE_ROOT,
+              createWorkspaceRootIfMissing: true,
+              defaultModelSelection: resolveDefaultProviderModelSelection(providers, null),
+            },
+          });
+          if (result._tag === "Failure") {
+            if (isAtomCommandInterrupted(result)) return;
+            const error = squashAtomCommandFailure(result);
+            if (!isGeneralChatsProjectAlreadyExistsError(error)) throw error;
+          }
+        }
+
+        const result = await settlePromise(() =>
+          newThreadContext.handleNewThread(projectRef, GENERAL_CHAT_NEW_THREAD_OPTIONS),
+        );
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        if (isMobile) setOpenMobile(false);
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not create chat",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      } finally {
+        creatingGeneralChatRef.current = false;
+        setIsCreatingGeneralChat(false);
+      }
+    })();
+  }, [
+    createProject,
+    generalChatsProject,
+    isMobile,
+    newThreadContext.handleNewThread,
+    primaryEnvironmentId,
+    serverConfigs,
+    setOpenMobile,
+  ]);
   // Threads on non-primary environments (T3 Connect, hosted) resolve their
   // provider entry from their own environment's config: default instance ids
   // are driver slugs, so a flat map would collide across environments.
@@ -2006,14 +2115,20 @@ export default function Sidebar() {
   );
   const projectDisplayNameByKey = useMemo(
     () =>
-      new Map(
-        projectGroups.flatMap((group) =>
+      new Map([
+        ...projectGroups.flatMap((group) =>
           group.memberProjects.map(
             (project) => [`${project.environmentId}:${project.id}`, group.displayName] as const,
           ),
         ),
-      ),
-    [projectGroups],
+        ...projects
+          .filter((project) => project.id === GENERAL_CHATS_PROJECT_ID)
+          .map(
+            (project) =>
+              [`${project.environmentId}:${project.id}`, GENERAL_CHATS_PROJECT_TITLE] as const,
+          ),
+      ]),
+    [projectGroups, projects],
   );
 
   const nowMinute = useNowMinute();
@@ -2052,10 +2167,16 @@ export default function Sidebar() {
   // the sidebar's local project selector. Follow each destination thread so
   // its row and project context replace the previously selected project.
   useEffect(() => {
+    if (activeProjectRef?.projectId === GENERAL_CHATS_PROJECT_ID) {
+      setProjectScopeKey(null);
+      setSidebarMode("chats");
+      return;
+    }
     if (activeProjectScopeKey !== null) {
+      setSidebarMode("projects");
       setProjectScopeKey(activeProjectScopeKey);
     }
-  }, [activeProjectScopeKey, routeThreadKey]);
+  }, [activeProjectRef?.projectId, activeProjectScopeKey, routeThreadKey]);
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -2119,6 +2240,17 @@ export default function Sidebar() {
           ),
     [scopedProjectGroup],
   );
+  const visibleProjectKeys = useMemo(() => {
+    if (sidebarMode === "chats") {
+      return new Set(
+        projects
+          .filter((project) => project.id === GENERAL_CHATS_PROJECT_ID)
+          .map((project) => `${project.environmentId}:${project.id}`),
+      );
+    }
+    if (scopedProjectKeys !== null) return scopedProjectKeys;
+    return new Set(projectModeProjects.map((project) => `${project.environmentId}:${project.id}`));
+  }, [projectModeProjects, projects, scopedProjectKeys, sidebarMode]);
   useEffect(() => {
     if (projectScopeKey !== null && scopedProjectGroup === null) {
       setProjectScopeKey(null);
@@ -2140,10 +2272,7 @@ export default function Sidebar() {
       if (!composerDraftHasUserContent(store.draftsByThreadKey[draftKey])) {
         continue;
       }
-      if (
-        scopedProjectKeys !== null &&
-        !scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
-      ) {
+      if (!visibleProjectKeys.has(`${session.environmentId}:${session.projectId}`)) {
         continue;
       }
       count += 1;
@@ -2154,7 +2283,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [clearSelection, projectScopeKey, sidebarMode]);
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot) => {
@@ -2199,8 +2328,7 @@ export default function Sidebar() {
     const visible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+        visibleProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
     );
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
@@ -2252,7 +2380,7 @@ export default function Sidebar() {
       settledThreads: sortSettledThreadsForSidebar(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [nowMinute, serverConfigs, snoozeWakeTick, threads, visibleProjectKeys]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -2304,7 +2432,7 @@ export default function Sidebar() {
   // filter context changes so a scope/search flip never inherits a deep
   // page state.
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
-  const settledResetKey = projectScopeKey ?? "all";
+  const settledResetKey = `${sidebarMode}:${projectScopeKey ?? "all"}`;
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -3505,6 +3633,10 @@ export default function Sidebar() {
   // for multi-project setups.
   const handleNewThreadClick = useCallback(
     (event?: ReactMouseEvent) => {
+      if (sidebarMode === "chats") {
+        createGeneralChat();
+        return;
+      }
       // One project: nothing to pick, create immediately. Shift+click creates
       // directly in the current project even with several projects, skipping
       // the palette picker.
@@ -3521,7 +3653,14 @@ export default function Sidebar() {
       if (isMobile) setOpenMobile(false);
       openCommandPalette({ open: "new-thread-in" });
     },
-    [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
+    [
+      createGeneralChat,
+      isMobile,
+      newThreadContext,
+      projectGroups.length,
+      setOpenMobile,
+      sidebarMode,
+    ],
   );
 
   // The button mirrors chat.new: in multi-project setups both route through
@@ -3601,19 +3740,29 @@ export default function Sidebar() {
                         type="button"
                         className="relative focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                         onClick={handleNewThreadClick}
-                        disabled={projects.length === 0}
-                        aria-label="New thread"
+                        disabled={
+                          sidebarMode === "chats"
+                            ? primaryEnvironmentId === null || isCreatingGeneralChat
+                            : projectModeProjects.length === 0
+                        }
+                        aria-label={sidebarMode === "chats" ? "New chat" : "New thread"}
                       />
                     }
                   >
-                    <SquarePenIcon />
+                    {sidebarMode === "chats" && isCreatingGeneralChat ? (
+                      <LoaderIcon className="animate-spin" />
+                    ) : (
+                      <SquarePenIcon />
+                    )}
                     <span
                       className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
                       aria-hidden="true"
                     />
                   </TooltipTrigger>
                   <TooltipPopup side="right">
-                    {projectGroups.length > 1 ? (
+                    {sidebarMode === "chats" ? (
+                      "New chat"
+                    ) : projectGroups.length > 1 ? (
                       <span className="flex flex-col gap-0.5">
                         <span>
                           {newThreadShortcutLabel
@@ -3636,7 +3785,12 @@ export default function Sidebar() {
                 </Tooltip>
               </div>
             </div>
-            {projectGroups.length > 0 ? (
+            {sidebarMode === "chats" ? (
+              <div className="flex h-8 items-center gap-2 px-2 text-sm font-medium text-sidebar-foreground">
+                <MessageSquareIcon className="size-4 shrink-0" />
+                <span>Chats</span>
+              </div>
+            ) : projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">
                 <Combobox
                   items={projectScopeItems}
@@ -3875,7 +4029,8 @@ export default function Sidebar() {
                     // row: every other thread is a full card. Density comes
                     // from users (or the auto rules) actually parking work,
                     // not from the sidebar second-guessing what still matters.
-                    const isCard = section === "active" || section === "pinned";
+                    const isCard =
+                      sidebarMode !== "chats" && (section === "active" || section === "pinned");
                     const rowVariant = isCard ? "card" : "slim";
                     return (
                       <SidebarThreadRow
@@ -3938,9 +4093,11 @@ export default function Sidebar() {
                           ) ?? null
                         }
                         projectTitle={
-                          projectDisplayNameByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
+                          sidebarMode === "chats"
+                            ? null
+                            : (projectDisplayNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null)
                         }
                         providerEntryByInstanceId={
                           providerEntriesByEnvironment.get(thread.environmentId) ??
@@ -3980,7 +4137,7 @@ export default function Sidebar() {
                       projectDisplayNameByKey={projectDisplayNameByKey}
                       projectCwdByKey={projectCwdByKey}
                       projectFaviconPathByKey={projectFaviconPathByKey}
-                      scopedProjectKeys={scopedProjectKeys}
+                      scopedProjectKeys={visibleProjectKeys}
                       routeDraftId={routeDraftIdForRows}
                       onNavigateToDraft={navigateToDraft}
                     />,
@@ -4135,7 +4292,20 @@ export default function Sidebar() {
             settledThreads.length ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-              {projects.length === 0 ? (
+              {sidebarMode === "chats" ? (
+                <>
+                  <span>No chats yet</span>
+                  <button
+                    type="button"
+                    onClick={createGeneralChat}
+                    disabled={isCreatingGeneralChat || primaryEnvironmentId === null}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <PlusIcon className="-mx-0.5 size-3" />
+                    New chat
+                  </button>
+                </>
+              ) : projectModeProjects.length === 0 ? (
                 <>
                   <span>No projects yet</span>
                   <button
@@ -4156,7 +4326,33 @@ export default function Sidebar() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
+      <SidebarSeparator />
+      <SidebarGroup className="px-2 py-1">
+        <SidebarMenuButton
+          type="button"
+          onClick={() => {
+            setProjectScopeKey(null);
+            setSidebarMode((mode) => (mode === "chats" ? "projects" : "chats"));
+          }}
+          tooltip={sidebarMode === "chats" ? "Show projects" : "Show chats"}
+          className="gap-2 px-2 text-muted-foreground hover:text-foreground"
+        >
+          {sidebarMode === "chats" ? (
+            <FolderIcon className="size-4" />
+          ) : (
+            <MessageSquareIcon className="size-4" />
+          )}
+          <span>{sidebarMode === "chats" ? "Projects" : "Chats"}</span>
+          {(sidebarMode === "chats" ? hasUnreadProjects : hasUnreadChats) ? (
+            <span
+              aria-label={`Unread completed ${sidebarMode === "chats" ? "project tasks" : "chats"}`}
+              className="ml-auto size-2 rounded-full bg-primary shadow-[0_0_0_2px_hsl(var(--sidebar-background))]"
+            />
+          ) : null}
+        </SidebarMenuButton>
+      </SidebarGroup>
       <AgentsSidebarLink />
+      <SidebarSeparator />
       <SidebarChromeFooter />
     </>
   );
