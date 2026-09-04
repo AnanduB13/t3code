@@ -78,7 +78,8 @@ export const make = Effect.gen(function* () {
             new VcsRepositoryDetectionError({
               operation: "ReviewService.assertWorkspaceBoundCwd.listProjects",
               cwd,
-              detail: "Failed to load registered project roots while validating the review workspace.",
+              detail:
+                "Failed to load registered project roots while validating the review workspace.",
               cause,
             }),
         ),
