@@ -22,6 +22,7 @@ import {
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
   sortThreadsForListV2,
+  threadListV2ListItemsAreEqual,
 } from "./threadListV2";
 
 const environmentId = EnvironmentId.make("environment-1");
@@ -864,6 +865,36 @@ describe("buildThreadListV2ListItems", () => {
     expect(
       items.filter((item) => item.type === "v2-pending" && item.showPendingDivider),
     ).toHaveLength(1);
+    expect(
+      items.flatMap((item) =>
+        item.type === "v2-thread" || item.type === "v2-pending" ? [item.showTrailingDivider] : [],
+      ),
+    ).toEqual([false, true, false, false]);
+  });
+
+  it("keeps unchanged rebuilt rows equal while detecting adjacent divider changes", () => {
+    const pendingTask = makePendingTask("queued");
+    const first = buildThreadListV2ListItems({
+      items: layout.items,
+      pendingTasks: [pendingTask, makePendingTask("queued-2")],
+      settledCount: layout.settledCount,
+      settledShelfHeaderIndex: layout.settledShelfHeaderIndex,
+    });
+    const rebuilt = buildThreadListV2ListItems({
+      items: layout.items,
+      pendingTasks: [pendingTask, makePendingTask("queued-2")],
+      settledCount: layout.settledCount,
+      settledShelfHeaderIndex: layout.settledShelfHeaderIndex,
+    });
+
+    expect(threadListV2ListItemsAreEqual(first[0]!, rebuilt[0]!)).toBe(true);
+    const onePending = buildThreadListV2ListItems({
+      items: layout.items,
+      pendingTasks: [pendingTask],
+      settledCount: layout.settledCount,
+      settledShelfHeaderIndex: layout.settledShelfHeaderIndex,
+    });
+    expect(threadListV2ListItemsAreEqual(first[1]!, onePending[1]!)).toBe(false);
   });
 
   it("ends the list with queued tasks when nothing has settled yet", () => {

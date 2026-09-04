@@ -122,6 +122,7 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
   return useMemo(
     () => ({
       selectedThreadRef,
+      selectedThreadDetailState,
       selectedThread,
       selectedThreadProject,
       selectedEnvironmentConnection,
@@ -131,6 +132,7 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
       selectedEnvironmentConnection,
       selectedEnvironmentRuntime,
       selectedThread,
+      selectedThreadDetailState,
       selectedThreadProject,
       selectedThreadRef,
     ],

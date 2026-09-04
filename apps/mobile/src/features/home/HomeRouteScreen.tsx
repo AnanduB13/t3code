@@ -1,7 +1,7 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useNavigation } from "@react-navigation/native";
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Platform, useWindowDimensions } from "react-native";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
@@ -34,6 +34,7 @@ export function HomeRouteScreen() {
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const handleSelectThread = useHomeThreadSelection();
 
   useEffect(() => {
@@ -83,6 +84,7 @@ export function HomeRouteScreen() {
   } = useHomeListOptions(availableEnvironmentIds);
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const deferredSelectedProjectKey = useDeferredValue(selectedProjectKey);
   const projectFilterOptions = useMemo(
     () =>
       buildHomeProjectScopes({
@@ -234,9 +236,9 @@ export function HomeRouteScreen() {
           projects={projects}
           projectSortOrder={listOptions.projectSortOrder}
           savedConnectionsById={savedConnectionsById}
-          searchQuery={searchQuery}
+          searchQuery={deferredSearchQuery}
           selectedEnvironmentId={selectedEnvironmentId}
-          selectedProjectKey={selectedProjectKey}
+          selectedProjectKey={deferredSelectedProjectKey}
           threads={threads}
           threadSortOrder={listOptions.threadSortOrder}
         />

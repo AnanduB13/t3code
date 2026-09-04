@@ -215,6 +215,8 @@ export interface ThreadListV2ThreadListItem {
   readonly item: ThreadListV2Item;
   /** Precomputed so recycled-list equality can see a minute-tick change. */
   readonly snoozeWakeLabelText: string | undefined;
+  /** Precomputed so adjacent section changes invalidate the recycled row. */
+  readonly showTrailingDivider: boolean;
 }
 
 export interface ThreadListV2PendingListItem {
@@ -223,6 +225,8 @@ export interface ThreadListV2PendingListItem {
   readonly pendingTask: PendingNewTask;
   /** First queued row after the active block draws the PENDING divider. */
   readonly showPendingDivider: boolean;
+  /** Precomputed so adjacent section changes invalidate the recycled row. */
+  readonly showTrailingDivider: boolean;
 }
 
 export interface ThreadListV2SnoozedShelfListItem {
@@ -270,6 +274,7 @@ export function buildThreadListV2ListItems(input: {
         item.snoozed && item.thread.snoozedUntil != null && input.snoozeLabelNow !== undefined
           ? snoozeWakeLabel(item.thread.snoozedUntil, { now: input.snoozeLabelNow })
           : undefined,
+      showTrailingDivider: false,
     }),
   );
   const pendingItems = input.pendingTasks.map(
@@ -278,6 +283,7 @@ export function buildThreadListV2ListItems(input: {
       key: `v2-pending:${pendingTask.message.messageId}`,
       pendingTask,
       showPendingDivider: index === 0,
+      showTrailingDivider: false,
     }),
   );
   const snoozedCount = input.snoozedCount ?? 0;
@@ -305,7 +311,54 @@ export function buildThreadListV2ListItems(input: {
     });
     result.push(...threadItems.slice(settledShelfHeaderIndex));
   }
-  return result;
+  return result.map((item, index) => {
+    if (item.type !== "v2-thread" && item.type !== "v2-pending") return item;
+    const nextItem = result[index + 1];
+    return {
+      ...item,
+      showTrailingDivider:
+        nextItem?.type === "v2-thread" ||
+        (nextItem?.type === "v2-pending" && !nextItem.showPendingDivider),
+    };
+  });
+}
+
+/** Structural equality for recycled v2 rows rebuilt by filter/shelf changes. */
+export function threadListV2ListItemsAreEqual(
+  previous: ThreadListV2ListItem,
+  item: ThreadListV2ListItem,
+): boolean {
+  switch (item.type) {
+    case "v2-thread":
+      return (
+        previous.type === "v2-thread" &&
+        previous.item.thread === item.item.thread &&
+        previous.item.variant === item.item.variant &&
+        previous.item.snoozed === item.item.snoozed &&
+        previous.item.pinned === item.item.pinned &&
+        previous.snoozeWakeLabelText === item.snoozeWakeLabelText &&
+        previous.showTrailingDivider === item.showTrailingDivider
+      );
+    case "v2-pending":
+      return (
+        previous.type === "v2-pending" &&
+        previous.pendingTask === item.pendingTask &&
+        previous.showPendingDivider === item.showPendingDivider &&
+        previous.showTrailingDivider === item.showTrailingDivider
+      );
+    case "v2-snoozed-shelf":
+      return (
+        previous.type === "v2-snoozed-shelf" &&
+        previous.count === item.count &&
+        previous.expanded === item.expanded
+      );
+    case "v2-settled-shelf":
+      return (
+        previous.type === "v2-settled-shelf" &&
+        previous.count === item.count &&
+        previous.expanded === item.expanded
+      );
+  }
 }
 
 /**

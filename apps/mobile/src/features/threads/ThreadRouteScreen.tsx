@@ -40,7 +40,6 @@ import {
   useRemoteEnvironmentRuntime,
 } from "../../state/use-remote-environment-registry";
 import { useKnownTerminalSessions } from "../../state/use-terminal-session";
-import { useSelectedThreadDetailState } from "../../state/use-thread-detail";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { GitActionProgressOverlay } from "./GitActionProgressOverlay";
 import {
@@ -137,7 +136,8 @@ function ThreadUnavailableScreen() {
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const { state: workspaceState } = useWorkspaceState();
   const { connectionState } = useRemoteConnectionStatus();
-  const { selectedThread } = useThreadSelection();
+  const threadSelection = useThreadSelection();
+  const { selectedThread } = threadSelection;
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
   const threadIdRaw = firstRouteParam(params.threadId);
@@ -153,7 +153,6 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
     selectedThread === null
       ? null
       : scopedThreadKey(selectedThread.environmentId, selectedThread.id);
-  const selectedThreadDetailState = useSelectedThreadDetailState();
 
   if (environmentId === null || threadIdRaw === null) {
     return <OpeningThreadLoadingScreen />;
@@ -164,7 +163,7 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   // loading placeholder while messages fetch, and the composer's connection
   // pill reports connecting/reconnecting/syncing status.
   if (selectedThread !== null && selectedThreadKey === routeThreadKey) {
-    return <ThreadRouteContent {...props} selectedThreadDetailState={selectedThreadDetailState} />;
+    return <ThreadRouteContent {...props} threadSelection={threadSelection} />;
   }
 
   const stillHydrating =
@@ -181,7 +180,7 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
 
 function ThreadRouteContent(
   props: ThreadRouteScreenProps & {
-    readonly selectedThreadDetailState: ReturnType<typeof useSelectedThreadDetailState>;
+    readonly threadSelection: ReturnType<typeof useThreadSelection>;
   },
 ) {
   const {
@@ -195,8 +194,8 @@ function ThreadRouteContent(
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
   const { selectedThread, selectedThreadProject, selectedEnvironmentConnection } =
-    useThreadSelection();
-  const selectedThreadDetailState = props.selectedThreadDetailState;
+    props.threadSelection;
+  const selectedThreadDetailState = props.threadSelection.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {

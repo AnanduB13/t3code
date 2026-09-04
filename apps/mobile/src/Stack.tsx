@@ -479,6 +479,7 @@ export const RootStack = createNativeStackNavigator({
       options: {
         ...GLASS_HEADER_OPTIONS,
         contentStyle: { backgroundColor: "transparent" },
+        freezeOnBlur: true,
         headerBackVisible: false,
         ...getCompactBrandHeaderOptions(),
       },

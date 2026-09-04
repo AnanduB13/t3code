@@ -78,6 +78,7 @@ import {
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
+  threadListV2ListItemsAreEqual,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
@@ -296,28 +297,28 @@ function ThreadNavigationSidebarPane(
           ),
     [pendingTasks, selectedProjectRefs],
   );
-  const groups = useMemo(
-    () =>
-      buildHomeThreadGroups({
-        projects: scopedProjects,
-        threads: scopedThreads,
-        pendingTasks: scopedPendingTasks,
-        environmentId: options.selectedEnvironmentId,
-        searchQuery: props.searchQuery,
-        matchedThreadKeys,
-        projectSortOrder: options.projectSortOrder,
-        threadSortOrder: options.threadSortOrder,
-        projectGroupingMode: options.projectGroupingMode,
-      }),
-    [
+  const groups = useMemo(() => {
+    if (threadListV2Enabled) return [];
+    return buildHomeThreadGroups({
+      projects: scopedProjects,
+      threads: scopedThreads,
+      pendingTasks: scopedPendingTasks,
+      environmentId: options.selectedEnvironmentId,
+      searchQuery: props.searchQuery,
       matchedThreadKeys,
-      options,
-      props.searchQuery,
-      scopedPendingTasks,
-      scopedProjects,
-      scopedThreads,
-    ],
-  );
+      projectSortOrder: options.projectSortOrder,
+      threadSortOrder: options.threadSortOrder,
+      projectGroupingMode: options.projectGroupingMode,
+    });
+  }, [
+    matchedThreadKeys,
+    options,
+    props.searchQuery,
+    scopedPendingTasks,
+    scopedProjects,
+    scopedThreads,
+    threadListV2Enabled,
+  ]);
   const [groupDisplayStates, setGroupDisplayStates] = useState<
     ReadonlyMap<string, HomeGroupDisplayState>
   >(() => new Map());
@@ -741,29 +742,19 @@ function ThreadNavigationSidebarPane(
   const sidebarItemsAreEqual = useCallback(
     (previous: SidebarListItem, item: SidebarListItem): boolean => {
       if (previous.type === "v2-thread" && item.type === "v2-thread") {
-        return (
-          previous.key === item.key &&
-          previous.item.thread === item.item.thread &&
-          previous.item.variant === item.item.variant &&
-          previous.item.snoozed === item.item.snoozed &&
-          previous.item.pinned === item.item.pinned &&
-          previous.snoozeWakeLabelText === item.snoozeWakeLabelText
-        );
+        return threadListV2ListItemsAreEqual(previous, item);
       }
       if (previous.type === "v2-show-more" && item.type === "v2-show-more") {
         return previous.hiddenCount === item.hiddenCount;
       }
       if (previous.type === "v2-pending" && item.type === "v2-pending") {
-        return (
-          previous.pendingTask === item.pendingTask &&
-          previous.showPendingDivider === item.showPendingDivider
-        );
+        return threadListV2ListItemsAreEqual(previous, item);
       }
       if (previous.type === "v2-snoozed-shelf" && item.type === "v2-snoozed-shelf") {
-        return previous.count === item.count && previous.expanded === item.expanded;
+        return threadListV2ListItemsAreEqual(previous, item);
       }
       if (previous.type === "v2-settled-shelf" && item.type === "v2-settled-shelf") {
-        return previous.count === item.count && previous.expanded === item.expanded;
+        return threadListV2ListItemsAreEqual(previous, item);
       }
       if (
         previous.type === "v2-thread" ||
