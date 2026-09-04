@@ -49,6 +49,19 @@
       "channel": "after-dark",
       "environment": "production",
       "autoIncrement": true
+    },
+    "production:apk": {
+      "corepack": true,
+      "env": {
+        "APP_VARIANT": "production",
+        "NODE_OPTIONS": "--max-old-space-size=4096"
+      },
+      "channel": "after-dark",
+      "environment": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {
