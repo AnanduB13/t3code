@@ -5,6 +5,7 @@ import {
   type EnvironmentConnectionPhase,
 } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -19,6 +20,9 @@ import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
+import { serverEnvironment } from "../../state/server";
+import { ProviderSetupLink } from "../settings/ProviderSetupLink";
+import type { ProviderSetupRouteParams } from "../settings/SettingsProviderSetupRouteScreen";
 import { availableCloudEnvironmentPresentation } from "../cloud/cloudEnvironmentPresentation";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
@@ -27,6 +31,7 @@ import { type RelayEnvironmentView, useConnectionController } from "./useConnect
 interface CloudEnvironmentRowsProps {
   readonly connectedCloudEnvironments: ReadonlyArray<ConnectedEnvironmentSummary>;
   readonly onReconnectEnvironment: (environmentId: EnvironmentId) => void;
+  readonly onSetupProvider?: (target: ProviderSetupRouteParams) => void;
   readonly showcaseAvailableEnvironments?: ReadonlyArray<RelayEnvironmentView>;
   readonly showcaseSignedIn?: boolean;
   /**
@@ -141,6 +146,7 @@ function CloudEnvironmentRowsContent(
               onDisconnect={() => handleDisconnectCloudEnvironment(environment.environmentId)}
               errorExpanded={expandedErrorId === environment.environmentId}
               onToggleError={() => handleToggleCloudError(environment.environmentId)}
+              onSetupProvider={props.onSetupProvider}
             />
           ))}
           {availableCloudEnvironments.map((environment, index) => (
@@ -204,25 +210,48 @@ function ConnectedCloudEnvironmentRow(props: {
   readonly onConnect: () => void;
   readonly onDisconnect: () => void;
   readonly onToggleError: () => void;
+  readonly onSetupProvider?: (target: ProviderSetupRouteParams) => void;
 }) {
+  const serverConfig = useAtomValue(
+    serverEnvironment.configValueAtom(props.environment.environmentId),
+  );
   return (
-    <CloudEnvironmentRowShell
-      borderTop={props.borderTop}
-      connectionError={props.environment.connectionError}
-      connectionErrorTraceId={props.environment.connectionErrorTraceId}
-      connectionState={props.environment.connectionState}
-      errorExpanded={props.errorExpanded}
-      label={props.environment.environmentLabel}
-      onValueChange={(enabled) => {
-        if (enabled) {
-          props.onConnect();
-          return;
-        }
-        props.onDisconnect();
-      }}
-      onToggleError={props.onToggleError}
-      value={props.environment.connectionState !== "available"}
-    />
+    <View>
+      <CloudEnvironmentRowShell
+        borderTop={props.borderTop}
+        connectionError={props.environment.connectionError}
+        connectionErrorTraceId={props.environment.connectionErrorTraceId}
+        connectionState={props.environment.connectionState}
+        errorExpanded={props.errorExpanded}
+        label={props.environment.environmentLabel}
+        onValueChange={(enabled) => {
+          if (enabled) {
+            props.onConnect();
+            return;
+          }
+          props.onDisconnect();
+        }}
+        onToggleError={props.onToggleError}
+        value={props.environment.connectionState !== "available"}
+      />
+      {props.onSetupProvider
+        ? serverConfig?.providers
+            .filter((provider) => provider.setup?.canAuthenticate || provider.setup?.canInstall)
+            .map((provider) => (
+              <ProviderSetupLink
+                key={provider.instanceId}
+                provider={provider}
+                disabled={props.environment.connectionState !== "connected"}
+                onPress={() =>
+                  props.onSetupProvider?.({
+                    environmentId: props.environment.environmentId,
+                    instanceId: provider.instanceId,
+                  })
+                }
+              />
+            ))
+        : null}
+    </View>
   );
 }
 

@@ -62,6 +62,7 @@ import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnv
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import { SettingsProjectGroupingRouteScreen } from "./features/settings/SettingsProjectGroupingRouteScreen";
 import { SettingsSkillsRouteScreen } from "./features/settings/SettingsSkillsRouteScreen";
+import { SettingsProviderSetupRouteScreen } from "./features/settings/SettingsProviderSetupRouteScreen";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
 import { ShowcaseCaptureCoordinator } from "./features/showcase/ShowcaseCaptureCoordinator";
@@ -168,6 +169,13 @@ const SettingsContentStack = createNativeStackNavigator({
       linking: "environment-new",
       options: {
         title: "Add Environment",
+      },
+    }),
+    SettingsProviderSetup: createNativeStackScreen({
+      screen: SettingsProviderSetupRouteScreen,
+      linking: "providers/:environmentId/:instanceId",
+      options: {
+        title: "Antigravity",
       },
     }),
     SettingsArchive: createNativeStackScreen({

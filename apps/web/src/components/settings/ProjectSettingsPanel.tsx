@@ -864,6 +864,12 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
                     modelOptionsByInstance={modelOptionsByInstance}
                     triggerVariant="outline"
                     triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                    onOpenProviderSetup={(instanceId) => {
+                      void navigate({
+                        to: "/settings/providers",
+                        search: { environmentId: representative.environmentId, instanceId },
+                      });
+                    }}
                     onInstanceModelChange={(instanceId, model) => {
                       setDefaultModel(createModelSelection(instanceId, model));
                     }}

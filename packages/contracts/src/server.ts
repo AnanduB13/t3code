@@ -110,6 +110,14 @@ export const ServerProviderSkill = Schema.Struct({
 });
 export type ServerProviderSkill = typeof ServerProviderSkill.Type;
 
+export const ServerProviderWorkspaceSnapshot = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  checkedAt: IsoDateTime,
+  slashCommands: Schema.Array(ServerProviderSlashCommand),
+  skills: Schema.Array(ServerProviderSkill),
+});
+export type ServerProviderWorkspaceSnapshot = typeof ServerProviderWorkspaceSnapshot.Type;
+
 /**
  * Availability of a configured provider instance from the runtime's POV.
  *
@@ -185,6 +193,14 @@ export const ServerProvider = Schema.Struct({
   continuation: Schema.optional(ServerProviderContinuation),
   showInteractionModeToggle: Schema.optional(Schema.Boolean),
   requiresNewThreadForModelChange: Schema.optional(Schema.Boolean),
+  supportsConversationRollback: Schema.optional(Schema.Boolean),
+  supportsTextGeneration: Schema.optional(Schema.Boolean),
+  setup: Schema.optional(
+    Schema.Struct({
+      canAuthenticate: Schema.Boolean,
+      canInstall: Schema.Boolean,
+    }),
+  ),
   enabled: Schema.Boolean,
   installed: Schema.Boolean,
   version: Schema.NullOr(TrimmedNonEmptyString),
@@ -206,6 +222,7 @@ export const ServerProvider = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  workspaceSnapshots: Schema.optionalKey(Schema.Array(ServerProviderWorkspaceSnapshot)),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
 });
