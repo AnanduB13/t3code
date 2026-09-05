@@ -7362,7 +7362,6 @@ function ChatViewContent(props: ChatViewProps) {
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           className="relative bg-background"
         >
-          {!rightPanelOpen ? panelLayoutControls : null}
           <ChatHeader
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}
@@ -7383,7 +7382,6 @@ function ChatViewContent(props: ChatViewProps) {
             }
             keybindings={keybindings}
             availableEditors={availableEditors}
-            rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
@@ -7391,6 +7389,14 @@ function ChatViewContent(props: ChatViewProps) {
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
           />
+          {!rightPanelOpen ? (
+            <div
+              className="flex shrink-0 items-center [-webkit-app-region:no-drag]"
+              data-workspace-titlebar-controls
+            >
+              {panelToggleControls}
+            </div>
+          ) : null}
         </WorkspacePageHeader>
 
         <ThreadErrorBanner
