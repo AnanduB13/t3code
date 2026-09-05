@@ -291,7 +291,7 @@ describe("sortThreadsForListV2", () => {
     expect(sorted.map((thread) => thread.id)).toEqual(["old-but-active", "newest", "middle"]);
   });
 
-  it("surfaces an un-settled thread at the top via its re-entry stamp", () => {
+  it("returns an un-settled thread to its original position", () => {
     const sorted = sortThreadsForListV2([
       {
         id: "old-unsettled",
@@ -303,7 +303,7 @@ describe("sortThreadsForListV2", () => {
       sortable({ id: "newest", createdAt: "2026-06-01T12:00:00.000Z" }),
       sortable({ id: "middle", createdAt: "2026-06-01T10:00:00.000Z" }),
     ]);
-    expect(sorted.map((thread) => thread.id)).toEqual(["old-unsettled", "newest", "middle"]);
+    expect(sorted.map((thread) => thread.id)).toEqual(["newest", "middle", "old-unsettled"]);
   });
 });
 
@@ -644,7 +644,7 @@ describe("buildThreadListV2Items", () => {
     expect(layout.settledShelfHeaderIndex).toBe(0);
   });
 
-  it("promotes recently modified cards while settled sorts by recency", () => {
+  it("keeps active cards in place during agent updates", () => {
     const { items } = buildThreadListV2Items({
       threads: [
         makeThread({
@@ -664,7 +664,7 @@ describe("buildThreadListV2Items", () => {
       now: NOW,
     });
 
-    expect(items.map((item) => item.thread.id)).toEqual(["older-created", "newer-created"]);
+    expect(items.map((item) => item.thread.id)).toEqual(["newer-created", "older-created"]);
   });
 
   it("keeps settled threads in the tail and filters by search query", () => {

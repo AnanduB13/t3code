@@ -910,7 +910,7 @@ describe("sortThreadsForSidebar", () => {
     expect(sorted.map((thread) => thread.id)).toEqual(["old-but-active", "newest", "middle"]);
   });
 
-  it("moves a recently modified thread to the top", () => {
+  it("keeps a recently modified thread in its original position", () => {
     const sorted = sortThreadsForSidebar([
       sortable({
         id: "old-but-modified",
@@ -920,26 +920,34 @@ describe("sortThreadsForSidebar", () => {
       sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
     ]);
 
-    expect(sorted.map((thread) => thread.id)).toEqual(["old-but-modified", "newest"]);
+    expect(sorted.map((thread) => thread.id)).toEqual(["newest", "old-but-modified"]);
   });
 
-  it("uses accepted client activity while the sidebar shell is catching up", () => {
-    const activityByThreadId: Record<string, string> = {
-      "old-but-just-messaged": "2026-03-09T13:00:00.000Z",
-    };
-    const sorted = sortThreadsForSidebar(
-      [
-        sortable({
-          id: "old-but-just-messaged",
-          createdAt: "2026-03-09T08:00:00.000Z",
-          updatedAt: "2026-03-09T08:00:00.000Z",
-        }),
-        sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
-      ],
-      (thread) => activityByThreadId[thread.id],
-    );
-
-    expect(sorted.map((thread) => thread.id)).toEqual(["old-but-just-messaged", "newest"]);
+  it("keeps concurrent agent updates stable until another user prompt or creation", () => {
+    const older = sortable({
+      id: "older",
+      createdAt: "2026-03-09T08:00:00.000Z",
+      latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+    });
+    const newer = sortable({
+      id: "newer",
+      createdAt: "2026-03-09T09:00:00.000Z",
+      latestUserMessageAt: "2026-03-09T11:00:00.000Z",
+    });
+    const ids = () => sortThreadsForSidebar([older, newer]).map((thread) => thread.id);
+    for (const thread of [older, newer, older, newer]) {
+      thread.updatedAt = "2026-03-09T14:00:00.000Z";
+      expect(ids()).toEqual(["newer", "older"]);
+    }
+    older.latestUserMessageAt = "2026-03-09T15:00:00.000Z";
+    expect(ids()).toEqual(["older", "newer"]);
+    expect(
+      sortThreadsForSidebar([
+        older,
+        newer,
+        sortable({ id: "new-chat", createdAt: "2026-03-09T16:00:00.000Z" }),
+      ]).map((thread) => thread.id),
+    ).toEqual(["new-chat", "older", "newer"]);
   });
 
   it("breaks creation-time ties by id so the order is stable", () => {
@@ -951,7 +959,7 @@ describe("sortThreadsForSidebar", () => {
     expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);
   });
 
-  it("surfaces an un-settled thread at the top via its re-entry stamp", () => {
+  it("returns an un-settled thread to its original position", () => {
     const sorted = sortThreadsForSidebar([
       {
         id: "old-unsettled",
@@ -963,7 +971,7 @@ describe("sortThreadsForSidebar", () => {
       sortable({ id: "middle", createdAt: "2026-03-09T10:00:00.000Z" }),
     ]);
 
-    expect(sorted.map((thread) => thread.id)).toEqual(["old-unsettled", "newest", "middle"]);
+    expect(sorted.map((thread) => thread.id)).toEqual(["newest", "middle", "old-unsettled"]);
   });
 
   it("ignores a re-entry stamp older than the thread's creation", () => {
@@ -1739,7 +1747,7 @@ describe("sortProjectsForSidebar", () => {
         makeThread({
           id: ThreadId.make("thread-visible"),
           projectId: ProjectId.make("project-1"),
-          updatedAt: "2026-03-09T10:02:00.000Z",
+          createdAt: "2026-03-09T10:02:00.000Z",
           archivedAt: null,
         }),
         makeThread({
@@ -1789,12 +1797,12 @@ describe("sortScopedProjectsForSidebar", () => {
       makeThread({
         environmentId: localEnvironmentId,
         projectId: sharedProjectId,
-        updatedAt: "2026-03-09T10:02:00.000Z",
+        createdAt: "2026-03-09T10:02:00.000Z",
       }),
       makeThread({
         environmentId: remoteEnvironmentId,
         projectId: sharedProjectId,
-        updatedAt: "2026-03-09T10:10:00.000Z",
+        createdAt: "2026-03-09T10:10:00.000Z",
       }),
     ];
 
@@ -1820,12 +1828,12 @@ describe("sortScopedProjectsForSidebar", () => {
       makeThread({
         id: ThreadId.make("thread-visible"),
         projectId: ProjectId.make("project-visible"),
-        updatedAt: "2026-03-09T10:02:00.000Z",
+        createdAt: "2026-03-09T10:02:00.000Z",
       }),
       makeThread({
         id: ThreadId.make("thread-archived"),
         projectId: ProjectId.make("project-archived"),
-        updatedAt: "2026-03-09T10:10:00.000Z",
+        createdAt: "2026-03-09T10:10:00.000Z",
         archivedAt: "2026-03-09T10:11:00.000Z",
       }),
     ];

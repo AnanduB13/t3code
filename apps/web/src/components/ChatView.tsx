@@ -6307,11 +6307,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        // The shell stream that feeds the sidebar is intentionally separate
-        // from this optimistic chat state. Stamp the accepted user action so
-        // the thread can reorder immediately instead of waiting for that
-        // stream to catch up. A later completion still compares newer than
-        // this acknowledgement, so unread completion behavior is unchanged.
+        // Acknowledge earlier completions when the user sends another prompt.
         markThreadVisited(
           scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
           messageCreatedAt,

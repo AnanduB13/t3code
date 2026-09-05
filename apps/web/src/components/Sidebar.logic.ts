@@ -596,27 +596,14 @@ export function firstValidTimestamp(
   return null;
 }
 
-// Sidebar sort: most recently created, messaged, or re-entered active thread
-// first. Status (including pending approval) is carried by each card's edge
-// strip, not by position.
-export function sortThreadsForSidebar<
-  T extends ThreadSortInput & {
-    readonly id: string;
-    readonly unsettledAt?: string | null | undefined;
-  },
->(
+// Status and read receipts never affect active thread positions.
+export function sortThreadsForSidebar<T extends ThreadSortInput & { readonly id: string }>(
   threads: readonly T[],
-  clientActivityAt: (thread: T) => string | null | undefined = () => null,
 ): T[] {
-  const activityTimestampMs = (thread: T) =>
-    Math.max(
-      activeThreadAnchorTimestampMs(thread),
-      toSortableTimestamp(clientActivityAt(thread) ?? undefined) ?? 0,
-    );
-
-  return [...threads].toSorted(
+  return threads.toSorted(
     (left, right) =>
-      activityTimestampMs(right) - activityTimestampMs(left) || left.id.localeCompare(right.id),
+      activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left) ||
+      left.id.localeCompare(right.id),
   );
 }
 

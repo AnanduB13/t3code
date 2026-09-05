@@ -162,7 +162,7 @@ function firstValidTimestampMs(...candidates: ReadonlyArray<string | null | unde
 }
 
 /**
- * v2 sort: most recently created, messaged, or re-entered active thread first.
+ * v2 sort: most recently created or user-messaged thread first.
  * Mirrors web's sortThreadsForSidebar.
  */
 export function sortThreadsForListV2<

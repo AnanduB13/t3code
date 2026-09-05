@@ -2370,15 +2370,7 @@ export default function Sidebar() {
           )
           .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
       ),
-      // A successful send is recorded locally before the independently
-      // streamed shell necessarily arrives. Include that acknowledgement as
-      // an optimistic recency floor so an older thread moves immediately;
-      // the shell's latestUserMessageAt/updatedAt takes over once synchronized.
-      activeThreads: sortThreadsForSidebar(
-        active,
-        (thread) =>
-          threadLastVisitedAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
-      ),
+      activeThreads: sortThreadsForSidebar(active),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>

@@ -54,7 +54,7 @@ function getLatestUserMessageTimestamp(thread: ThreadSortInput): number {
     return latestUserMessageTimestamp;
   }
 
-  return getFirstSortableTimestamp(thread.updatedAt, thread.createdAt) ?? Number.NEGATIVE_INFINITY;
+  return toSortableTimestamp(thread.createdAt) ?? Number.NEGATIVE_INFINITY;
 }
 
 export function getThreadSortTimestamp(
@@ -69,22 +69,11 @@ export function getThreadSortTimestamp(
   return getLatestUserMessageTimestamp(thread);
 }
 
-/**
- * Sort anchor for the active thread list: latest activity, creation, or
- * the time the thread re-entered the active list. Shared by web and mobile so
- * a newly created, resumed, or newly messaged thread consistently surfaces at
- * the top. Malformed timestamps sink to 0.
- */
-export function activeThreadAnchorTimestampMs(
-  thread: ThreadSortInput & {
-    readonly unsettledAt?: string | null | undefined;
-  },
-): number {
+/** Active threads move only when created or sent a user message. */
+export function activeThreadAnchorTimestampMs(thread: ThreadSortInput): number {
   return Math.max(
     getThreadSortTimestamp(thread, "updated_at"),
-    toSortableTimestamp(thread.updatedAt) ?? 0,
     toSortableTimestamp(thread.createdAt) ?? 0,
-    toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
   );
 }
 
