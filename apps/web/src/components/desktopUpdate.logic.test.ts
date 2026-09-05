@@ -347,6 +347,19 @@ describe("canCheckForUpdate", () => {
 });
 
 describe("getDesktopUpdateButtonTooltip", () => {
+  it("explains disabled updates instead of claiming the app is up to date", () => {
+    expect(
+      getDesktopUpdateButtonTooltip({
+        ...baseState,
+        enabled: false,
+        status: "disabled",
+        message: "No update feed is configured.",
+      }),
+    ).toBe("No update feed is configured.");
+    expect(
+      getDesktopUpdateButtonTooltip({ ...baseState, enabled: false, status: "disabled" }),
+    ).toBe("Automatic updates are not available in this build.");
+  });
   it("returns 'Up to date' for non-actionable states", () => {
     expect(getDesktopUpdateButtonTooltip({ ...baseState, status: "idle" })).toBe("Up to date");
     expect(getDesktopUpdateButtonTooltip({ ...baseState, status: "up-to-date" })).toBe(

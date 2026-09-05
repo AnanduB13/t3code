@@ -1037,7 +1037,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
       if (
         command.bootstrap === undefined &&
-        (isThreadTurnActive(targetThread) || targetThread.pendingTurnStart !== null)
+        (isThreadTurnActive(targetThread) ||
+          targetThread.pendingTurnStart !== null ||
+          queuedMessagesForThread(targetThread).length > 0)
       ) {
         if (queuedMessagesForThread(targetThread).length >= MAX_THREAD_QUEUED_MESSAGES) {
           return yield* new OrchestrationCommandInvariantError({

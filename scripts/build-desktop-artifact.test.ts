@@ -314,6 +314,43 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  it.effect("local releases use After Dark while mock builds keep their local feed", () =>
+    Effect.gen(function* () {
+      const release = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.39",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.deepStrictEqual(release.publish, [
+        {
+          provider: "github",
+          owner: "AnanduB13",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
+      const mock = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.39",
+        false,
+        true,
+        undefined,
+        undefined,
+      );
+      assert.deepStrictEqual(mock.publish, [
+        {
+          provider: "generic",
+          url: resolveMockUpdateServerUrl(undefined),
+        },
+      ]);
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it.effect("omits update feeds for pull request preview builds", () =>
     Effect.gen(function* () {
       const preview = yield* createBuildConfig(

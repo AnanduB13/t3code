@@ -85,6 +85,27 @@ describe("DesktopUpdates", () => {
     }).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
+  it.effect("explains a missing update feed and preserves the reason when changing tracks", () => {
+    const harness = makeHarness({ env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" } });
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        const result = yield* updates.check("manual");
+        assert.equal(result.checked, false);
+        assert.equal(result.state.status, "disabled");
+        assert.equal(
+          result.state.message,
+          "Automatic updates are not available because no update feed is configured.",
+        );
+        const changed = yield* updates.setChannel("nightly");
+        assert.equal(changed.message, result.state.message);
+        assert.equal(changed.status, "disabled");
+        assert.equal(harness.checkCount(), 0);
+      }),
+    ).pipe(Effect.provide(harness.layer));
+  });
+
   it.effect("subscribe delivers the latest state plus subsequent changes", () => {
     const harness = makeHarness();
 

@@ -55,6 +55,89 @@ const exists = (filePath: string) =>
     return fileInfo._tag === "Success";
   });
 
+it.layer(makeProjectionPipelinePrefixedTestLayer("t3-queue-recovery-test-"))(
+  "queue recovery",
+  (it) => {
+    it.effect("recovers queue history independently of existing projection checkpoints", () =>
+      Effect.gen(function* () {
+        const pipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.make("queue-recovery");
+        const now = "2026-01-01T00:00:00.000Z";
+        const base = {
+          aggregateKind: "thread" as const,
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+        };
+        for (const id of ["recover-first", "recover-second", "recover-removed"]) {
+          yield* eventStore.append({
+            ...base,
+            eventId: EventId.make(id),
+            type: "thread.message-queued",
+            payload: {
+              threadId,
+              messageId: MessageId.make(id),
+              text: id,
+              attachments: [],
+              queuedAt: now,
+            },
+          });
+        }
+        yield* eventStore.append({
+          ...base,
+          eventId: EventId.make("queue-edit"),
+          type: "thread.queued-message-updated",
+          payload: {
+            threadId,
+            messageId: MessageId.make("recover-second"),
+            text: "edited",
+            updatedAt: now,
+          },
+        });
+        yield* eventStore.append({
+          ...base,
+          eventId: EventId.make("queue-remove"),
+          type: "thread.queued-message-removed",
+          payload: {
+            threadId,
+            messageId: MessageId.make("recover-removed"),
+            reason: "user",
+            removedAt: now,
+          },
+        });
+        yield* eventStore.append({
+          ...base,
+          eventId: EventId.make("queue-reorder"),
+          type: "thread.queued-messages-reordered",
+          payload: {
+            threadId,
+            messageIds: [MessageId.make("recover-second"), MessageId.make("recover-first")],
+            reorderedAt: now,
+          },
+        });
+        yield* pipeline.bootstrap;
+        // Simulate the broken release: other projectors are current but the
+        // queue projection has never been installed.
+        yield* sql`DELETE FROM projection_queued_messages WHERE thread_id = ${threadId}`;
+        yield* sql`DELETE FROM projection_state WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.queuedMessages}`;
+        yield* pipeline.bootstrap;
+        yield* pipeline.bootstrap;
+        const rows = yield* sql`SELECT message_id, text FROM projection_queued_messages
+        WHERE thread_id = ${threadId} ORDER BY queue_position`;
+        assert.deepEqual(rows, [
+          { message_id: "recover-second", text: "edited" },
+          { message_id: "recover-first", text: "recover-first" },
+        ]);
+      }),
+    );
+  },
+);
+
 const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("t3-projection-pipeline-test-");
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {

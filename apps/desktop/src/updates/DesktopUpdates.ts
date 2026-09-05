@@ -878,7 +878,10 @@ export const make = Effect.gen(function* () {
 
       const settings = yield* desktopSettings.get;
       const enabled = yield* shouldEnableAutoUpdates;
-      yield* setState(createBaseUpdateState(settings.updateChannel, enabled, environment));
+      yield* setState({
+        ...createBaseUpdateState(settings.updateChannel, enabled, environment),
+        message: Option.getOrNull(yield* resolveDisabledReason),
+      });
       if (!enabled) {
         return;
       }
@@ -949,7 +952,10 @@ export const make = Effect.gen(function* () {
           );
 
         const enabled = yield* shouldEnableAutoUpdates;
-        yield* setState(createBaseUpdateState(nextChannel, enabled, environment));
+        yield* setState({
+          ...createBaseUpdateState(nextChannel, enabled, environment),
+          message: Option.getOrNull(yield* resolveDisabledReason),
+        });
 
         if (!enabled || !(yield* Ref.get(updaterConfiguredRef))) {
           return yield* Ref.get(updateStateRef);

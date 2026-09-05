@@ -208,6 +208,12 @@ available.
 - Repository slug source:
   - `T3CODE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.
   - otherwise `GITHUB_REPOSITORY` from GitHub Actions.
+  - otherwise `AnanduB13/t3code` for local After Dark builds.
+  - Mock-update builds use their local generic feed instead; PR previews have no feed.
+- A feed configuration alone does not make an update available: publish a newer desktop
+  release to that repository. Mobile-only releases do not provide desktop updates.
+- macOS automatic installation requires signed apps. An unsigned or feed-less existing
+  installation needs a manual replacement with an update-capable signed build first.
 - Required release assets for updater:
   - platform installers (`.exe`, `.dmg`, `.AppImage`, plus macOS `.zip` for Squirrel.Mac update payloads)
   - channel metadata: `latest*.yml` for stable releases, `nightly*.yml` for nightly releases

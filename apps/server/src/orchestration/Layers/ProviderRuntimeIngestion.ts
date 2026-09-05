@@ -102,9 +102,9 @@ const TASK_DESCRIPTION_BY_TASK_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
-type TurnStartRequestedDomainEvent = Extract<
+type QueueDomainEvent = Extract<
   OrchestrationEvent,
-  { type: "thread.turn-start-requested" }
+  { type: "thread.message-queued" | "thread.session-set" }
 >;
 
 type RuntimeIngestionInput =
@@ -114,7 +114,7 @@ type RuntimeIngestionInput =
     }
   | {
       source: "domain";
-      event: TurnStartRequestedDomainEvent;
+      event: QueueDomainEvent;
     };
 
 function toTurnId(value: TurnId | string | undefined): TurnId | undefined {
@@ -1525,7 +1525,8 @@ const make = Effect.gen(function* () {
         event.type === "session.exited" ||
         event.type === "thread.started" ||
         event.type === "turn.started" ||
-        event.type === "turn.completed"
+        event.type === "turn.completed" ||
+        event.type === "turn.aborted"
           ? yield* projectionTurnRepository.getPendingTurnStartByThreadId({
               threadId: thread.id,
             })
@@ -1561,6 +1562,7 @@ const make = Effect.gen(function* () {
             return true;
           case "turn.started":
             return !conflictsWithActiveTurn || conflictingTurnStartIsPendingTurnStart;
+          case "turn.aborted":
           case "turn.completed":
             if (conflictsWithActiveTurn || missingTurnForActiveTurn) {
               return false;
@@ -1568,6 +1570,14 @@ const make = Effect.gen(function* () {
             // Only the active turn may close the lifecycle state.
             if (activeTurnId !== null && eventTurnId !== undefined) {
               return sameId(activeTurnId, eventTurnId);
+            }
+            if (
+              Option.isSome(pendingTurnStart) &&
+              thread.latestTurn !== null &&
+              thread.latestTurn.turnId === eventTurnId &&
+              thread.latestTurn.state !== "running"
+            ) {
+              return false;
             }
             // No active turn tracked: accept only completions that name their
             // turn (covers a real completion whose turn.started was lost). An
@@ -1592,7 +1602,8 @@ const make = Effect.gen(function* () {
         event.type === "session.exited" ||
         event.type === "thread.started" ||
         event.type === "turn.started" ||
-        event.type === "turn.completed"
+        event.type === "turn.completed" ||
+        event.type === "turn.aborted"
       ) {
         const status = (() => {
           switch (event.type) {
@@ -1604,6 +1615,8 @@ const make = Effect.gen(function* () {
               return "running";
             case "session.exited":
               return "stopped";
+            case "turn.aborted":
+              return "interrupted";
             case "turn.completed":
               return normalizeRuntimeTurnState(event.payload.state) === "failed"
                 ? "error"
@@ -1618,7 +1631,9 @@ const make = Effect.gen(function* () {
         const nextActiveTurnId =
           event.type === "turn.started"
             ? (eventTurnId ?? null)
-            : event.type === "turn.completed" || event.type === "session.exited"
+            : event.type === "turn.completed" ||
+                event.type === "turn.aborted" ||
+                event.type === "session.exited"
               ? null
               : event.type === "session.state.changed" &&
                   !sessionStatusAllowsActiveTurn(
@@ -1632,7 +1647,7 @@ const make = Effect.gen(function* () {
             : event.type === "turn.completed" &&
                 normalizeRuntimeTurnState(event.payload.state) === "failed"
               ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
-              : status === "ready"
+              : status === "ready" || status === "interrupted"
                 ? null
                 : (thread.session?.lastError ?? null);
 
@@ -1859,7 +1874,7 @@ const make = Effect.gen(function* () {
         });
       }
 
-      if (event.type === "turn.completed") {
+      if (event.type === "turn.completed" || event.type === "turn.aborted") {
         const detailedThread = yield* getLoadedThreadDetail();
         const messages = detailedThread?.messages ?? [];
         const proposedPlans = detailedThread?.proposedPlans ?? [];
@@ -1892,6 +1907,27 @@ const make = Effect.gen(function* () {
             turnId,
             updatedAt: now,
           });
+        }
+      }
+
+      if (
+        (event.type === "turn.completed" || event.type === "turn.aborted") &&
+        shouldApplyThreadLifecycle
+      ) {
+        const latestThread = yield* resolveThreadDetail(thread.id);
+        if (latestThread && latestThread.queuedMessages.length > 0) {
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.queue.drain",
+              commandId: yield* providerCommandId(event, "queue-drain"),
+              threadId: thread.id,
+              createdAt: now,
+            })
+            .pipe(
+              // Another command may start a turn or remove the queue head after
+              // this read. The decider keeps the queue intact in either case.
+              Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void),
+            );
         }
       }
 
@@ -2059,7 +2095,33 @@ const make = Effect.gen(function* () {
       ).pipe(Effect.asVoid);
     });
 
-  const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;
+  const processDomainEvent = Effect.fn("processQueueDomainEvent")(function* (
+    event: QueueDomainEvent,
+  ) {
+    if (
+      event.type === "thread.session-set" &&
+      event.payload.session.status !== "ready" &&
+      event.payload.session.status !== "interrupted"
+    ) {
+      return;
+    }
+    const thread = yield* resolveThreadShell(event.payload.threadId);
+    if (!thread || thread.session?.status === "running" || thread.session?.status === "starting") {
+      return;
+    }
+    const detail = yield* resolveThreadDetail(thread.id);
+    if (!detail || detail.queuedMessages.length === 0) {
+      return;
+    }
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.queue.drain",
+        commandId: CommandId.make(`queue-drain:${event.eventId}`),
+        threadId: thread.id,
+        createdAt: event.occurredAt,
+      })
+      .pipe(Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void));
+  });
 
   const processInput = (input: RuntimeIngestionInput) =>
     input.source === "runtime" ? processRuntimeEvent(input.event) : processDomainEvent(input.event);
@@ -2090,7 +2152,7 @@ const make = Effect.gen(function* () {
       );
       yield* forkParked(
         Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-          if (event.type !== "thread.turn-start-requested") {
+          if (event.type !== "thread.message-queued" && event.type !== "thread.session-set") {
             return Effect.void;
           }
           return worker.enqueue({ source: "domain", event });

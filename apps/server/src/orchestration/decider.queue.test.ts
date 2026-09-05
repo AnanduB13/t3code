@@ -277,6 +277,30 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
     }),
   );
 
+  it.effect("keeps new sends behind the existing queue during the completion handoff", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      readModel = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          command: turnStartCommand("older"),
+          readModel,
+        }),
+      );
+      readModel = yield* withSessionStatus(readModel, "ready", readModel.snapshotSequence + 1);
+      const planned = yield* decideOrchestrationCommand({
+        command: turnStartCommand("newer"),
+        readModel,
+      });
+      const projected = yield* applyPlanned(readModel, planned);
+      expect(projected.threads[0]?.messages).toEqual([]);
+      expect(projected.threads[0]?.queuedMessages.map((entry) => entry.messageId)).toEqual([
+        asMessageId("message-older"),
+        asMessageId("message-newer"),
+      ]);
+    }),
+  );
+
   it.effect("rejects queueing past the per-thread cap", () =>
     Effect.gen(function* () {
       let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);

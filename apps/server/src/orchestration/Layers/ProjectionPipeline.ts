@@ -17,6 +17,8 @@ import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../per
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
+import { ProjectionQueuedMessageRepository } from "../../persistence/Services/ProjectionQueuedMessages.ts";
+import { ProjectionQueuedMessageRepositoryLive } from "../../persistence/Layers/ProjectionQueuedMessages.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { type ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -59,6 +61,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
   threadMessages: "projection.thread-messages",
+  queuedMessages: "projection.queued-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
@@ -490,6 +493,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
   function* () {
     const sql = yield* SqlClient.SqlClient;
     const eventStore = yield* OrchestrationEventStore;
+    const queuedMessages = yield* ProjectionQueuedMessageRepository;
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
@@ -1726,7 +1730,40 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    const applyQueuedMessagesProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyQueuedMessagesProjection",
+    )(function* (event) {
+      switch (event.type) {
+        case "thread.message-queued":
+          yield* queuedMessages.upsert({
+            ...event.payload,
+            modelSelection: event.payload.modelSelection ?? null,
+            sourceProposedPlanThreadId: event.payload.sourceProposedPlan?.threadId ?? null,
+            sourceProposedPlanId: event.payload.sourceProposedPlan?.planId ?? null,
+          });
+          return;
+        case "thread.queued-message-removed":
+          yield* queuedMessages.deleteByMessageId(event.payload);
+          return;
+        case "thread.queued-message-updated":
+          yield* queuedMessages.updateText(event.payload);
+          return;
+        case "thread.queued-messages-reordered":
+          yield* queuedMessages.reorder(event.payload);
+          return;
+        case "thread.message-sent":
+          if (event.payload.role === "user") {
+            yield* queuedMessages.deleteByMessageId(event.payload);
+          }
+          return;
+        case "thread.deleted":
+          yield* queuedMessages.deleteByThreadId(event.payload);
+          return;
+      }
+    });
+
     const projectors: ReadonlyArray<ProjectorDefinition> = [
+      { name: ORCHESTRATION_PROJECTOR_NAMES.queuedMessages, apply: applyQueuedMessagesProjection },
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.projects,
         apply: applyProjectsProjection,
@@ -1932,4 +1969,5 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
+  Layer.provideMerge(ProjectionQueuedMessageRepositoryLive),
 );

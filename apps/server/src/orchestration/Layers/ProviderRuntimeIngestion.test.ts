@@ -323,6 +323,7 @@ describe("ProviderRuntimeIngestion", () => {
       engine,
       dispatch,
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
+      commandReadModel: () => Effect.runPromise(snapshotQuery.getCommandReadModel()),
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
@@ -369,6 +370,94 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("turn failed");
+  });
+
+  it("persists the queue and dispatches one prompt per completed turn", async () => {
+    const harness = await createHarness();
+    const threadId = asThreadId("thread-1");
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const start = (id: string) =>
+      harness.emit({
+        type: "turn.started",
+        eventId: asEventId(`started-${id}`),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt,
+        turnId: asTurnId(id),
+      });
+    start("first");
+    await harness.drain();
+    for (const id of ["second", "third"]) {
+      await harness.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make(`queue-${id}`),
+        threadId,
+        message: { messageId: asMessageId(id), role: "user", text: id, attachments: [] },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt,
+      });
+    }
+    const readThread = async () => (await harness.readModel()).threads[0]!;
+    expect((await readThread()).queuedMessages.map((entry) => entry.messageId)).toEqual([
+      "second",
+      "third",
+    ]);
+    expect((await readThread()).messages).toEqual([]);
+    expect((await harness.commandReadModel()).threads[0]?.queuedMessages).toEqual(
+      (await readThread()).queuedMessages,
+    );
+
+    for (const [finished, next] of [
+      ["first", "second"],
+      ["second", "third"],
+    ] as const) {
+      harness.emit({
+        ...(finished === "first"
+          ? { type: "turn.completed" as const, payload: { state: "completed" as const } }
+          : { type: "session.state.changed" as const, payload: { state: "ready" as const } }),
+        eventId: asEventId(`completed-${finished}`),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        turnId: asTurnId(finished),
+        createdAt: "2026-01-01T00:00:01.000Z",
+      });
+      await harness.drain();
+      const thread = await readThread();
+      expect(thread.messages.at(-1)?.id).toBe(next);
+      expect(thread.queuedMessages.map((entry) => entry.messageId)).toEqual(
+        next === "second" ? ["third"] : [],
+      );
+      expect((await harness.commandReadModel()).threads[0]?.pendingTurnStart?.messageId).toBe(next);
+      harness.emit({
+        type: "turn.aborted",
+        eventId: asEventId(`duplicate-before-start-${finished}`),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        turnId: asTurnId(finished),
+        createdAt,
+        payload: {},
+      });
+      await harness.drain();
+      expect((await harness.commandReadModel()).threads[0]?.pendingTurnStart?.messageId).toBe(next);
+      expect((await readThread()).queuedMessages).toEqual(thread.queuedMessages);
+      // A stale completion cannot consume the next queue entry while its
+      // predecessor is starting or running.
+      start(next);
+      await harness.drain();
+      harness.emit({
+        type: "turn.aborted",
+        eventId: asEventId(`stale-${finished}`),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        turnId: asTurnId(finished),
+        createdAt,
+        payload: {},
+      });
+      await harness.drain();
+      expect((await readThread()).session?.activeTurnId).toBe(next);
+      expect((await readThread()).queuedMessages).toEqual(thread.queuedMessages);
+    }
   });
 
   it("settles an aborted turn instead of leaving its session working", async () => {

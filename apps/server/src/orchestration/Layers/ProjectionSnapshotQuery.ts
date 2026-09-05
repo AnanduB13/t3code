@@ -48,6 +48,7 @@ import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheck
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
+import { ProjectionPendingTurnStart } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionQueuedMessage } from "../../persistence/Services/ProjectionQueuedMessages.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -613,6 +614,20 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_thread_messages
         ORDER BY thread_id ASC, created_at ASC, message_id ASC
       `,
+  });
+
+  const listPendingTurnStartRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionPendingTurnStart,
+    execute: () => sql`
+      SELECT thread_id AS "threadId", pending_message_id AS "messageId",
+        source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
+        source_proposed_plan_id AS "sourceProposedPlanId", requested_at AS "requestedAt"
+      FROM projection_turns
+      WHERE turn_id IS NULL AND state = 'pending'
+        AND pending_message_id IS NOT NULL AND checkpoint_turn_count IS NULL
+      ORDER BY requested_at ASC
+    `,
   });
 
   const listQueuedMessageRows = SqlSchema.findAll({
@@ -2028,6 +2043,8 @@ pending_approval_requests AS (
     sql
       .withTransaction(
         Effect.all([
+          listQueuedMessageRows(undefined),
+          listPendingTurnStartRows(undefined),
           listProjectRows(undefined).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
@@ -2080,8 +2097,24 @@ pending_approval_requests AS (
       )
       .pipe(
         Effect.flatMap(
-          ([projectRows, threadRows, proposedPlanRows, sessionRows, latestTurnRows, stateRows]) =>
+          ([
+            queuedRows,
+            pendingRows,
+            projectRows,
+            threadRows,
+            proposedPlanRows,
+            sessionRows,
+            latestTurnRows,
+            stateRows,
+          ]) =>
             Effect.sync(() => {
+              const queuesByThread = new Map<string, OrchestrationQueuedMessage[]>();
+              for (const row of queuedRows) {
+                const queue = queuesByThread.get(row.threadId) ?? [];
+                queue.push(mapQueuedMessageRow(row));
+                queuesByThread.set(row.threadId, queue);
+              }
+              const pendingByThread = new Map(pendingRows.map((row) => [row.threadId, row]));
               let updatedAt: string | null = null;
               const projects: OrchestrationProject[] = [];
               const threads: OrchestrationThread[] = [];
@@ -2207,8 +2240,8 @@ pending_approval_requests AS (
                   titleRegeneration: mapTitleRegeneration(row),
                   deletedAt: row.deletedAt,
                   messages: [],
-                  queuedMessages: [],
-                  pendingTurnStart: null,
+                  queuedMessages: queuesByThread.get(row.threadId) ?? [],
+                  pendingTurnStart: pendingByThread.get(row.threadId) ?? null,
                   proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
                   activities: [],
                   checkpoints: [],

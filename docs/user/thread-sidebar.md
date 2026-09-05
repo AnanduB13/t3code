@@ -1,5 +1,9 @@
 # Organizing threads
 
+On web and desktop, use the project dropdown to filter the sidebar's threads. Switching projects
+updates the list directly, without fading the previous project's rows out and the new rows in.
+Choose **All projects** to clear the filter.
+
 Pin a thread from its context menu to keep it in the pinned section above your active work.
 `mod+shift+p` pins or unpins the thread you have open. Pinned threads are shown independently of
 their project, including when you connect to more than one environment.

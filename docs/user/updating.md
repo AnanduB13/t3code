@@ -3,6 +3,19 @@
 The T3 Code web or desktop app and the server it connects to work best when they use the same
 version. If they do not match, T3 Code shows a warning with the right update option for that server.
 
+## Desktop Software Updates
+
+In **Settings → General → Software Update**, select **Check for Updates**, then **Download**
+and **Install** when an update is available. Installing restarts the desktop app.
+
+**Stable** and **Nightly** select release tracks within the app's configured release source.
+After Dark builds use After Dark releases; these labels do not select the upstream edition.
+A mobile release does not update the Mac app.
+
+If updates are unavailable or checking fails, the version row shows the reason. Builds without
+an update feed need to be replaced manually with a release build. macOS automatic updates require
+signed apps and a published desktop release.
+
 ## Where to Find the Update
 
 You may see the warning in either of these places:
