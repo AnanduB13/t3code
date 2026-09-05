@@ -604,11 +604,19 @@ export function sortThreadsForSidebar<
     readonly id: string;
     readonly unsettledAt?: string | null | undefined;
   },
->(threads: readonly T[]): T[] {
+>(
+  threads: readonly T[],
+  clientActivityAt: (thread: T) => string | null | undefined = () => null,
+): T[] {
+  const activityTimestampMs = (thread: T) =>
+    Math.max(
+      activeThreadAnchorTimestampMs(thread),
+      toSortableTimestamp(clientActivityAt(thread) ?? undefined) ?? 0,
+    );
+
   return [...threads].toSorted(
     (left, right) =>
-      activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left) ||
-      left.id.localeCompare(right.id),
+      activityTimestampMs(right) - activityTimestampMs(left) || left.id.localeCompare(right.id),
   );
 }
 

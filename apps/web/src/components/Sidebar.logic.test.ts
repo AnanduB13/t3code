@@ -923,6 +923,25 @@ describe("sortThreadsForSidebar", () => {
     expect(sorted.map((thread) => thread.id)).toEqual(["old-but-modified", "newest"]);
   });
 
+  it("uses accepted client activity while the sidebar shell is catching up", () => {
+    const activityByThreadId: Record<string, string> = {
+      "old-but-just-messaged": "2026-03-09T13:00:00.000Z",
+    };
+    const sorted = sortThreadsForSidebar(
+      [
+        sortable({
+          id: "old-but-just-messaged",
+          createdAt: "2026-03-09T08:00:00.000Z",
+          updatedAt: "2026-03-09T08:00:00.000Z",
+        }),
+        sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
+      ],
+      (thread) => activityByThreadId[thread.id],
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["old-but-just-messaged", "newest"]);
+  });
+
   it("breaks creation-time ties by id so the order is stable", () => {
     const sorted = sortThreadsForSidebar([
       sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
