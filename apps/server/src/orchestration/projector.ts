@@ -570,6 +570,10 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
+            queuedMessages:
+              message.role === "user"
+                ? thread.queuedMessages.filter((entry) => entry.messageId !== message.id)
+                : thread.queuedMessages,
             updatedAt: event.occurredAt,
           }),
         };
@@ -583,9 +587,6 @@ export function projectEvent(
             return nextBase;
           }
 
-          // No cap here: the decider refuses to emit `thread.message-queued`
-          // past its queue limit, so replaying the event stream stays in
-          // lockstep with the persisted projection.
           const queuedMessages = [
             ...thread.queuedMessages.filter((entry) => entry.messageId !== payload.messageId),
             {

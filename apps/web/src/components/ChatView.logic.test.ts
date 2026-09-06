@@ -12,11 +12,12 @@ import {
 } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { Thread, ThreadShell, TurnDiffSummary } from "../types";
+import type { ChatMessage, Thread, ThreadShell, TurnDiffSummary } from "../types";
 import type { TimelineEntry } from "../session-logic";
 import { deriveProviderInstanceEntries, NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import {
+  partitionOptimisticUserMessages,
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   branchMismatchKey,
@@ -53,6 +54,63 @@ import {
   shouldWriteThreadErrorToCurrentServerThread,
   toolGroupConsumesUpwardNavigation,
 } from "./ChatView.logic";
+
+describe("optimistic prompt acknowledgement", () => {
+  const message = (id: string): ChatMessage => ({
+    id: MessageId.make(id),
+    role: "user",
+    text: id,
+    turnId: null,
+    streaming: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const queued = (id: string) => ({
+    messageId: MessageId.make(id),
+    text: id,
+    attachments: [],
+    queuedAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  it("does not resurrect a deleted queued prompt when another prompt is sent", () => {
+    const old = message("deleted");
+    const acknowledged = partitionOptimisticUserMessages([old], {
+      messages: [],
+      queuedMessages: [queued("deleted")],
+    });
+    expect(acknowledged.acknowledged).toEqual([old]);
+    const next = message("new");
+    const afterRemoval = partitionOptimisticUserMessages([...acknowledged.pending, next], {
+      messages: [],
+      queuedMessages: [],
+    });
+    expect(afterRemoval.pending).toEqual([next]);
+  });
+
+  it("retires all queued copies before steering combines them under the last message id", () => {
+    const accepted = partitionOptimisticUserMessages([message("first"), message("second")], {
+      messages: [],
+      queuedMessages: [queued("first"), queued("second")],
+    });
+    const afterSteer = partitionOptimisticUserMessages([...accepted.pending, message("new")], {
+      messages: [{ ...message("second"), text: "first\n\nsecond" }],
+      queuedMessages: [],
+    });
+    expect(afterSteer.pending.map((entry) => entry.id)).toEqual(["new"]);
+  });
+
+  it("keeps unacknowledged sends while retiring completed and queued ones", () => {
+    const result = partitionOptimisticUserMessages(
+      [message("completed"), message("queued"), message("in-flight")],
+      { messages: [message("completed")], queuedMessages: [queued("queued")] },
+    );
+    expect(result.pending.map((entry) => entry.id)).toEqual(["in-flight"]);
+    expect(result.acknowledged.map((entry) => entry.id)).toEqual(["completed", "queued"]);
+    expect(
+      partitionOptimisticUserMessages(result.pending, { messages: [], queuedMessages: [] }).pending,
+    ).toEqual([message("in-flight")]);
+  });
+});
 
 describe("isVideoPreviewRequestCurrent", () => {
   it("rejects changed threads and replaced previews", () => {
@@ -1303,6 +1361,56 @@ describe("startNewThreadForProject", () => {
 });
 
 describe("hasServerAcknowledgedLocalDispatch", () => {
+  it.each(["running", "connecting"] as const)(
+    "accepts successive queued prompts while the turn stays %s",
+    (phase) => {
+      const thread = makeThread({
+        latestTurn: { ...completedTurn, state: "running", completedAt: null },
+        session: { ...readySession, status: "running", activeTurnId: completedTurn.turnId },
+      });
+      for (let index = 0; index < 4; index += 1) {
+        const messageId = MessageId.make(`queued-${index}`);
+        const localDispatch = createLocalDispatchSnapshot(thread, { messageId });
+        const input = {
+          localDispatch,
+          phase,
+          latestTurn: thread.latestTurn,
+          latestUserMessageId: localDispatch.latestUserMessageId,
+          session: thread.session,
+          hasPendingApproval: false,
+          hasPendingUserInput: false,
+          threadError: null,
+        };
+        // Existing queue entries, edits and reorders cannot acknowledge the next send.
+        expect(
+          hasServerAcknowledgedLocalDispatch({ ...input, queuedMessages: thread.queuedMessages }),
+        ).toBe(false);
+        Object.assign(thread, {
+          queuedMessages: [
+            ...thread.queuedMessages,
+            {
+              messageId,
+              text: `Follow-up ${index}`,
+              attachments: [],
+              queuedAt: readySession.updatedAt,
+            },
+          ],
+        });
+        expect(
+          hasServerAcknowledgedLocalDispatch({ ...input, queuedMessages: thread.queuedMessages }),
+        ).toBe(true);
+        // Once acknowledged, removing or dispatching queued messages cannot revive Sending.
+        expect(
+          hasServerAcknowledgedLocalDispatch({
+            ...input,
+            localDispatch: { ...localDispatch, acknowledged: true },
+            queuedMessages: [],
+          }),
+        ).toBe(true);
+      }
+    },
+  );
+
   it("does not acknowledge unchanged server state", () => {
     const localDispatch = createLocalDispatchSnapshot(
       makeThread({ latestTurn: completedTurn, session: readySession }),

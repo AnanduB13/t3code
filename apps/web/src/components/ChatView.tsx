@@ -351,6 +351,7 @@ import {
   buildRevertTurnCountByUserMessageId,
   buildThreadTurnInterruptInput,
   collectUserMessageBlobPreviewUrls,
+  partitionOptimisticUserMessages,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   dismissBranchMismatchForSession,
@@ -662,6 +663,7 @@ function useLocalDispatchState(input: {
     () =>
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
+        queuedMessages: input.activeThread?.queuedMessages ?? [],
         phase: input.phase,
         latestTurn: input.activeLatestTurn,
         latestUserMessageId,
@@ -675,15 +677,29 @@ function useLocalDispatchState(input: {
       input.activePendingApproval,
       input.activePendingUserInput,
       input.activeThread?.session,
+      input.activeThread?.queuedMessages,
       input.phase,
       input.threadError,
       latestUserMessageId,
       localDispatch,
     ],
   );
+  useEffect(() => {
+    if (serverAcknowledgedLocalDispatch && localDispatch && !localDispatch.acknowledged) {
+      // Keep submission intent until navigation finishes, but never re-enter
+      // Sending when the acknowledged prompt leaves the queue.
+      setLocalDispatch((current) =>
+        current === localDispatch ? { ...current, acknowledged: true } : current,
+      );
+    }
+  }, [localDispatch, serverAcknowledgedLocalDispatch]);
   const activeLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
   const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean; submissionIntent?: ComposerSubmissionIntent }) => {
+    (options?: {
+      messageId?: MessageId;
+      preparingWorktree?: boolean;
+      submissionIntent?: ComposerSubmissionIntent;
+    }) => {
       const preparingWorktree = Boolean(options?.preparingWorktree);
       setLocalDispatch((current) => {
         const active = serverAcknowledgedLocalDispatch ? null : current;
@@ -2727,6 +2743,16 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const queuedAttachmentUrlById = useMemo(() => {
     const urls = new Map(serverAttachmentUrlById);
+    for (const message of queuedMessages) {
+      const previews = attachmentPreviewHandoffByMessageId[message.messageId];
+      if (!previews) continue;
+      let imageIndex = 0;
+      for (const attachment of message.attachments) {
+        if (!isImageAttachment(attachment)) continue;
+        const preview = previews[imageIndex++];
+        if (preview) urls.set(attachment.id, preview);
+      }
+    }
     const queuedIds = new Set(queuedMessages.map((message) => message.messageId));
     for (const message of optimisticUserMessages) {
       if (!queuedIds.has(message.id)) continue;
@@ -2737,7 +2763,12 @@ function ChatViewContent(props: ChatViewProps) {
       }
     }
     return urls;
-  }, [optimisticUserMessages, queuedMessages, serverAttachmentUrlById]);
+  }, [
+    attachmentPreviewHandoffByMessageId,
+    optimisticUserMessages,
+    queuedMessages,
+    serverAttachmentUrlById,
+  ]);
   const displayServerMessages = useMemo<ReadonlyArray<ChatMessage>>(() => {
     if (!serverMessages) return [];
     return serverMessages.map((message) => {
@@ -2754,16 +2785,25 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, [serverAttachmentUrlById, serverMessages]);
   useEffect(() => {
-    if (typeof Image === "undefined" || displayServerMessages.length === 0) {
+    if (typeof Image === "undefined") {
       return;
     }
 
     const cleanups: Array<() => void> = [];
-    const userMessagesById = new Map<string, ChatMessage>(
+    const userMessagesById = new Map<string, Pick<ChatMessage, "attachments">>(
       displayServerMessages
         .filter((message) => message.role === "user")
         .map((message) => [String(message.id), message] as const),
     );
+
+    for (const message of queuedMessages) {
+      userMessagesById.set(message.messageId, {
+        attachments: message.attachments.map((attachment) => {
+          const previewUrl = serverAttachmentUrlById.get(attachment.id);
+          return previewUrl ? { ...attachment, previewUrl } : attachment;
+        }),
+      });
+    }
 
     for (const [messageId, handoffPreviewUrls] of Object.entries(
       attachmentPreviewHandoffByMessageId,
@@ -2773,9 +2813,11 @@ function ChatViewContent(props: ChatViewProps) {
       }
 
       const serverMessage = userMessagesById.get(messageId);
-      if (!serverMessage?.attachments || serverMessage.attachments.length === 0) {
+      if (!serverMessage) {
+        clearAttachmentPreviewHandoff(messageId as MessageId, handoffPreviewUrls);
         continue;
       }
+      if (!serverMessage.attachments || serverMessage.attachments.length === 0) continue;
 
       const serverPreviewUrls = serverMessage.attachments.flatMap((attachment) =>
         isImageAttachment(attachment) && attachment.previewUrl ? [attachment.previewUrl] : [],
@@ -2836,7 +2878,13 @@ function ChatViewContent(props: ChatViewProps) {
         cleanup();
       }
     };
-  }, [attachmentPreviewHandoffByMessageId, clearAttachmentPreviewHandoff, displayServerMessages]);
+  }, [
+    attachmentPreviewHandoffByMessageId,
+    clearAttachmentPreviewHandoff,
+    displayServerMessages,
+    queuedMessages,
+    serverAttachmentUrlById,
+  ]);
   const timelineMessages = useMemo(() => {
     const messages = displayServerMessages;
     const serverMessagesWithPreviewHandoff =
@@ -4516,21 +4564,19 @@ function ChatViewContent(props: ChatViewProps) {
   }, [activeThread?.id, focusComposer, terminalUiState.terminalOpen]);
 
   useEffect(() => {
-    if (!activeThread?.id) return;
-    if (activeThread.messages.length === 0) {
-      return;
-    }
-    const serverIds = new Set(activeThread.messages.map((message) => message.id));
-    const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
-    if (removedMessages.length === 0) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setOptimisticUserMessages((existing) =>
-        existing.filter((message) => !serverIds.has(message.id)),
-      );
-    }, 0);
-    for (const removedMessage of removedMessages) {
+    if (!activeThread?.id || optimisticUserMessages.length === 0) return;
+    const { acknowledged } = partitionOptimisticUserMessages(optimisticUserMessages, {
+      messages: activeThread.messages,
+      queuedMessages: activeThread.queuedMessages,
+    });
+    if (acknowledged.length === 0) return;
+    const acknowledgedIds = new Set(acknowledged.map((message) => message.id));
+    // Do not defer this to a cancellable timer: queue removal/steering can
+    // arrive immediately after acknowledgement and must not revive the copy.
+    setOptimisticUserMessages((existing) =>
+      existing.filter((message) => !acknowledgedIds.has(message.id)),
+    );
+    for (const removedMessage of acknowledged) {
       const previewUrls = collectUserMessageBlobPreviewUrls(removedMessage);
       if (previewUrls.length > 0) {
         handoffAttachmentPreviews(removedMessage.id, previewUrls);
@@ -4538,10 +4584,13 @@ function ChatViewContent(props: ChatViewProps) {
       }
       revokeUserMessagePreviewUrls(removedMessage);
     }
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeThread?.id,
+    activeThread?.messages,
+    activeThread?.queuedMessages,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+  ]);
 
   useEffect(() => {
     setOptimisticUserMessages((existing) => {
@@ -6075,12 +6124,13 @@ function ChatViewContent(props: ChatViewProps) {
       );
       return;
     }
+    const messageIdForSend = newMessageId();
     beginLocalDispatch({
+      messageId: messageIdForSend,
       preparingWorktree: Boolean(baseBranchForWorktree),
       submissionIntent: resolvedSubmissionIntent,
     });
 
-    const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const turnAttachmentsPromise = Promise.all(
       composerAttachmentsSnapshot.map(async (attachment) => {
@@ -6736,7 +6786,7 @@ function ChatViewContent(props: ChatViewProps) {
       });
 
       sendInFlightRef.current = true;
-      beginLocalDispatch({ preparingWorktree: false });
+      beginLocalDispatch({ messageId: messageIdForSend, preparingWorktree: false });
       setThreadError(threadIdForSend, null);
 
       scrollToEnd();

@@ -1,4 +1,5 @@
 import {
+  ClientOrchestrationCommand,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
@@ -12,11 +13,14 @@ import {
   type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
+
+const decodeClientCommand = Schema.decodeUnknownEffect(ClientOrchestrationCommand);
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const asCommandId = (value: string): CommandId => CommandId.make(value);
@@ -301,26 +305,64 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
     }),
   );
 
-  it.effect("rejects queueing past the per-thread cap", () =>
+  it.effect("queues, reorders, removes, and drains more than the former 50-prompt limit", () =>
     Effect.gen(function* () {
       let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
-      for (let index = 0; index < 50; index += 1) {
+      const ids = Array.from({ length: 128 }, (_, index) => asMessageId(`message-many-${index}`));
+      for (let index = 0; index < ids.length; index += 1) {
         readModel = yield* applyPlanned(
           readModel,
           yield* decideOrchestrationCommand({
-            command: turnStartCommand(`cap-${index}`),
+            command: turnStartCommand(`many-${index}`),
             readModel,
           }),
         );
       }
-
-      const error = yield* Effect.flip(
-        decideOrchestrationCommand({ command: turnStartCommand("cap-overflow"), readModel }),
+      expect(readModel.threads[0]?.queuedMessages.map((message) => message.messageId)).toEqual(ids);
+      expect(readModel.threads[0]?.messages).toEqual([]);
+      const reordered = ids.toReversed();
+      const command = {
+        type: "thread.queue.reorder",
+        commandId: asCommandId("many-reorder"),
+        threadId: THREAD_ID,
+        messageIds: reordered,
+        createdAt: NOW,
+      } as const;
+      yield* decodeClientCommand(command);
+      readModel = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({ command, readModel }),
       );
-      expect(error.message).toContain("queued messages");
-
-      const thread = readModel.threads.find((entry) => entry.id === THREAD_ID);
-      expect(thread?.queuedMessages).toHaveLength(50);
+      readModel = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.queue.remove",
+            commandId: asCommandId("many-remove"),
+            threadId: THREAD_ID,
+            messageId: reordered[0]!,
+            createdAt: NOW,
+          },
+          readModel,
+        }),
+      );
+      readModel = yield* withSessionStatus(readModel, "ready", readModel.snapshotSequence + 1);
+      readModel = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.queue.drain",
+            commandId: asCommandId("many-drain"),
+            threadId: THREAD_ID,
+            createdAt: NOW,
+          },
+          readModel,
+        }),
+      );
+      expect(readModel.threads[0]?.messages.map((message) => message.id)).toEqual([reordered[1]]);
+      expect(readModel.threads[0]?.queuedMessages.map((message) => message.messageId)).toEqual(
+        reordered.slice(2),
+      );
     }),
   );
 
@@ -424,6 +466,46 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
       const thread = readModel.threads.find((entry) => entry.id === THREAD_ID);
       expect(thread?.queuedMessages.map((entry) => entry.messageId)).toEqual([
         asMessageId("message-steer-starting"),
+      ]);
+    }),
+  );
+
+  it.effect("does not requeue a delivered prompt when its legacy removal event is missing", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      readModel = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          command: turnStartCommand("delivered"),
+          readModel,
+        }),
+      );
+      const dispatch = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.queue.steer",
+          commandId: asCommandId("legacy-steer"),
+          threadId: THREAD_ID,
+          messageId: asMessageId("message-delivered"),
+          createdAt: NOW,
+        },
+        readModel,
+      });
+      const events = Array.isArray(dispatch) ? dispatch : [dispatch];
+      readModel = yield* applyPlanned(
+        readModel,
+        events.filter((event) => event.type === "thread.message-sent"),
+      );
+      expect(readModel.threads[0]?.queuedMessages).toEqual([]);
+      readModel = yield* withSessionStatus(readModel, "ready", readModel.snapshotSequence + 1);
+      const next = yield* decideOrchestrationCommand({
+        command: turnStartCommand("new"),
+        readModel,
+      });
+      const projected = yield* applyPlanned(readModel, next);
+      expect(projected.threads[0]?.queuedMessages).toEqual([]);
+      expect(projected.threads[0]?.messages.map((message) => message.id)).toEqual([
+        asMessageId("message-delivered"),
+        asMessageId("message-new"),
       ]);
     }),
   );

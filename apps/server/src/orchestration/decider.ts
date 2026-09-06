@@ -5,7 +5,6 @@ import {
   type OrchestrationQueuedMessage,
   type OrchestrationReadModel,
   type OrchestrationThread,
-  MAX_THREAD_QUEUED_MESSAGES,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@t3tools/contracts";
@@ -1041,12 +1040,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           targetThread.pendingTurnStart !== null ||
           queuedMessagesForThread(targetThread).length > 0)
       ) {
-        if (queuedMessagesForThread(targetThread).length >= MAX_THREAD_QUEUED_MESSAGES) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Thread '${command.threadId}' already has ${MAX_THREAD_QUEUED_MESSAGES} queued messages.`,
-          });
-        }
         return {
           ...(yield* withEventBase({
             aggregateKind: "thread",

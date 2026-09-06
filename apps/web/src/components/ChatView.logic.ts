@@ -523,6 +523,21 @@ export function isVideoPreviewRequestCurrent(
   return requestThreadKey === currentThreadKey && requestId === currentRequestId;
 }
 
+/** Retire local send previews as soon as either server-owned collection adopts them. */
+export function partitionOptimisticUserMessages(
+  optimisticMessages: ReadonlyArray<ChatMessage>,
+  thread: Pick<Thread, "messages" | "queuedMessages">,
+) {
+  const acknowledgedIds = new Set(thread.messages.map((message) => message.id));
+  for (const message of thread.queuedMessages) acknowledgedIds.add(message.messageId);
+  const pending: ChatMessage[] = [];
+  const acknowledged: ChatMessage[] = [];
+  for (const message of optimisticMessages) {
+    (acknowledgedIds.has(message.id) ? acknowledged : pending).push(message);
+  }
+  return { pending, acknowledged };
+}
+
 export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
   if (message.role !== "user" || !message.attachments) {
     return;
@@ -843,6 +858,8 @@ export async function waitForStartedServerThread(
 }
 
 export interface LocalDispatchSnapshot {
+  acknowledged: boolean;
+  messageId: MessageId | null;
   startedAt: string;
   preparingWorktree: boolean;
   submissionIntent: ComposerSubmissionIntent;
@@ -858,6 +875,7 @@ export interface LocalDispatchSnapshot {
 export function createLocalDispatchSnapshot(
   activeThread: Thread | undefined,
   options?: {
+    messageId?: MessageId;
     preparingWorktree?: boolean;
     submissionIntent?: ComposerSubmissionIntent;
   },
@@ -866,6 +884,8 @@ export function createLocalDispatchSnapshot(
   const session = activeThread?.session ?? null;
   const latestUserMessage = activeThread?.messages.findLast((message) => message.role === "user");
   return {
+    acknowledged: false,
+    messageId: options?.messageId ?? null,
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
     submissionIntent: options?.submissionIntent ?? "foreground",
@@ -881,6 +901,7 @@ export function createLocalDispatchSnapshot(
 
 export function hasServerAcknowledgedLocalDispatch(input: {
   localDispatch: LocalDispatchSnapshot | null;
+  queuedMessages?: ReadonlyArray<Pick<Thread["queuedMessages"][number], "messageId">>;
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
   latestUserMessageId: ChatMessage["id"] | null;
@@ -892,7 +913,14 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   if (!input.localDispatch) {
     return false;
   }
+  if (input.localDispatch.acknowledged) return true;
   if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
+    return true;
+  }
+  if (
+    input.localDispatch.messageId !== null &&
+    input.queuedMessages?.some((message) => message.messageId === input.localDispatch?.messageId)
+  ) {
     return true;
   }
   if (input.phase === "connecting") {

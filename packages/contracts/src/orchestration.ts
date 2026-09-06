@@ -424,8 +424,6 @@ export const OrchestrationLatestTurn = Schema.Struct({
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
 /** A follow-up message held server-side while a turn is running. */
-export const MAX_THREAD_QUEUED_MESSAGES = 50;
-
 export const OrchestrationQueuedMessage = Schema.Struct({
   messageId: MessageId,
   text: Schema.String,
@@ -1000,7 +998,7 @@ const ThreadQueueReorderCommand = Schema.Struct({
   type: Schema.Literal("thread.queue.reorder"),
   commandId: CommandId,
   threadId: ThreadId,
-  messageIds: Schema.Array(MessageId).check(Schema.isMaxLength(MAX_THREAD_QUEUED_MESSAGES)),
+  messageIds: Schema.Array(MessageId),
   createdAt: IsoDateTime,
 });
 

@@ -74,7 +74,7 @@ it.layer(makeProjectionPipelinePrefixedTestLayer("t3-queue-recovery-test-"))(
           correlationId: null,
           metadata: {},
         };
-        for (const id of ["recover-first", "recover-second", "recover-removed"]) {
+        for (const id of ["recover-first", "recover-second", "recover-removed", "recover-sent"]) {
           yield* eventStore.append({
             ...base,
             eventId: EventId.make(id),
@@ -118,6 +118,22 @@ it.layer(makeProjectionPipelinePrefixedTestLayer("t3-queue-recovery-test-"))(
             threadId,
             messageIds: [MessageId.make("recover-second"), MessageId.make("recover-first")],
             reorderedAt: now,
+          },
+        });
+        yield* eventStore.append({
+          ...base,
+          eventId: EventId.make("queue-delivered"),
+          type: "thread.message-sent",
+          payload: {
+            threadId,
+            messageId: MessageId.make("recover-sent"),
+            role: "user",
+            text: "Already delivered",
+            attachments: [],
+            turnId: null,
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
           },
         });
         yield* pipeline.bootstrap;
