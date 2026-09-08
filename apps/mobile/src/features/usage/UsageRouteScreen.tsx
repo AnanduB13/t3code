@@ -197,9 +197,9 @@ function ChartCard(props: {
         <View className="min-w-0 flex-1 gap-0.5">
           <Text className="text-sm text-foreground-muted">Token cost</Text>
           <Text className="text-4xl font-t3-bold tabular-nums text-foreground">
-            {formatUsd(merged.costUsd)}*
+            {formatUsd(merged.costUsd)}
           </Text>
-          <Text className="text-sm text-foreground-muted">* if billed at full API rate</Text>
+          <Text className="text-sm text-foreground-muted">API cost</Text>
         </View>
       </View>
 
