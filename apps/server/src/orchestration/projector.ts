@@ -470,6 +470,9 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
+            ...(payload.lastVisitedAt !== undefined
+              ? { lastVisitedAt: payload.lastVisitedAt }
+              : {}),
             ...(payload.title !== undefined ? { title: payload.title } : {}),
             ...(payload.titleRegeneration !== undefined
               ? { titleRegeneration: payload.titleRegeneration }

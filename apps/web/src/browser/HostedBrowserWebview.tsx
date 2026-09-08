@@ -66,6 +66,7 @@ export function HostedBrowserWebview(props: {
       return {
         content: current?.content ?? null,
         cornerRadius: current?.cornerRadius ?? 0,
+        interactive: current?.interactive ?? true,
         fitSourceContent: current?.fitSourceContent ?? false,
         fittedSourceContent: current?.fittedSourceContent ?? null,
         rect: resolveBrowserSurfacePanelRect(state.byTabId, runtimeTabId),
@@ -245,6 +246,7 @@ export function HostedBrowserWebview(props: {
     // Inactive macOS guests intentionally remain paintable offscreen; other platforms still
     // suspend them, and automation continues to see the macOS guests as inactive.
     keepPaintableWhenInactive: isMacPlatform(navigator.platform),
+    interactive: presentation.interactive,
     cornerRadius: presentation.cornerRadius,
     rect: lastRect,
     hiddenSize,

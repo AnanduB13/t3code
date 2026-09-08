@@ -1,4 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
+import { requestFinderReveal } from "./finder/finderNavigation";
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -1624,6 +1626,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   revealLabel,
   className,
 }: MarkdownFileLinkProps) {
+  const navigate = useNavigate();
   const handleOpenInEditor = useCallback(() => {
     if (!onOpen) {
       return;
@@ -1802,6 +1805,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
             ...(onOpenInBrowser
               ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
               : []),
+            ...(threadRef ? ([{ id: "show-in-finder", label: "Show in Finder" }] as const) : []),
             ...(onReveal && revealLabel ? ([{ id: "reveal", label: revealLabel }] as const) : []),
             { id: "copy-relative", label: "Copy relative path" },
             { id: "copy-full", label: "Copy full path" },
@@ -1819,6 +1823,11 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         }
         if (clicked === "open-in-browser") {
           handleOpenInBrowser();
+          return;
+        }
+        if (clicked === "show-in-finder" && threadRef) {
+          requestFinderReveal({ environmentId: threadRef.environmentId, fullPath: targetPath });
+          await navigate({ to: "/finder" });
           return;
         }
         if (clicked === "reveal") {
@@ -1841,6 +1850,8 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
     },
     [
       displayPath,
+      navigate,
+      threadRef,
       handleCopy,
       handleOpenInBrowser,
       handleOpenInEditor,

@@ -488,6 +488,8 @@ export const OrchestrationThread = Schema.Struct({
   // servers never need each other's threads to agree on the merged list.
   // Optional so payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Shared read watermark; absent on older servers and null before the first visit.
+  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -559,6 +561,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -864,6 +867,9 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.meta.update"),
   commandId: CommandId,
   threadId: ThreadId,
+  lastVisitedAt: Schema.optional(IsoDateTime),
+  /** Explicit unread actions can move the read watermark backwards. */
+  markUnread: Schema.optional(Schema.Literal(true)),
   title: Schema.optional(TrimmedNonEmptyString),
   regenerateTitle: Schema.optional(Schema.Literal(true)),
   modelSelection: Schema.optional(ModelSelection),
@@ -1366,6 +1372,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   regenerateTitle: Schema.optional(Schema.Literal(true)),
   /** Title at request time, used to avoid overwriting a later manual rename. */
   previousTitle: Schema.optional(TrimmedNonEmptyString),
+  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   /** Pending state shared with clients. Null clears a matching request. */
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   modelSelection: Schema.optional(ModelSelection),

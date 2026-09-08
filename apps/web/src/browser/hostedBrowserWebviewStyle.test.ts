@@ -24,6 +24,21 @@ describe("resolveHostedBrowserWebviewWrapperStyle", () => {
     });
   });
 
+  it("disables page input in a floating preview and restores it in the browser panel", () => {
+    const surface = {
+      active: true,
+      renderingActive: true,
+      rect: { x: 12, y: 34, width: 360, height: 203 },
+      hiddenSize: { width: 1280, height: 800 },
+    };
+    expect(
+      resolveHostedBrowserWebviewWrapperStyle({ ...surface, interactive: false }).pointerEvents,
+    ).toBe("none");
+    expect(
+      resolveHostedBrowserWebviewWrapperStyle({ ...surface, interactive: true }).pointerEvents,
+    ).toBe("auto");
+  });
+
   it("clips a floating webview to the mini-player frame", () => {
     expect(
       resolveHostedBrowserWebviewWrapperStyle({

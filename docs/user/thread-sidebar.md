@@ -4,6 +4,12 @@ On web and desktop, use the project dropdown to filter the sidebar's threads. Sw
 updates the list directly, without fading the previous project's rows out and the new rows in.
 Choose **All projects** to clear the filter.
 
+Opening a completed chat clears its **Done** badge and marks its activity-center notification as
+read across devices connected to the same environment, including remote connections through
+Tailscale. **Mark unread** and the activity center's **Mark all read** action sync too. Later
+completions can still appear as unread. Reading a chat does not change its sort order or settlement
+status. Update the server and clients to use shared read status.
+
 Pin a thread from its context menu to keep it in the pinned section above your active work.
 `mod+shift+p` pins or unpins the thread you have open. Pinned threads are shown independently of
 their project, including when you connect to more than one environment.

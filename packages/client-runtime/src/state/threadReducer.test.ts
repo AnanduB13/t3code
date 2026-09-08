@@ -283,6 +283,25 @@ describe("applyThreadDetailEvent", () => {
   });
 
   describe("thread.meta-updated", () => {
+    it("applies shared read and unread receipts without changing the latest turn", () => {
+      for (const lastVisitedAt of ["2026-04-01T05:00:00.000Z", "2026-04-01T04:00:00.000Z"]) {
+        const result = applyThreadDetailEvent(baseThread, {
+          ...baseEventFields,
+          sequence: 5,
+          occurredAt: lastVisitedAt,
+          aggregateKind: "thread",
+          aggregateId: baseThread.id,
+          type: "thread.meta-updated",
+          payload: { threadId: baseThread.id, lastVisitedAt, updatedAt: baseThread.updatedAt },
+        });
+        expect(result.kind).toBe("updated");
+        if (result.kind === "updated") {
+          expect(result.thread.lastVisitedAt).toBe(lastVisitedAt);
+          expect(result.thread.latestTurn).toBe(baseThread.latestTurn);
+          expect(result.thread.updatedAt).toBe(baseThread.updatedAt);
+        }
+      }
+    });
     it("patches title and branch", () => {
       const result = applyThreadDetailEvent(baseThread, {
         ...baseEventFields,

@@ -226,6 +226,9 @@ export function applyThreadDetailEvent(
         kind: "updated",
         thread: {
           ...thread,
+          ...(event.payload.lastVisitedAt !== undefined
+            ? { lastVisitedAt: event.payload.lastVisitedAt }
+            : {}),
           ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
           ...(event.payload.titleRegeneration !== undefined
             ? { titleRegeneration: event.payload.titleRegeneration }

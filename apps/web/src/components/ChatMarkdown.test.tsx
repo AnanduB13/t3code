@@ -2,6 +2,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));

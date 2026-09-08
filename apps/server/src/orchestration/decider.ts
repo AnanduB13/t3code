@@ -906,6 +906,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.meta-updated",
         payload: {
           threadId: command.threadId,
+          ...(command.lastVisitedAt !== undefined
+            ? {
+                lastVisitedAt:
+                  command.markUnread ||
+                  !thread.lastVisitedAt ||
+                  Date.parse(command.lastVisitedAt) > Date.parse(thread.lastVisitedAt)
+                    ? command.lastVisitedAt
+                    : thread.lastVisitedAt,
+              }
+            : {}),
           ...(command.title !== undefined ? { title: command.title } : {}),
           ...(command.regenerateTitle === true
             ? {
@@ -928,7 +938,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.linkedPullRequest !== undefined
             ? { linkedPullRequest: command.linkedPullRequest }
             : {}),
-          updatedAt: occurredAt,
+          // Reading does not count as thread activity (sorting and auto-settlement).
+          updatedAt:
+            command.lastVisitedAt !== undefined &&
+            command.title === undefined &&
+            command.regenerateTitle === undefined &&
+            command.modelSelection === undefined &&
+            command.branch === undefined &&
+            command.worktreePath === undefined &&
+            command.linkedPullRequest === undefined
+              ? thread.updatedAt
+              : occurredAt,
         },
       };
     }

@@ -7,6 +7,7 @@ const testState = vi.hoisted(() => ({
   assetState: "success" as "success" | "loading" | "failure",
 }));
 
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../assets/assetUrls", () => ({
   useAssetUrlRefresh: () => vi.fn(),

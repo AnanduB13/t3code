@@ -818,6 +818,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
+            ...(event.payload.lastVisitedAt !== undefined
+              ? { lastVisitedAt: event.payload.lastVisitedAt }
+              : {}),
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             ...(event.payload.titleRegeneration !== undefined
               ? {

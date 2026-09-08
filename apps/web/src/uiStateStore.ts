@@ -1,3 +1,4 @@
+import { publishThreadVisit } from "./threadVisitSync";
 import { Debouncer } from "@tanstack/react-pacer";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
@@ -396,10 +397,20 @@ interface UiStateStore extends UiState {
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
-  markThreadVisited: (threadId, visitedAt) =>
-    set((state) => markThreadVisited(state, threadId, visitedAt)),
-  markThreadUnread: (threadId, latestTurnCompletedAt) =>
-    set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
+  markThreadVisited: (threadId, visitedAt) => {
+    if (!Number.isFinite(Date.parse(visitedAt))) return;
+    set((state) => markThreadVisited(state, threadId, visitedAt));
+    publishThreadVisit({ threadKey: threadId, visitedAt });
+  },
+  markThreadUnread: (threadId, latestTurnCompletedAt) => {
+    if (!latestTurnCompletedAt || !Number.isFinite(Date.parse(latestTurnCompletedAt))) return;
+    set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt));
+    publishThreadVisit({
+      threadKey: threadId,
+      visitedAt: new Date(Date.parse(latestTurnCompletedAt) - 1).toISOString(),
+      markUnread: true,
+    });
+  },
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   setDefaultAdvertisedEndpointKey: (key) =>

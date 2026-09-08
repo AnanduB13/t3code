@@ -17,7 +17,7 @@ import {
   threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { Alert, Platform, ScrollView, View } from "react-native";
+import { AppState, Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
@@ -216,6 +216,37 @@ function ThreadRouteContent(
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
+  const updateThreadReadStatus = useAtomCommand(
+    threadEnvironment.updateMetadata,
+    "sync thread read status",
+  );
+  const completedAt = selectedThread?.latestTurn?.completedAt;
+  const readThreadId = selectedThread?.id;
+  const readEnvironmentId = selectedThread?.environmentId;
+  const lastVisitedAtRef = useRef(selectedThread?.lastVisitedAt);
+  lastVisitedAtRef.current = selectedThread?.lastVisitedAt;
+  useFocusEffect(
+    useCallback(() => {
+      const acknowledge = () => {
+        const lastVisitedAt = lastVisitedAtRef.current;
+        if (
+          AppState.currentState !== "active" ||
+          !readThreadId ||
+          !readEnvironmentId ||
+          !completedAt ||
+          (lastVisitedAt && Date.parse(lastVisitedAt) >= Date.parse(completedAt))
+        )
+          return;
+        void updateThreadReadStatus({
+          environmentId: readEnvironmentId,
+          input: { threadId: readThreadId, lastVisitedAt: completedAt },
+        });
+      };
+      acknowledge();
+      const subscription = AppState.addEventListener("change", acknowledge);
+      return () => subscription.remove();
+    }, [completedAt, readThreadId, readEnvironmentId, updateThreadReadStatus]),
+  );
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
   const steerQueuedMessage = useAtomCommand(threadEnvironment.steerQueuedMessage, {
     reportFailure: false,

@@ -1,3 +1,4 @@
+import { isLatestTurnCompleted } from "@t3tools/client-runtime/state/thread-settled";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import type { ContextMenuItem } from "@t3tools/contracts";
@@ -226,7 +227,7 @@ type ThreadStatusInput = Pick<
   | "session"
   | "backgroundLiveness"
 > & {
-  lastVisitedAt?: string | undefined;
+  lastVisitedAt?: string | null | undefined;
 };
 
 export interface ThreadJumpHintVisibilityController {
@@ -315,7 +316,7 @@ export function useThreadJumpHintVisibility(): {
 }
 
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
+  if (!isLatestTurnCompleted(thread.latestTurn) || !thread.latestTurn?.completedAt) return false;
   const completedAt = Date.parse(thread.latestTurn.completedAt);
   if (Number.isNaN(completedAt)) return false;
   if (!thread.lastVisitedAt) return false;

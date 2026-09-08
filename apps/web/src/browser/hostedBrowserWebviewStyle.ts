@@ -20,6 +20,7 @@ export const HIDDEN_BROWSER_WEBVIEW_OFFSET = -100_000;
 
 export function resolveHostedBrowserWebviewWrapperStyle(input: {
   readonly active: boolean;
+  readonly interactive?: boolean;
   readonly renderingActive: boolean;
   readonly keepPaintableWhenInactive?: boolean;
   readonly cornerRadius?: number;
@@ -28,6 +29,7 @@ export function resolveHostedBrowserWebviewWrapperStyle(input: {
 }): HostedBrowserWebviewWrapperStyle {
   const {
     active,
+    interactive = true,
     cornerRadius = 0,
     hiddenSize,
     keepPaintableWhenInactive = false,
@@ -41,7 +43,7 @@ export function resolveHostedBrowserWebviewWrapperStyle(input: {
       width: rect.width,
       height: rect.height,
       zIndex: 30,
-      pointerEvents: "auto",
+      pointerEvents: interactive ? "auto" : "none",
       ...(cornerRadius > 0 ? { borderRadius: cornerRadius } : {}),
     };
   }

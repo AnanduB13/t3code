@@ -3796,4 +3796,71 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       assert.deepEqual(cleanupFailureReceipts, [{ status: "accepted" }]);
     }),
   );
+  it.effect(
+    "shares read acknowledgements through persisted snapshots without changing activity",
+    () =>
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        const query = yield* ProjectionSnapshotQuery;
+        const createdAt = "2026-01-01T00:00:00.000Z";
+        const completedAt = "2026-01-01T00:05:00.000Z";
+        const older = "2026-01-01T00:04:00.000Z";
+        const projectId = ProjectId.make("read-project");
+        const threadId = ThreadId.make("read-thread");
+        const modelSelection = {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        };
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("read-project"),
+          projectId,
+          title: "Read status",
+          workspaceRoot: "/tmp/read-status",
+          createdAt,
+        });
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("read-thread"),
+          threadId,
+          projectId,
+          title: "Read status",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        });
+        for (const [id, lastVisitedAt, markUnread, expected] of [
+          ["read", completedAt, false, completedAt],
+          ["stale-read", older, false, completedAt],
+          ["unread", older, true, older],
+          ["reread", completedAt, false, completedAt],
+        ] as const) {
+          yield* engine.dispatch({
+            type: "thread.meta.update",
+            commandId: CommandId.make(id),
+            threadId,
+            lastVisitedAt,
+            ...(markUnread ? { markUnread: true as const } : {}),
+          });
+          const detail = yield* query.getThreadDetailById(threadId);
+          const shell = yield* query.getThreadShellById(threadId);
+          assert.strictEqual(Option.getOrThrow(detail).lastVisitedAt, expected);
+          assert.strictEqual(Option.getOrThrow(shell).lastVisitedAt, expected);
+          assert.strictEqual(Option.getOrThrow(detail).updatedAt, createdAt);
+          const snapshot = yield* query.getSnapshot();
+          assert.strictEqual(
+            snapshot.threads.find((thread) => thread.id === threadId)?.lastVisitedAt,
+            expected,
+          );
+          const shellSnapshot = yield* query.getShellSnapshot();
+          assert.strictEqual(
+            shellSnapshot.threads.find((thread) => thread.id === threadId)?.lastVisitedAt,
+            expected,
+          );
+        }
+      }),
+  );
 });

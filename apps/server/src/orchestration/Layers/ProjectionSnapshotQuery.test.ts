@@ -363,6 +363,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           snoozedAt: null,
           pinnedAt: "2026-02-24T00:00:01.000Z",
           pinOrderKey: "gm",
+          lastVisitedAt: null,
           titleRegeneration: null,
           deletedAt: null,
           messages: [
@@ -491,6 +492,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           snoozedAt: null,
           pinnedAt: "2026-02-24T00:00:01.000Z",
           pinOrderKey: "gm",
+          lastVisitedAt: null,
           titleRegeneration: null,
           session: {
             threadId: ThreadId.make("thread-1"),
