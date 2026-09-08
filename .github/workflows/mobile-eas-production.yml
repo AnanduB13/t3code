@@ -28,12 +28,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "build (+ auto-submit to TestFlight) or update (OTA)"
+        description: "build (store submission), apk (Android download), or update (OTA)"
         required: true
         type: choice
         default: build
         options:
           - build
+          - apk
           - update
       platform:
         description: "Target platform"
@@ -217,6 +218,15 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas build --platform ${{ inputs.platform }} --profile production --auto-submit --non-interactive --no-wait
+
+      - name: Build downloadable Android APK (manual)
+        if: steps.expo-token.outputs.present == 'true' && github.event_name == 'workflow_dispatch' && inputs.mode == 'apk'
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas build --platform android --profile production:apk --non-interactive --wait --json > "$RUNNER_TEMP/android-apk-build.json"
+          jq -r '.[] | "APK: \(.artifacts.buildUrl)\nRuntime: \(.runtimeVersion)\nBuild: \(.id)"' "$RUNNER_TEMP/android-apk-build.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Publish OTA update (manual)
         if: steps.expo-token.outputs.present == 'true' && github.event_name == 'workflow_dispatch' && inputs.mode == 'update'
