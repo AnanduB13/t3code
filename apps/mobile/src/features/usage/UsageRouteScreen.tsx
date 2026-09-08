@@ -3,11 +3,9 @@ import type { DailyTotals, MergedUsage } from "@t3tools/shared/usageMerge";
 import {
   enumerateDays,
   enumerateHourStarts,
-  formatCount,
   formatDayShort,
   formatHourShort,
   formatPercent,
-  formatTokens,
   formatUsd,
   makeWindow,
 } from "@t3tools/shared/usageFormat";
@@ -21,7 +19,6 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { UsageDailyChart } from "./UsageDailyChart";
-import type { UsageChartMetric } from "./usageChartData";
 import { PROVIDER_LABEL, useProviderColors } from "./usageProviders";
 
 const WINDOW_OPTIONS = [
@@ -40,7 +37,6 @@ export function UsageRouteScreen() {
     days: 30,
     window: makeWindow(30),
   }));
-  const [metric, setMetric] = useState<UsageChartMetric>("cost");
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
@@ -131,14 +127,12 @@ export function UsageRouteScreen() {
               merged={merged}
               days={chartDays}
               daily={chartTotals}
-              metric={metric}
-              onMetricChange={setMetric}
               sinceDay={window.sinceDay}
               untilDay={window.untilDay}
               isPast24Hours={isPast24Hours}
               timeZone={window.timeZone}
             />
-            <ProviderSection merged={merged} metric={metric} />
+            <ProviderSection merged={merged} />
             <TotalsSection merged={merged} isPast24Hours={isPast24Hours} />
             <ModelsSection merged={merged} />
           </>
@@ -188,14 +182,12 @@ function ChartCard(props: {
   readonly merged: MergedUsage;
   readonly days: readonly string[];
   readonly daily: readonly DailyTotals[];
-  readonly metric: UsageChartMetric;
-  readonly onMetricChange: (metric: UsageChartMetric) => void;
   readonly sinceDay: string;
   readonly untilDay: string;
   readonly isPast24Hours: boolean;
   readonly timeZone: string;
 }) {
-  const { merged, metric } = props;
+  const { merged } = props;
   const colors = useProviderColors();
   const hasActivity = props.daily.some((period) => period.totalTokens > 0);
 
@@ -203,28 +195,16 @@ function ChartCard(props: {
     <View className="gap-4 rounded-[24px] border-continuous bg-card p-4">
       <View className="flex-row items-start justify-between gap-3">
         <View className="min-w-0 flex-1 gap-0.5">
-          <Text className="text-sm text-foreground-muted">
-            {metric === "cost" ? "Raw token cost" : "Processed tokens"}
-          </Text>
+          <Text className="text-sm text-foreground-muted">Token cost</Text>
           <Text className="text-4xl font-t3-bold tabular-nums text-foreground">
-            {metric === "cost" ? `${formatUsd(merged.costUsd)}*` : formatTokens(merged.totalTokens)}
+            {formatUsd(merged.costUsd)}*
           </Text>
-          <Text className="text-sm text-foreground-muted">
-            {metric === "cost"
-              ? "* if billed at full API rate"
-              : `Across ${formatCount(merged.sessions)} sessions`}
-          </Text>
+          <Text className="text-sm text-foreground-muted">* if billed at full API rate</Text>
         </View>
-        <MetricToggle metric={metric} onChange={props.onMetricChange} />
       </View>
 
       {hasActivity ? (
-        <UsageDailyChart
-          days={props.days}
-          daily={props.daily}
-          metric={metric}
-          height={CHART_HEIGHT}
-        />
+        <UsageDailyChart days={props.days} daily={props.daily} height={CHART_HEIGHT} />
       ) : (
         <View style={{ height: CHART_HEIGHT }} className="items-center justify-center">
           <Text className="text-base text-foreground-muted">No activity in this window.</Text>
@@ -260,56 +240,19 @@ function ChartCard(props: {
   );
 }
 
-function MetricToggle(props: {
-  readonly metric: UsageChartMetric;
-  readonly onChange: (metric: UsageChartMetric) => void;
-}) {
-  return (
-    <View className="flex-row overflow-hidden rounded-full bg-subtle">
-      {(["cost", "tokens"] as const).map((option) => {
-        const active = option === props.metric;
-        return (
-          <Pressable
-            key={option}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            onPress={() => props.onChange(option)}
-            className={active ? "rounded-full bg-subtle-strong px-3 py-1.5" : "px-3 py-1.5"}
-          >
-            <Text
-              className={
-                active
-                  ? "text-xs font-t3-medium uppercase text-foreground"
-                  : "text-xs uppercase text-foreground-muted"
-              }
-            >
-              {option}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-function ProviderSection(props: {
-  readonly merged: MergedUsage;
-  readonly metric: UsageChartMetric;
-}) {
-  const { merged, metric } = props;
+function ProviderSection(props: { readonly merged: MergedUsage }) {
+  const { merged } = props;
   const colors = useProviderColors();
   if (merged.providers.length === 0) return null;
 
-  // Ranked by whatever the toggle is showing, so the rows always descend.
+  // Rank providers by cost, matching the chart and headline.
   // .sort() on a copy, not .toSorted(): Hermes doesn't ship the ES2023 method.
-  const ordered = [...merged.providers].sort((a, b) =>
-    metric === "cost" ? b.costUsd - a.costUsd : b.totalTokens - a.totalTokens,
-  );
+  const ordered = [...merged.providers].sort((a, b) => b.costUsd - a.costUsd);
 
   return (
     <SettingsSection title="Providers" card>
       {ordered.map((provider, index) => {
-        const share = metric === "cost" ? provider.costShare : provider.tokenShare;
+        const share = provider.costShare;
         return (
           <View
             key={provider.provider}
@@ -324,9 +267,7 @@ function ProviderSection(props: {
                 <Text className="text-lg text-foreground">{PROVIDER_LABEL[provider.provider]}</Text>
               </View>
               <Text className="text-lg tabular-nums text-foreground">
-                {metric === "cost"
-                  ? formatUsd(provider.costUsd)
-                  : formatTokens(provider.totalTokens)}
+                {formatUsd(provider.costUsd)}
               </Text>
             </View>
             <View className="h-1 flex-row overflow-hidden rounded-full bg-subtle">
@@ -336,11 +277,7 @@ function ProviderSection(props: {
               />
               <View style={{ flex: 1 - share }} />
             </View>
-            <Text className="text-sm text-foreground-muted">
-              {metric === "cost"
-                ? `${formatPercent(share)} of cost · ${formatTokens(provider.totalTokens)} tokens`
-                : `${formatPercent(share)} of tokens · ${formatUsd(provider.costUsd)}`}
-            </Text>
+            <Text className="text-sm text-foreground-muted">{formatPercent(share)} of cost</Text>
           </View>
         );
       })}
@@ -353,41 +290,24 @@ function TotalsSection(props: { readonly merged: MergedUsage; readonly isPast24H
   const activePeriods = (props.isPast24Hours ? merged.hourly : merged.daily).filter(
     (period) => period.totalTokens > 0,
   ).length;
-  const periodAverage = activePeriods === 0 ? 0 : merged.totalTokens / activePeriods;
-  const observedInput = merged.uncachedInputTokens + merged.cachedInputTokens;
-  const cachedShare = observedInput === 0 ? 0 : merged.cachedInputTokens / observedInput;
+  const periodAverage = activePeriods === 0 ? 0 : merged.costUsd / activePeriods;
 
   return (
     <SettingsSection title="Totals" card>
       <View className="flex-row flex-wrap">
         <MetricCell
-          label="Processed tokens"
-          value={formatTokens(merged.totalTokens)}
-          detail={`${formatTokens(periodAverage)} per active ${props.isPast24Hours ? "hour" : "day"}`}
+          label="Token cost"
+          value={formatUsd(merged.costUsd)}
+          detail={`${formatUsd(periodAverage)} per active ${props.isPast24Hours ? "hour" : "day"}`}
         />
         <MetricCell
           label="Cache savings"
           value={formatUsd(merged.costQuality.cacheSavingsUsd)}
           detail={
             merged.costUsd > 0
-              ? `${(merged.costQuality.cacheSavingsUsd / merged.costUsd).toFixed(1)}x the raw cost`
+              ? `${(merged.costQuality.cacheSavingsUsd / merged.costUsd).toFixed(1)}x the token cost`
               : "vs full input rates"
           }
-        />
-        <MetricCell
-          label="Cached input"
-          value={formatTokens(merged.cachedInputTokens)}
-          detail={`${formatPercent(cachedShare)} of observed input`}
-        />
-        <MetricCell
-          label="Uncached input"
-          value={formatTokens(merged.uncachedInputTokens)}
-          detail={`${formatTokens(merged.cacheCreationTokens)} cache writes`}
-        />
-        <MetricCell
-          label="Output"
-          value={formatTokens(merged.outputTokens)}
-          detail={`incl. ${formatTokens(merged.reasoningTokens)} reasoning`}
         />
         <MetricCell
           label="Unpriced"
@@ -438,7 +358,7 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
               {model.model}
             </Text>
             <Text className="text-sm text-foreground-muted">
-              {formatPercent(model.costShare)} of cost · {formatTokens(model.totalTokens)} tokens
+              {formatPercent(model.costShare)} of cost
             </Text>
           </View>
           <Text className="text-base tabular-nums text-foreground">{formatUsd(model.costUsd)}</Text>
