@@ -81,6 +81,7 @@ jobs:
       contents: read
     env:
       APP_VARIANT: production
+      T3CODE_MOBILE_EAS_PROJECT_ID: ${{ vars.T3CODE_MOBILE_EAS_PROJECT_ID }}
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - id: expo-token
