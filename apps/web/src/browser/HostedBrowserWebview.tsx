@@ -257,6 +257,7 @@ export function HostedBrowserWebview(props: {
       ref={wrapperRef}
       className="fixed overflow-hidden bg-muted/35"
       style={{ ...wrapperStyle, overscrollBehavior: "contain" }}
+      inert={!presentation.interactive}
       onScroll={syncContentPresentation}
       data-preview-rendering={renderingActive ? "active" : "suspended"}
       data-preview-viewport={runtimeTabId}
@@ -314,6 +315,7 @@ export function HostedBrowserWebview(props: {
             height: layout.viewportHeight / layout.viewportScale,
             transform: layout.viewportScale < 1 ? `scale(${layout.viewportScale})` : undefined,
             transformOrigin: "top left",
+            pointerEvents: wrapperStyle.pointerEvents,
           }}
         />
         {active && effectiveViewport._tag !== "fill" && !fittedSourceViewport ? (

@@ -8,6 +8,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
@@ -41,10 +42,9 @@ interface ResizeState {
 interface Props {
   readonly threadRef: ScopedThreadRef;
   readonly tabId: string;
-  readonly bottomInset: number;
 }
 
-export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props) {
+export function ThreadPreviewMiniPlayer({ threadRef, tabId }: Props) {
   const rootRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
@@ -77,14 +77,12 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
       const nextSize = clampPreviewMiniPlayerSize(
         { width: root.offsetWidth, height: root.offsetHeight },
         { width: parent.clientWidth, height: parent.clientHeight },
-        bottomInset,
       );
       usePreviewMiniPlayerStore.getState().resize(threadRef, tabId, nextSize);
       const next = clampPreviewMiniPlayerPosition(
         position ?? { x: root.offsetLeft, y: root.offsetTop },
         { width: parent.clientWidth, height: parent.clientHeight },
         nextSize,
-        bottomInset,
       );
       usePreviewMiniPlayerStore.getState().move(threadRef, tabId, next);
     };
@@ -98,7 +96,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
     observer.observe(root);
     observer.observe(parent);
     return () => observer.disconnect();
-  }, [bottomInset, position, tabId, threadRef]);
+  }, [position, tabId, threadRef]);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -132,7 +130,6 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
       },
       { width: parent.clientWidth, height: parent.clientHeight },
       { width: root.offsetWidth, height: root.offsetHeight },
-      bottomInset,
     );
     usePreviewMiniPlayerStore.getState().move(threadRef, tabId, next);
   };
@@ -162,7 +159,6 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
       { x: current.x + direction.x * step, y: current.y + direction.y * step },
       { width: parent.clientWidth, height: parent.clientHeight },
       { width: root.offsetWidth, height: root.offsetHeight },
-      bottomInset,
     );
     usePreviewMiniPlayerStore.getState().move(threadRef, tabId, next);
     event.preventDefault();
@@ -202,14 +198,12 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
         height: resize.height + event.clientY - resize.pointerY,
       },
       { width: parent.clientWidth, height: parent.clientHeight },
-      bottomInset,
     );
     usePreviewMiniPlayerStore.getState().resize(threadRef, tabId, nextSize);
     const nextPosition = clampPreviewMiniPlayerPosition(
       position ?? { x: root.offsetLeft, y: root.offsetTop },
       { width: parent.clientWidth, height: parent.clientHeight },
       nextSize,
-      bottomInset,
     );
     usePreviewMiniPlayerStore.getState().move(threadRef, tabId, nextPosition);
   };
@@ -224,86 +218,90 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
 
   if (!snapshot || miniPlayer?.tabId !== tabId) return null;
 
-  return (
-    <section
-      ref={rootRef}
-      aria-label="Floating browser preview"
-      data-preview-mini-player={tabId}
-      className="group absolute select-none"
-      style={
-        position
-          ? { left: position.x, top: position.y, width: size.width, height: size.height }
-          : {
-              right: 16,
-              top: 16,
-              width: size.width,
-              height: size.height,
-            }
-      }
-    >
-      <button
-        type="button"
-        aria-label="Move floating browser preview"
-        className="absolute inset-0 z-[32] cursor-grab rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onKeyDown={handleDragKeyDown}
-      />
+  // Keep the input cover above the separately hosted webview and outside chat clipping.
+  return createPortal(
+    <div className="pointer-events-none fixed inset-0 z-[31]">
+      <section
+        ref={rootRef}
+        aria-label="Floating browser preview"
+        data-preview-mini-player={tabId}
+        className="group/mini-player pointer-events-auto absolute select-none"
+        style={
+          position
+            ? { left: position.x, top: position.y, width: size.width, height: size.height }
+            : {
+                right: 16,
+                top: 16,
+                width: size.width,
+                height: size.height,
+              }
+        }
+      >
+        <button
+          type="button"
+          aria-label="Move floating browser preview"
+          className="absolute inset-0 z-[32] touch-none cursor-grab rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+          onContextMenu={(event) => event.preventDefault()}
+          onKeyDown={handleDragKeyDown}
+        />
 
-      <div className="pointer-events-none absolute inset-0 z-[34] flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-[background-color,opacity] group-hover:bg-black/20 group-hover:opacity-100 group-focus-within:bg-black/20 group-focus-within:opacity-100">
-        <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-border/80 bg-popover/95 p-1 shadow-lg/30 backdrop-blur-xl">
+        <div className="pointer-events-none absolute inset-0 z-[34] rounded-xl group-hover/mini-player:bg-black/10 group-hover/mini-player:backdrop-blur-[2px] group-focus-within/mini-player:bg-black/10 group-focus-within/mini-player:backdrop-blur-[2px]" />
+        <div className="pointer-events-none absolute left-2 top-2 z-[35] flex gap-1 rounded-lg border border-border/80 bg-popover/95 p-1 opacity-0 shadow-lg/30 group-hover/mini-player:pointer-events-auto group-hover/mini-player:opacity-100 group-focus-within/mini-player:pointer-events-auto group-focus-within/mini-player:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
           <Button
             variant="outline"
             size="xs"
-            aria-label="Open preview in right panel"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={openInPanel}
-          >
-            <PanelRightIcon />
-            Open panel
-          </Button>
-          <Button
-            variant="outline"
-            size="xs"
-            aria-label="Hide floating preview"
-            onPointerDown={(event) => event.stopPropagation()}
+            aria-label="Minimize floating preview"
             onClick={close}
           >
             <Minimize2Icon />
             Minimize
           </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            aria-label="Open preview in collaborative browser"
+            onClick={openInPanel}
+          >
+            <PanelRightIcon />
+            Open browser
+          </Button>
         </div>
-      </div>
 
-      <div className="relative h-full min-h-0">
-        <div className="absolute inset-0 z-[29] rounded-xl bg-muted shadow-2xl/35" />
-        <BrowserSurfaceSlot
-          tabId={runtimeTabId}
-          visible={Boolean(desktopOverlay?.hasWebContents)}
-          interactive={false}
-          cornerRadius={12}
-          fitSourceContent
-          layoutVersion={position ? `${position.x}:${position.y}` : `initial:${bottomInset}`}
-          className="absolute inset-0"
-        />
-        <div className="pointer-events-none absolute inset-0 z-[31] rounded-xl ring-1 ring-inset ring-border/80" />
-        {!desktopOverlay?.hasWebContents ? (
-          <div className="pointer-events-none absolute inset-0 z-[32] flex items-center justify-center rounded-xl bg-muted text-xs text-muted-foreground">
-            Reconnecting preview…
-          </div>
-        ) : null}
-        <button
-          type="button"
-          aria-label="Resize floating preview"
-          className="pointer-events-auto absolute bottom-0 right-0 z-[35] size-5 cursor-nwse-resize rounded-br-xl after:absolute after:bottom-1 after:right-1 after:size-2 after:border-b after:border-r after:border-foreground/45"
-          onPointerDown={handleResizePointerDown}
-          onPointerMove={handleResizePointerMove}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
-        />
-      </div>
-    </section>
+        <div className="relative h-full min-h-0">
+          <div className="pointer-events-none absolute inset-0 rounded-xl shadow-2xl/35" />
+          <BrowserSurfaceSlot
+            tabId={runtimeTabId}
+            visible={Boolean(desktopOverlay?.hasWebContents)}
+            interactive={false}
+            cornerRadius={12}
+            fitSourceContent
+            layoutVersion={position ? `${position.x}:${position.y}` : "initial"}
+            className="absolute inset-0"
+          />
+          <div className="pointer-events-none absolute inset-0 z-[31] rounded-xl ring-1 ring-inset ring-border/80" />
+          {!desktopOverlay?.hasWebContents ? (
+            <div className="pointer-events-none absolute inset-0 z-[32] flex items-center justify-center rounded-xl bg-muted text-xs text-muted-foreground">
+              Reconnecting preview…
+            </div>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Resize floating preview"
+            className="pointer-events-auto absolute bottom-0 right-0 z-[35] size-5 touch-none cursor-nwse-resize rounded-br-xl after:absolute after:bottom-1 after:right-1 after:size-2 after:border-b after:border-r after:border-foreground/45"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={endResize}
+            onPointerCancel={endResize}
+            onLostPointerCapture={endResize}
+          />
+        </div>
+      </section>
+    </div>,
+    document.body,
   );
 }

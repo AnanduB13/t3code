@@ -13,8 +13,10 @@ The browser uses its own T3 Code session rather than controlling the user's norm
 data is separated by environment, but remains available to later tabs in that environment until its
 browser data is cleared.
 
-The floating preview is view-only. Hover over it to open the interactive Browser panel on the right
-or minimize it. You can drag the preview to move it and use its corner to resize it. Minimized
+The floating preview is view-only: clicking or dragging cannot interact with the website. Hover
+over it to slightly blur the page and reveal Minimize and Open browser in the top-left corner.
+Open browser selects the same tab in the collaborative Browser panel for interaction. Drag anywhere
+on the preview to move it around the app window, or use its corner to resize it. Minimized
 previews remain accessible from the Browser panel. The floating preview hides when the turn finishes.
 
 Tabs created by an agent are closed automatically when that turn finishes, which releases their
