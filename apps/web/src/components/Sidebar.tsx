@@ -2274,13 +2274,17 @@ export default function Sidebar() {
     if (sidebarMode === "chats") {
       return new Set(
         projects
-          .filter((project) => project.id === GENERAL_CHATS_PROJECT_ID)
+          .filter(
+            (project) =>
+              project.id === GENERAL_CHATS_PROJECT_ID &&
+              project.environmentId === chatStorageEnvironmentId,
+          )
           .map((project) => `${project.environmentId}:${project.id}`),
       );
     }
     if (scopedProjectKeys !== null) return scopedProjectKeys;
     return new Set(projectModeProjects.map((project) => `${project.environmentId}:${project.id}`));
-  }, [projectModeProjects, projects, scopedProjectKeys, sidebarMode]);
+  }, [chatStorageEnvironmentId, projectModeProjects, projects, scopedProjectKeys, sidebarMode]);
   useEffect(() => {
     if (projectScopeKey !== null && scopedProjectGroup === null) {
       setProjectScopeKey(null);
@@ -3832,7 +3836,7 @@ export default function Sidebar() {
                       variant="ghost"
                       size="xs"
                       className="ml-auto min-w-0 max-w-[10rem]"
-                      aria-label="Store new chats on"
+                      aria-label="Chat environment"
                     >
                       <ServerIcon className="size-3 shrink-0" />
                       <SelectValue>{chatStorageEnvironment.label}</SelectValue>
