@@ -1,5 +1,6 @@
 import {
   ComputerUseUnavailableError,
+  DeviceToolUnavailableError,
   type EnvironmentId,
   PreviewAutomationUnavailableError,
   type ProviderInstanceId,
@@ -8,7 +9,7 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
-export type McpCapability = "preview" | "computerUse";
+export type McpCapability = "preview" | "computerUse" | "device";
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
@@ -52,4 +53,10 @@ export const requireComputerUseCapability = Effect.fn("mcp.requireComputerUseCap
     }
     return invocation;
   },
+);
+
+export const requireDeviceCapability = Effect.flatMap(McpInvocationContext, (invocation) =>
+  invocation.capabilities.has("device")
+    ? Effect.succeed(invocation)
+    : Effect.fail(new DeviceToolUnavailableError({ reason: "Device capability is unavailable" })),
 );

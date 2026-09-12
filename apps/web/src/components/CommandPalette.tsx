@@ -1,5 +1,7 @@
 "use client";
 
+import { Smartphone } from "lucide-react";
+
 import {
   scopedThreadKey,
   scopeProjectRef,
@@ -1595,6 +1597,20 @@ function OpenCommandPaletteDialog(props: {
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
     });
   }
+
+  if (activeThread)
+    actionItems.push({
+      kind: "action",
+      value: "action:open-device",
+      title: "Open device",
+      searchTerms: ["android", "emulator", "ios", "simulator"],
+      icon: <Smartphone className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore
+          .getState()
+          .open(scopeThreadRef(activeThread.environmentId, activeThread.id), "device");
+      },
+    });
 
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({

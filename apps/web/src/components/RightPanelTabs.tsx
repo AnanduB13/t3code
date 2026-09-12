@@ -6,6 +6,7 @@ import {
   Files,
   GitPullRequest,
   Globe2,
+  Smartphone,
   Plus,
   TerminalSquare,
   Volume2,
@@ -69,6 +70,7 @@ interface RightPanelTabsProps {
   onCloseAllSurfaces: () => void;
   onCopyFilePath: (relativePath: string) => void;
   onAddBrowser: () => void;
+  onAddDevice?: (() => void) | undefined;
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
@@ -247,6 +249,7 @@ function SurfaceMenuItem(props: {
  */
 function RightPanelEmptyState(props: {
   onAddBrowser: () => void;
+  onAddDevice?: (() => void) | undefined;
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
@@ -264,6 +267,20 @@ function RightPanelEmptyState(props: {
   const [highlight, setHighlight] = useState(-1);
 
   const actions = [
+    ...(props.onAddDevice
+      ? [
+          {
+            label: "Device",
+            description: "Open a simulator or emulator.",
+            icon: Smartphone,
+            shortcut: "V",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddDevice,
+            badgeCount: 0,
+          },
+        ]
+      : []),
     {
       label: "Browser",
       description: "Browse the web with the agent.",
@@ -510,6 +527,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "agents":
       return "Agents";
+    case "device":
+      return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -556,6 +575,8 @@ function SurfaceIcon({
   pullRequestStatuses: Readonly<Record<string, PullRequestTabStatus>> | undefined;
 }) {
   switch (surface.kind) {
+    case "device":
+      return <Smartphone className="size-3.5" />;
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       const url = !snapshot || snapshot.navStatus._tag === "Idle" ? null : snapshot.navStatus.url;
@@ -605,6 +626,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
 
   const addSurfaceActions = [
+    ...(props.onAddDevice
+      ? [
+          {
+            label: "Device",
+            icon: Smartphone,
+            shortcut: "V",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddDevice,
+          },
+        ]
+      : []),
     {
       label: "Browser",
       icon: Globe2,
@@ -934,6 +967,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
         {props.activeSurfaceId === null ? (
           <RightPanelEmptyState
+            onAddDevice={props.onAddDevice}
             onAddBrowser={props.onAddBrowser}
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}

@@ -696,3 +696,37 @@ describe("rightPanelStore", () => {
     ).toEqual(["terminal:term-1", "browser:tab-b", "browser:tab-c"]);
   });
 });
+
+it("keeps browser, file, terminal, and host-scoped device tabs together", () => {
+  const store = useRightPanelStore.getState();
+  store.openBrowser(refA, "browser-a");
+  store.openFile(refA, "src/app.ts");
+  store.openTerminal(refA, "terminal-a");
+  const target = {
+    hostId: "local",
+    deviceId: "emulator-5554",
+    platform: "android" as const,
+    name: "Pixel",
+  };
+  store.openDevice(refA, target);
+  store.openDevice(refA, { ...target, hostId: "remote" });
+  const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+  expect(state.surfaces.map((s) => s.kind)).toEqual([
+    "preview",
+    "file",
+    "terminal",
+    "device",
+    "device",
+  ]);
+  store.closeSurface(refA, state.surfaces.at(-1)!.id);
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+  ).toHaveLength(4);
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB).surfaces,
+  ).toEqual([]);
+  expect(
+    migratePersistedRightPanelState({ byThreadKey: useRightPanelStore.getState().byThreadKey })
+      .byThreadKey,
+  ).toEqual(useRightPanelStore.getState().byThreadKey);
+});

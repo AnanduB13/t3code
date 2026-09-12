@@ -108,6 +108,13 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
+      if (command === "device.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (routeThreadRef) useRightPanelStore.getState().toggle(routeThreadRef, "device");
+        return;
+      }
+
       if (command === "preview.toggle") {
         event.preventDefault();
         event.stopPropagation();

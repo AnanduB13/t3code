@@ -1,3 +1,4 @@
+import { ThreadDeviceWorkspace } from "./device/ThreadDeviceWorkspace";
 import {
   type AssistantCitation,
   type ApprovalRequestId,
@@ -514,6 +515,9 @@ function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
 
   return [attachTransitionGroupRef, attachComposerAnchorRef, captureComposerRect] as const;
 }
+const DevicePanel = lazy(() =>
+  import("./device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
+);
 const PreviewPanel = lazy(() =>
   import("./preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
@@ -7274,7 +7278,19 @@ function ChatViewContent(props: ChatViewProps) {
     </div>
   );
   const rightPanelContent = activeThreadRef ? (
-    activeRightPanelSurface?.kind === "preview" ? (
+    activeRightPanelSurface?.kind === "device" ? (
+      <Suspense fallback={null}>
+        <DevicePanel
+          mode="embedded"
+          threadRef={activeThreadRef}
+          surface={activeRightPanelSurface}
+          visible={rightPanelOpen}
+          onDismissSetup={() =>
+            useRightPanelStore.getState().closeSurface(activeThreadRef, activeRightPanelSurface.id)
+          }
+        />
+      </Suspense>
+    ) : activeRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
         <PreviewPanel
           mode="embedded"
@@ -7750,6 +7766,9 @@ function ChatViewContent(props: ChatViewProps) {
               </div>
             </div>
 
+            {activeThreadRef ? (
+              <ThreadDeviceWorkspace key={activeThreadKey} threadRef={activeThreadRef} />
+            ) : null}
             {activeThreadRef && activePreviewMiniPlayer ? (
               <ThreadPreviewMiniPlayer
                 key={`${activeThreadKey}:${activePreviewMiniPlayer.tabId}`}
@@ -7846,6 +7865,9 @@ function ChatViewContent(props: ChatViewProps) {
           onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
           onCloseAllSurfaces={closeAllRightPanelSurfaces}
           onCopyFilePath={copyRightPanelFilePath}
+          onAddDevice={() => {
+            if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "device");
+          }}
           onAddBrowser={createBrowserSurface}
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
@@ -7886,6 +7908,9 @@ function ChatViewContent(props: ChatViewProps) {
             onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
             onCloseAllSurfaces={closeAllRightPanelSurfaces}
             onCopyFilePath={copyRightPanelFilePath}
+            onAddDevice={() => {
+              if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "device");
+            }}
             onAddBrowser={createBrowserSurface}
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}

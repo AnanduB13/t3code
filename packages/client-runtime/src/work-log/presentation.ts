@@ -36,6 +36,7 @@ export type ToolGroupAction =
   | "read"
   | "edit"
   | "command"
+  | "device"
   | "browser"
   | "code-search"
   | "search"
@@ -87,6 +88,15 @@ const T3_MCP_TOOL_LABELS: Record<
   preview_press: ["Press", "Pressing", "Pressed", "a key in the preview browser"],
   preview_type: ["Type", "Typing", "Typed", "in the preview browser"],
   preview_scroll: ["Scroll", "Scrolling", "Scrolled", "the preview browser"],
+  device_list: ["List", "Listing", "Listed", "simulators and emulators"],
+  device_open: ["Open", "Opening", "Opened", "a device in the Device panel"],
+  device_screenshot: [
+    "Take a screenshot of",
+    "Taking a screenshot of",
+    "Took a screenshot of",
+    "the device",
+  ],
+  device_close: ["Close", "Closing", "Closed", "a device"],
   preview_resize: ["Resize", "Resizing", "Resized", "the preview browser"],
   preview_evaluate: ["Evaluate", "Evaluating", "Evaluated", "script in the preview browser"],
   preview_wait_for: ["Wait", "Waiting", "Waited", "for the preview page"],
@@ -119,7 +129,11 @@ function resolveT3McpToolPresentation(value: string | undefined, status: string 
 
   return {
     displayName: `${verb} ${detail}`,
-    icon: name.startsWith("preview_") ? ("browser" as const) : ("t3-code" as const),
+    icon: name.startsWith("preview_")
+      ? ("browser" as const)
+      : name.startsWith("device_")
+        ? ("device" as const)
+        : ("t3-code" as const),
   };
 }
 
@@ -306,6 +320,7 @@ export function workLogEntryIsLocalCodeSearch(entry: WorkLogPresentationEntry): 
 }
 
 export function toolGroupAction(entry: WorkLogPresentationEntry): ToolGroupAction {
+  if (resolveWorkEntryToolPresentation(entry)?.icon === "device") return "device";
   if (resolveWorkEntryToolPresentation(entry)?.icon === "browser") return "browser";
   if (
     entry.requestKind === "file-read" ||
@@ -412,6 +427,8 @@ function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
       return `Changed ${count} ${count === 1 ? "file" : "files"}`;
     case "command":
       return `Ran ${count} ${count === 1 ? "command" : "commands"}`;
+    case "device":
+      return `Used device controls ${count} ${count === 1 ? "time" : "times"}`;
     case "browser":
       return `Used browser ${count} ${count === 1 ? "time" : "times"}`;
     case "search":

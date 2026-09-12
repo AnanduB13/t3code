@@ -148,7 +148,7 @@ export type ThreadFeedEntry =
       readonly expanded: boolean;
       readonly summary: string;
       readonly summaryKind: ToolGroupSummaryKind;
-      readonly summaryToolIcon?: "browser" | "t3-code";
+      readonly summaryToolIcon?: "device" | "browser" | "t3-code";
       readonly hasFailure: boolean;
       readonly live: boolean;
       readonly shimmer: boolean;

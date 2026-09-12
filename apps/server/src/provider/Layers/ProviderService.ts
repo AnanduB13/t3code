@@ -1,3 +1,10 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
+import * as DeviceService from "../../device/DeviceService.ts";
+import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
 /**
  * ProviderServiceLive - Cross-provider orchestration layer.
  *
@@ -238,35 +245,56 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     options?.revokeMcpCredential ?? McpSessionRegistry.revokeActiveMcpThread;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-  /**
-   * Attach the `t3-code` MCP server to the session that is about to start.
-   *
-   * This is the only place a credential is minted, so withholding one here is
-   * what disables agent browser access everywhere: every adapter already
-   * treats a missing session as "no MCP server", and the `/mcp` endpoint
-   * accepts nothing but tokens issued from this path.
-   */
-  /**
-   * Deny on an unreadable settings file rather than letting the read failure
-   * escape: adding `ServerSettingsError` to `ProviderServiceError` would widen
-   * a union every caller handles, for a branch that only decides whether one
-   * optional toolset is attached. Denying is the safe direction — an explicit
-   * "off" silently becoming "on" would violate the user's stated choice,
-   * whereas the reverse costs an agent one toolset and is visible immediately.
-   */
-  const agentBrowserAccessEnabled = serverSettings.getSettings.pipe(
-    Effect.map((settings) => settings.enableAgentBrowserAccess),
+  const fileSystem = yield* FileSystem.FileSystem;
+  const pathService = yield* Path.Path;
+  const agentAccess = serverSettings.getSettings.pipe(
+    Effect.map((settings) => ({
+      browser: settings.enableAgentBrowserAccess,
+      device: settings.enableDeviceSupport && settings.enableAgentDeviceAccess,
+    })),
     Effect.catch((cause) =>
-      Effect.logWarning(
-        "Could not read server settings; withholding agent browser access for this session.",
-        { cause },
-      ).pipe(Effect.as(false)),
+      Effect.logWarning("Could not read agent access settings", { cause }).pipe(
+        Effect.as({ browser: false, device: false }),
+      ),
     ),
   );
+  /** Install only the local CLI here. device_open supplies a separate config for each host. */
+  const hostPlatform = yield* HostProcessPlatform;
+  const devices = yield* Effect.serviceOption(DeviceService.DeviceService);
+  const agentDeviceEnvironment = Effect.gen(function* () {
+    if (Option.isNone(devices)) return undefined;
+    const entryPath = yield* devices.value.agentCli.pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("Agent device CLI unavailable", { cause }).pipe(Effect.as(null)),
+      ),
+    );
+    if (!entryPath) return undefined;
+    const shimDir = yield* ensureAgentDeviceShim({
+      entryPath,
+      stateDir: serverConfig.stateDir,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, pathService),
+      Effect.orElseSucceed(() => undefined),
+    );
+    if (!shimDir) return undefined;
+    return {
+      PATH: shimDir,
+      PATH_SEPARATOR: hostPlatform === "win32" ? ";" : ":",
+      AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
+    } satisfies Record<string, string>;
+  });
 
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
-      if (!(yield* agentBrowserAccessEnabled)) {
+      const access = yield* agentAccess;
+      const capabilities = new Set<McpCapability>();
+      if (access.browser) {
+        capabilities.add("preview");
+        capabilities.add("computerUse");
+      }
+      if (access.device) capabilities.add("device");
+      if (capabilities.size === 0) {
         // Revoke as well as clear. Every other prepare path reaches
         // `issueActiveMcpCredential`, which revokes the thread first, so
         // skipping it here would leave a previously issued bearer token valid
@@ -277,9 +305,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         yield* Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId));
         return undefined;
       }
-      const credential = yield* issueMcpCredential({ threadId, providerInstanceId });
+      const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
       if (credential) {
-        yield* Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config));
+        const deviceEnvironment = access.device ? yield* agentDeviceEnvironment : undefined;
+        yield* Effect.sync(() =>
+          McpProviderSession.setMcpProviderSession({
+            ...credential.config,
+            capabilities,
+            ...(deviceEnvironment ? { agentDeviceEnvironment: deviceEnvironment } : {}),
+          }),
+        );
       }
       return credential;
     });
@@ -1314,8 +1349,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 export const ProviderServiceLive = Layer.effect(
   ProviderService.ProviderService,
   makeProviderService(),
-);
+).pipe(Layer.provide(NodeServices.layer));
 
 export function makeProviderServiceLive(options?: ProviderServiceLiveOptions) {
-  return Layer.effect(ProviderService.ProviderService, makeProviderService(options));
+  return Layer.effect(ProviderService.ProviderService, makeProviderService(options)).pipe(
+    Layer.provide(NodeServices.layer),
+  );
 }

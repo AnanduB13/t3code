@@ -309,6 +309,24 @@ export const SETTINGS_SEARCH_ITEMS = [
     providerSettingsOnly: true,
   },
   {
+    id: "device-hub",
+    title: "Device hub",
+    to: "/settings/integrations",
+    searchTerms: ["android emulator ios simulator device enable disable"],
+  },
+  {
+    id: "agent-device-access",
+    title: "Agent device access",
+    to: "/settings/integrations",
+    searchTerms: ["device automation permission"],
+  },
+  {
+    id: "device-platform-support",
+    title: "Platform support",
+    to: "/settings/integrations",
+    searchTerms: ["android sdk xcode device host ssh"],
+  },
+  {
     id: "agent-browser-access",
     title: "Agent browser access",
     to: "/settings/integrations",

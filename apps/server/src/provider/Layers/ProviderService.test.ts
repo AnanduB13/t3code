@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as DeviceService from "../../device/DeviceService.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
@@ -2614,8 +2616,16 @@ boundedListing.layer("ProviderServiceLive session listing", (it) => {
 
 describe("agent browser access", () => {
   const revokedThreads: Array<ThreadId> = [];
+  const grantedCapabilities: string[][] = [];
+  const sessionConfigs: Array<McpProviderSession.McpProviderSessionConfig | undefined> = [];
 
-  const startSessionWith = (enableAgentBrowserAccess: boolean, threadId: ThreadId) =>
+  const startSessionWith = (
+    enableAgentBrowserAccess: boolean,
+    threadId: ThreadId,
+    enableDeviceSupport = false,
+    enableAgentDeviceAccess = false,
+    withDeviceCli = false,
+  ) =>
     Effect.gen(function* () {
       const issued: Array<ThreadId> = [];
       const codex = makeFakeCodexAdapter();
@@ -2633,14 +2643,43 @@ describe("agent browser access", () => {
         issueMcpCredential: (request) =>
           Effect.sync(() => {
             issued.push(request.threadId);
-            return undefined;
+            grantedCapabilities.push([...(request.capabilities ?? [])].sort());
+            return withDeviceCli
+              ? {
+                  config: {
+                    environmentId: EnvironmentId.make("device-env"),
+                    threadId: request.threadId,
+                    providerSessionId: "device-session",
+                    providerInstanceId: request.providerInstanceId,
+                    endpoint: "http://127.0.0.1/mcp",
+                    authorizationHeader: "Bearer test-only",
+                  },
+                }
+              : undefined;
           }),
         revokeMcpCredential: (revoked) => Effect.sync(() => void revokedThreads.push(revoked)),
       }).pipe(
+        Layer.provide(
+          withDeviceCli
+            ? Layer.mock(DeviceService.DeviceService)({
+                agentCli: Effect.succeed("/test/agent-device.mjs"),
+              })
+            : Layer.empty,
+        ),
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
-        Layer.provide(ServerSettings.ServerSettingsService.layerTest({ enableAgentBrowserAccess })),
-        Layer.provide(serverConfigTestLayer),
+        Layer.provide(
+          ServerSettings.ServerSettingsService.layerTest({
+            enableAgentBrowserAccess,
+            enableDeviceSupport,
+            enableAgentDeviceAccess,
+          }),
+        ),
+        Layer.provide(
+          withDeviceCli
+            ? ServerConfig.layerTest(process.cwd(), { prefix: "device-provider-env-test-" })
+            : serverConfigTestLayer,
+        ),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -2652,16 +2691,46 @@ describe("agent browser access", () => {
 
       yield* Effect.gen(function* () {
         const provider = yield* ProviderService.ProviderService;
-        return yield* provider.startSession(threadId, {
+        const session = yield* provider.startSession(threadId, {
           provider: CODEX_DRIVER,
           providerInstanceId: codexInstanceId,
           threadId,
           runtimeMode: "full-access",
         });
+        sessionConfigs.push(McpProviderSession.readMcpProviderSession(threadId));
+        return session;
       }).pipe(Effect.provide(providerLayer));
 
       return issued;
     });
+
+  it.effect("grants devices independently and retains browser and computer-use capabilities", () =>
+    Effect.gen(function* () {
+      grantedCapabilities.length = 0;
+      yield* startSessionWith(false, asThreadId("device-only"), true, true);
+      yield* startSessionWith(true, asThreadId("all-tools"), true, true);
+      yield* startSessionWith(true, asThreadId("device-host-disabled"), false, true);
+      assert.deepEqual(grantedCapabilities, [
+        ["device"],
+        ["computerUse", "device", "preview"],
+        ["computerUse", "preview"],
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "captures device services at construction and supplies the CLI to provider sessions",
+    () =>
+      Effect.gen(function* () {
+        const threadId = asThreadId("device-cli-env");
+        yield* startSessionWith(false, threadId, true, true, true);
+        const session = sessionConfigs.at(-1);
+        assert.isTrue(session?.capabilities?.has("device"));
+        assert.include(session?.agentDeviceEnvironment?.PATH ?? "", NodePath.join("device", "bin"));
+        assert.equal(session?.agentDeviceEnvironment?.AGENT_DEVICE_NO_UPDATE_NOTIFIER, "1");
+        McpProviderSession.clearMcpProviderSession(threadId);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
 
   // Credential issuance is the observable that matters: it is the only place a
   // credential is minted, and `/mcp` accepts nothing else, so withholding it is

@@ -1,3 +1,4 @@
+import { SmartphoneIcon } from "lucide-react";
 import {
   type AssistantCitation,
   type ChatFileAttachment,
@@ -1835,6 +1836,8 @@ function toolGroupSummaryIconName(
       return "square-pen";
     case "command":
       return "terminal";
+    case "device":
+      return "device";
     case "browser":
       return "browser";
     case "search":
@@ -2404,6 +2407,7 @@ function formatWorkingTimerNow(startIso: string): string {
 type WorkEntryIconName =
   | "bot"
   | "brain"
+  | "device"
   | "browser"
   | "check"
   | "circle-alert"
@@ -2421,6 +2425,8 @@ type WorkEntryIconName =
 
 function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
+    case "device":
+      return <SmartphoneIcon className={className} aria-hidden />;
     case "bot":
       return <BotIcon className={className} aria-hidden />;
     case "brain":

@@ -552,6 +552,21 @@ describe("T3 browser developer instructions", () => {
   });
 });
 
+it("describes device tools independently while preserving After Dark computer-use instructions", () => {
+  const runtime = { model: "gpt-5.3-codex", reasoningEffort: "high" };
+  const deviceOnly = buildCodexDeveloperInstructions("default", runtime, false, true);
+  NodeAssert.match(deviceOnly, /device_open/);
+  NodeAssert.doesNotMatch(deviceOnly, /preview_open/);
+  NodeAssert.match(deviceOnly, /Computer Use/);
+  const both = buildCodexDeveloperInstructions("default", runtime, true, true);
+  NodeAssert.match(both, /device_open/);
+  NodeAssert.match(both, /preview_open/);
+  NodeAssert.doesNotMatch(
+    buildCodexDeveloperInstructions("default", runtime, true, false),
+    /device_open/,
+  );
+});
+
 describe("hasConfiguredMcpServer", () => {
   it("detects inline Codex MCP configuration arguments", () => {
     NodeAssert.equal(hasConfiguredMcpServer(undefined), false);

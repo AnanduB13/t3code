@@ -61,6 +61,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "rightPanel.toggleMaximized",
   "diff.toggle",
   "preview.toggle",
+  "device.toggle",
   "preview.refresh",
   "preview.focusUrl",
   "preview.zoomIn",

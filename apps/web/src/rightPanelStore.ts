@@ -8,7 +8,7 @@
  * workspace paths, and diff/files remain singleton surfaces.
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef, DevicePlatform } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -22,10 +22,19 @@ export const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "agents",
+  "device",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
+export interface DeviceTabTarget {
+  hostId: string;
+  deviceId: string;
+  platform: DevicePlatform;
+  name: string;
+}
+
 export type RightPanelSurface =
+  | { id: "device" | `device:${string}`; kind: "device"; target?: DeviceTabTarget; title?: string }
   | { id: `browser:${string}`; kind: "preview"; resourceId: string }
   | { id: "browser:new"; kind: "preview"; resourceId: null }
   | {
@@ -89,6 +98,7 @@ interface RightPanelStoreState {
     ref: ScopedThreadRef,
     kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
   ) => void;
+  openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openPullRequest: (
@@ -131,6 +141,8 @@ const singletonSurface = (
   kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
 ): RightPanelSurface => {
   switch (kind) {
+    case "device":
+      return { id: "device", kind };
     case "diff":
       return { id: "diff", kind };
     case "files":
@@ -374,6 +386,19 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             }
             return upsertSurface(current, singletonSurface(kind));
           }),
+        })),
+      openDevice: (ref, target) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            upsertSurface(
+              { ...current, surfaces: current.surfaces.filter((s) => s.id !== "device") },
+              {
+                id: `device:${JSON.stringify([target.hostId, target.deviceId])}`,
+                kind: "device",
+                target,
+              },
+            ),
+          ),
         })),
       openBrowser: (ref, tabId) =>
         set((state) => ({

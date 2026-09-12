@@ -204,12 +204,14 @@ export function buildCodexDeveloperInstructions(
    * setting, so the prompt cannot claim tools the turn doesn't have.
    */
   browserToolsAvailable = true,
+  deviceToolsAvailable = false,
 ): string {
   const base =
     interactionMode === "plan"
       ? codexPlanModeDeveloperInstructions(browserToolsAvailable)
       : codexDefaultModeDeveloperInstructions(browserToolsAvailable);
   return `${base}
+${deviceToolsAvailable ? "Use device_list to discover available Android emulators and iOS simulators, then device_open to attach one. Follow the returned agent-device CLI instructions, retaining its host and session flags. Use device_screenshot for visual evidence and device_close to release the device." : ""}
 
 ${buildRuntimeInstructions({ harness: "Codex", ...runtime })}`;
 }

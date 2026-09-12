@@ -1,3 +1,4 @@
+import * as DeviceService from "./device/DeviceService.ts";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -1114,6 +1115,23 @@ const buildAppUnderTest = (options?: {
       Layer.provideMerge(ServerSecretStore.layer),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provideMerge(FetchHttpClient.layer),
+      Layer.provide(
+        Layer.mock(DeviceService.DeviceService)({
+          state: Effect.succeed({
+            hosts: [],
+            hostStatus: "disabled",
+            hostStatuses: {},
+            devices: [],
+            sessions: [],
+            onboardingCompleted: false,
+            agentAccessEnabled: false,
+            hubBasePath: "/api/device-hub",
+            revision: 0,
+          }),
+          currentReadiness: () => Effect.succeed(null),
+          sessionsForThread: () => Effect.succeed([]),
+        }),
+      ),
       Layer.provide(layerConfig),
     );
 
