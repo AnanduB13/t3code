@@ -159,9 +159,13 @@ export function MobileBottomDock(props: {
 
     if (item.destination !== "chat" || activeDestination !== "chat") {
       return (
-        <View key={item.destination} className="min-w-0 flex-1">
-          {dockItem(() => navigate(item.destination))}
-        </View>
+        <MobileDockItem
+          key={item.destination}
+          active={activeDestination === item.destination}
+          icon={item.icon}
+          label={item.label}
+          onPress={() => navigate(item.destination)}
+        />
       );
     }
 
@@ -169,7 +173,7 @@ export function MobileBottomDock(props: {
       <AndroidAnchoredMenu
         key={item.destination}
         actions={homeModeActions}
-        className="min-w-0 flex-1"
+        className="h-[58px] min-w-0 flex-1"
         onPressAction={(event) => {
           const mode = event.nativeEvent.event;
           if (mode === "projects" || mode === "chats") {
