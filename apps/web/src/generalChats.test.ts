@@ -11,6 +11,7 @@ import {
   isGeneralChatsProjectAlreadyExistsError,
   isGeneralChatsProject,
   resolveGeneralChatNewThreadOptions,
+  resolveGeneralChatsStorageEnvironmentId,
 } from "./generalChats";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("local");
@@ -52,6 +53,26 @@ describe("general chats project", () => {
     );
     expect(findGeneralChatsProject([localChats], REMOTE_ENVIRONMENT_ID)).toBeNull();
     expect(findGeneralChatsProject([localChats], null)).toBeNull();
+  });
+
+  it("keeps the selected chat home instead of falling back to the primary environment", () => {
+    expect(
+      resolveGeneralChatsStorageEnvironmentId(
+        [{ environmentId: LOCAL_ENVIRONMENT_ID }, { environmentId: REMOTE_ENVIRONMENT_ID }],
+        REMOTE_ENVIRONMENT_ID,
+        LOCAL_ENVIRONMENT_ID,
+      ),
+    ).toBe(REMOTE_ENVIRONMENT_ID);
+  });
+
+  it("falls back when a previously selected chat home has been removed", () => {
+    expect(
+      resolveGeneralChatsStorageEnvironmentId(
+        [{ environmentId: LOCAL_ENVIRONMENT_ID }],
+        REMOTE_ENVIRONMENT_ID,
+        LOCAL_ENVIRONMENT_ID,
+      ),
+    ).toBe(LOCAL_ENVIRONMENT_ID);
   });
 
   it("keeps the reserved project out of normal project lists", () => {

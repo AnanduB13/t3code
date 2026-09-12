@@ -27,7 +27,7 @@ import {
   scopeThreadRef,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, type ScopedThreadRef, type ThreadId } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
@@ -210,6 +210,7 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrom
 import { hasUnseenCompletionInProjectKind } from "./ThreadCompletionNotifications.logic";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import {
   composerDraftHasUserContent,
   DraftId,
@@ -224,6 +225,7 @@ import {
   GENERAL_CHATS_PROJECT_TITLE,
   GENERAL_CHATS_WORKSPACE_ROOT,
   isGeneralChatsProjectAlreadyExistsError,
+  resolveGeneralChatsStorageEnvironmentId,
 } from "../generalChats";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
@@ -1891,9 +1893,29 @@ export default function Sidebar() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const [preferredChatStorageEnvironmentId, setPreferredChatStorageEnvironmentId] = useLocalStorage(
+    "t3code:chat-storage-environment-id",
+    null,
+    Schema.NullOr(EnvironmentId),
+  );
+  const chatStorageEnvironmentId = useMemo(
+    () =>
+      resolveGeneralChatsStorageEnvironmentId(
+        environments,
+        preferredChatStorageEnvironmentId,
+        primaryEnvironmentId,
+      ),
+    [environments, preferredChatStorageEnvironmentId, primaryEnvironmentId],
+  );
+  const chatStorageEnvironment = useMemo(
+    () =>
+      environments.find(({ environmentId }) => environmentId === chatStorageEnvironmentId) ?? null,
+    [chatStorageEnvironmentId, environments],
+  );
+  const canCreateGeneralChat = chatStorageEnvironment?.connection.phase === "connected";
   const generalChatsProject = useMemo(
-    () => findGeneralChatsProject(projects, primaryEnvironmentId),
-    [primaryEnvironmentId, projects],
+    () => findGeneralChatsProject(projects, chatStorageEnvironmentId),
+    [chatStorageEnvironmentId, projects],
   );
   const [isCreatingGeneralChat, setIsCreatingGeneralChat] = useState(false);
   const creatingGeneralChatRef = useRef(false);
@@ -2027,20 +2049,27 @@ export default function Sidebar() {
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const createGeneralChat = useCallback(() => {
     if (creatingGeneralChatRef.current) return;
-    if (primaryEnvironmentId === null) {
+    if (chatStorageEnvironmentId === null) {
       toastManager.add({ type: "error", title: "Connect an environment before starting a chat." });
+      return;
+    }
+    if (!canCreateGeneralChat) {
+      toastManager.add({
+        type: "error",
+        title: `${chatStorageEnvironment?.label ?? "Chat storage environment"} is offline.`,
+      });
       return;
     }
 
     creatingGeneralChatRef.current = true;
     setIsCreatingGeneralChat(true);
     void (async () => {
-      const projectRef = scopeProjectRef(primaryEnvironmentId, GENERAL_CHATS_PROJECT_ID);
+      const projectRef = scopeProjectRef(chatStorageEnvironmentId, GENERAL_CHATS_PROJECT_ID);
       try {
         if (generalChatsProject === null) {
-          const providers = serverConfigs.get(primaryEnvironmentId)?.providers ?? [];
+          const providers = serverConfigs.get(chatStorageEnvironmentId)?.providers ?? [];
           const result = await createProject({
-            environmentId: primaryEnvironmentId,
+            environmentId: chatStorageEnvironmentId,
             input: {
               projectId: GENERAL_CHATS_PROJECT_ID,
               title: GENERAL_CHATS_PROJECT_TITLE,
@@ -2076,10 +2105,12 @@ export default function Sidebar() {
     })();
   }, [
     createProject,
+    canCreateGeneralChat,
+    chatStorageEnvironment,
+    chatStorageEnvironmentId,
     generalChatsProject,
     isMobile,
     newThreadContext.handleNewThread,
-    primaryEnvironmentId,
     serverConfigs,
     setOpenMobile,
   ]);
@@ -3743,7 +3774,7 @@ export default function Sidebar() {
                         onClick={handleNewThreadClick}
                         disabled={
                           sidebarMode === "chats"
-                            ? primaryEnvironmentId === null || isCreatingGeneralChat
+                            ? !canCreateGeneralChat || isCreatingGeneralChat
                             : projectModeProjects.length === 0
                         }
                         aria-label={sidebarMode === "chats" ? "New chat" : "New thread"}
@@ -3790,6 +3821,40 @@ export default function Sidebar() {
               <div className="flex h-8 items-center gap-2 px-2 text-sm font-medium text-sidebar-foreground">
                 <MessageSquareIcon className="size-4 shrink-0" />
                 <span>Chats</span>
+                {chatStorageEnvironmentId !== null && chatStorageEnvironment !== null ? (
+                  <Select
+                    value={chatStorageEnvironmentId}
+                    onValueChange={(value) => {
+                      if (value) setPreferredChatStorageEnvironmentId(EnvironmentId.make(value));
+                    }}
+                  >
+                    <SelectTrigger
+                      variant="ghost"
+                      size="xs"
+                      className="ml-auto min-w-0 max-w-[10rem]"
+                      aria-label="Store new chats on"
+                    >
+                      <ServerIcon className="size-3 shrink-0" />
+                      <SelectValue>{chatStorageEnvironment.label}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {environments.map((environment) => (
+                        <SelectItem
+                          key={environment.environmentId}
+                          value={environment.environmentId}
+                        >
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <ServerIcon className="size-3 shrink-0" />
+                            <span className="truncate">{environment.label}</span>
+                            {environment.connection.phase !== "connected" ? (
+                              <span className="text-muted-foreground">Offline</span>
+                            ) : null}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                ) : null}
               </div>
             ) : projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">
@@ -4300,7 +4365,7 @@ export default function Sidebar() {
                   <button
                     type="button"
                     onClick={createGeneralChat}
-                    disabled={isCreatingGeneralChat || primaryEnvironmentId === null}
+                    disabled={isCreatingGeneralChat || !canCreateGeneralChat}
                     className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <PlusIcon className="-mx-0.5 size-3" />

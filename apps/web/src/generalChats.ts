@@ -50,6 +50,26 @@ export function findGeneralChatsProject(
   );
 }
 
+export function resolveGeneralChatsStorageEnvironmentId(
+  environments: ReadonlyArray<{ readonly environmentId: EnvironmentId }>,
+  preferredEnvironmentId: EnvironmentId | null,
+  primaryEnvironmentId: EnvironmentId | null,
+): EnvironmentId | null {
+  if (
+    preferredEnvironmentId !== null &&
+    environments.some(({ environmentId }) => environmentId === preferredEnvironmentId)
+  ) {
+    return preferredEnvironmentId;
+  }
+  if (
+    primaryEnvironmentId !== null &&
+    environments.some(({ environmentId }) => environmentId === primaryEnvironmentId)
+  ) {
+    return primaryEnvironmentId;
+  }
+  return environments[0]?.environmentId ?? null;
+}
+
 export function getGeneralChatNewThreadOptions(projectId: ProjectId) {
   return projectId === GENERAL_CHATS_PROJECT_ID ? GENERAL_CHAT_NEW_THREAD_OPTIONS : undefined;
 }
