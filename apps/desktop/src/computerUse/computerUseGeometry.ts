@@ -107,16 +107,9 @@ export const selectUniqueWindowByTitle = <T extends { readonly title: string }>(
   const query = requestedTitle.trim().toLocaleLowerCase();
   const exact = windows.filter((window) => window.title.trim().toLocaleLowerCase() === query);
   if (exact.length === 1) return exact[0]!;
-  const prefix = windows.filter((window) =>
-    window.title.trim().toLocaleLowerCase().startsWith(query),
-  );
-  if (prefix.length === 1) return prefix[0]!;
-  const partial = windows.filter((window) => window.title.toLocaleLowerCase().includes(query));
-  if (partial.length === 1) return partial[0]!;
-  const matches = exact.length > 0 ? exact : prefix.length > 0 ? prefix : partial;
-  if (matches.length > 1) {
+  if (exact.length > 1) {
     throw new Error(
-      `Window name ${JSON.stringify(requestedTitle)} is ambiguous. Matches: ${matches.map((window) => window.title).join(", ")}.`,
+      `Window name ${JSON.stringify(requestedTitle)} is ambiguous. Matches: ${exact.map((window) => window.title).join(", ")}.`,
     );
   }
   throw new Error(`No visible application window matches ${JSON.stringify(requestedTitle)}.`);

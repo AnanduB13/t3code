@@ -4,7 +4,7 @@ export interface SerializedAbortableExecutor<Input, Output> {
   readonly cancelAll: () => void;
 }
 
-/** Serializes native input while retaining cancellation for queued and active requests. */
+/** Runs one task at a time and cancels queued tasks before invoking their callbacks. */
 export function createSerializedAbortableExecutor<Input, Output>(
   run: (input: Input, signal: AbortSignal) => Promise<Output>,
 ): SerializedAbortableExecutor<Input, Output> {
@@ -15,10 +15,10 @@ export function createSerializedAbortableExecutor<Input, Output>(
     controllers.get(requestId)?.abort();
     const controller = new AbortController();
     controllers.set(requestId, controller);
-    const result = tail.then(
-      () => run(input, controller.signal),
-      () => run(input, controller.signal),
-    );
+    const result = tail.then(() => {
+      if (controller.signal.aborted) throw new Error("Computer Use action was cancelled.");
+      return run(input, controller.signal);
+    });
     tail = result.then(
       () => undefined,
       () => undefined,

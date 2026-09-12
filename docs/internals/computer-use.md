@@ -22,12 +22,46 @@ capture, falling back to a cropped display capture when the operating system can
 window source. It returns an accessibility hierarchy plus a bounded PNG and issues native input only
 against a fresh, single-use observation.
 
+Input tools accept an optional `observeAfter: true`. The Desktop executor keeps input and its next
+observation in the same serialized task, eliminating a separate model/tool round trip. The result
+contains `actionCompleted: true` and either `observation` or `observationError`. An observation error
+does not mean the input failed and must not cause a blind retry. If an action opens another window,
+follow-up capture reports the focus change rather than stealing focus back. Older hosts can return
+`null`; agents then observe separately. This contract is shared by every provider using the T3 MCP
+endpoint, including agents directed from web or mobile clients.
+
+Observations capture and encode one bounded PNG after a short settling interval, with accessibility
+inspection in parallel. Already focused windows are not refocused. Window geometry comes from the
+native provider rather than nut-js's primary-display-clipped `Window.region`, and is checked again
+after focus and capture. Accessibility values are truncated to bound model context, and clipped or
+off-window controls cannot produce out-of-window semantic click targets. MCP returns image bytes in
+an image block and presents one text tree rather than duplicating it as a JSON element list.
+
+Typing disables nut-js's default 300 ms per-character delay and checks cancellation between Unicode
+code points. Keyboard shortcuts and drags release held input in `finally`. Scrolling targets the
+window center unless coordinates identify a particular pane; deltas are native wheel steps.
+
 Desktop input is serialized because a graphical login has one foreground focus and pointer.
 Installation-scoped random device IDs avoid ambiguous routing between machines with the same host
 name. The visible host monitor is telemetry; its pointer does not create a second operating-system
 cursor. Broker timeouts, host disconnection, environment deauthorization, and the monitor's Stop
 action cancel queued work and abort interruptible in-flight waits. An operating-system input call is
 still atomic once dispatched.
+
+The renderer and native executor share a cancellation-aware queue implementation. Cancellation
+prevents renderer-queued work from reaching IPC, while stream failure or replacement cancels the
+old connection's active work and suppresses late responses. Reconnection fails old broker requests
+immediately. Automatic device selection becomes sticky on the first invocation, and listing devices
+continues reporting a selected disconnected device rather than implying a silent replacement.
+
+Focused adapter tests cover native call ordering, capture count, typing cancellation, held-input
+cleanup, and secondary-monitor coordinates. MCP integration tests cover broker routing and image
+responses. These tests use mocked OS calls; actual capture latency, application compatibility, and
+background operation require separate verification on real Desktop hosts.
+
+Cursor movement uses at most eight position updates over a path capped at 120 ms, yielding between
+updates so cancellation can run. It avoids nut-js's per-pixel busy-wait movement implementation,
+which otherwise occupies Electron's main thread while the cursor travels.
 
 ## Known gaps
 

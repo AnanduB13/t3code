@@ -52,6 +52,11 @@ Code prefers an isolated native window capture, so another application's overlap
 normally included. Some systems require a display-crop fallback; the agent reports when capture or
 native input is unavailable.
 
+The agent can receive the updated window immediately after an action, reducing the back-and-forth
+needed to continue. If the action opens a different window or its screenshot cannot be captured,
+the agent is told that the action completed so it can inspect the result before trying anything
+again. Long typing operations can be stopped between characters.
+
 Most desktop sessions are shared sessions: Computer Use moves the real pointer and changes the real
 keyboard focus. Do not use the computer at the same time. Concurrent use requires a Desktop host
 running in a genuinely separate virtual machine, remote login, or graphical session.

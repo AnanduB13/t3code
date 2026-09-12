@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createSerializedAbortableExecutor } from "./computerUseExecution.ts";
+import { createSerializedAbortableExecutor } from "@t3tools/shared/serializedAbortableExecutor";
 
 describe("serialized Computer Use execution", () => {
   it("cancels queued work before it reaches native input", async () => {
@@ -22,7 +22,7 @@ describe("serialized Computer Use execution", () => {
 
     await expect(first).resolves.toBe("first");
     await expect(second).rejects.toThrow("cancelled");
-    expect(run.mock.calls.map(([value]) => value)).toEqual(["first", "second"]);
+    expect(run.mock.calls.map(([value]) => value)).toEqual(["first"]);
   });
 
   it("aborts every active and queued request when the host stops", async () => {

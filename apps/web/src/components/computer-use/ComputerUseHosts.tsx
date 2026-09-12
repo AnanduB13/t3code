@@ -8,6 +8,7 @@ import type {
   EnvironmentId,
 } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
+import { createSerializedAbortableExecutor } from "@t3tools/shared/serializedAbortableExecutor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "~/env";
@@ -32,16 +33,9 @@ const makeClientId = () => {
   return `computer-use-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 };
 
-let desktopExecutionTail: Promise<void> = Promise.resolve();
-let desktopExecutionGeneration = 0;
-const serializeDesktopExecution = <A,>(task: () => Promise<A>): Promise<A> => {
-  const result = desktopExecutionTail.then(task, task);
-  desktopExecutionTail = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-};
+const desktopExecutor = createSerializedAbortableExecutor(
+  (task: (signal: AbortSignal) => Promise<unknown>, signal) => task(signal),
+);
 
 export function ComputerUseHosts() {
   const { environments } = useEnvironments();
@@ -78,7 +72,7 @@ export function ComputerUseHosts() {
   }, [hostEnabled, hostedEnvironments.length]);
   useEffect(() => {
     if (!hostEnabled) {
-      desktopExecutionGeneration += 1;
+      desktopExecutor.cancelAll();
       void window.desktopBridge?.computerUse?.cancelAll();
       setMonitor(null);
     }
@@ -108,19 +102,40 @@ export function ComputerUseHosts() {
   const onRequestSucceeded = useCallback(
     (request: ComputerUseRequest, result: unknown) => {
       setMonitor((current) => {
-        if (request.operation === "getAppState" && isComputerUseAppState(result)) {
+        const observation = isComputerUseAppState(result)
+          ? result
+          : typeof result === "object" &&
+              result !== null &&
+              "observation" in result &&
+              isComputerUseAppState(result.observation)
+            ? result.observation
+            : undefined;
+        if (observation) {
           return {
             deviceLabel: device?.label ?? "Desktop host",
             sessionIsolation: device?.sessionIsolation ?? "shared",
             phase: "idle",
             operation: request.operation,
-            app: result.app,
-            observation: result,
+            app: observation.app,
+            observation,
             message: "Latest application screenshot",
           };
         }
+        const observationError =
+          typeof result === "object" &&
+          result !== null &&
+          "observationError" in result &&
+          typeof result.observationError === "string"
+            ? result.observationError
+            : undefined;
         return current
-          ? { ...current, phase: "idle", message: `${request.operation} completed` }
+          ? {
+              ...current,
+              phase: observationError ? "error" : "idle",
+              message: observationError
+                ? `${request.operation} completed. ${observationError}`
+                : `${request.operation} completed`,
+            }
           : current;
       });
     },
@@ -179,25 +194,24 @@ function ComputerUseHostConnection(props: {
   );
   const handleRequest = useCallback(
     (request: ComputerUseRequest) => {
-      const requestedGeneration = desktopExecutionGeneration;
-      return serializeDesktopExecution(async () => {
-        if (requestedGeneration !== desktopExecutionGeneration) {
-          throw new Error("Computer Use was disabled before this action started.");
-        }
+      const id = executionId(request.requestId);
+      return desktopExecutor.execute(id, async (signal) => {
         const bridge = window.desktopBridge?.computerUse;
         if (!bridge) throw new Error("The native Computer Use bridge is unavailable.");
+        const onAbort = () => {
+          void bridge.cancel(id);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
         onRequestStarted(request);
         try {
-          const result = await bridge.execute(
-            executionId(request.requestId),
-            request.operation,
-            request.input,
-          );
-          onRequestSucceeded(request, result);
+          const result = await bridge.execute(id, request.operation, request.input);
+          if (!signal.aborted) onRequestSucceeded(request, result);
           return result;
         } catch (cause) {
-          onRequestFailed(request, cause);
+          if (!signal.aborted) onRequestFailed(request, cause);
           throw cause;
+        } finally {
+          signal.removeEventListener("abort", onAbort);
         }
       });
     },
@@ -205,7 +219,7 @@ function ComputerUseHostConnection(props: {
   );
   const cancelRequest = useCallback(
     (requestId: string) => {
-      void window.desktopBridge?.computerUse?.cancel(executionId(requestId));
+      desktopExecutor.cancel(executionId(requestId));
     },
     [executionId],
   );

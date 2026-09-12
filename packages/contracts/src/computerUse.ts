@@ -51,6 +51,10 @@ export const ComputerUseAppTargetInput = Schema.Struct({
 const ComputerUseObservedWindowInput = {
   windowId: ComputerUseWindowId,
   observationId: ComputerUseObservationId,
+  observeAfter: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Set true to return the next window observation with this action, saving a separate observation call. If observation fails after input, the result reports actionCompleted and observationError; do not repeat the action.",
+  }),
 };
 const ComputerUsePointerTargetInput = {
   elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -171,6 +175,15 @@ export const ComputerUseAppState = Schema.Struct({
   }),
 });
 export type ComputerUseAppState = typeof ComputerUseAppState.Type;
+
+export const ComputerUseActionResult = Schema.NullOr(
+  Schema.Struct({
+    actionCompleted: Schema.Literal(true),
+    observation: Schema.optional(ComputerUseAppState),
+    observationError: Schema.optional(Schema.String),
+  }),
+);
+export type ComputerUseActionResult = typeof ComputerUseActionResult.Type;
 
 export const ComputerUseClientId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export const ComputerUseConnectionId = TrimmedNonEmptyString.check(Schema.isMaxLength(64));

@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./serializedAbortableExecutor": {
+      "types": "./src/serializedAbortableExecutor.ts",
+      "import": "./src/serializedAbortableExecutor.ts"
+    },
     "./themePalettes": {
       "types": "./src/themePalettes.ts",
       "import": "./src/themePalettes.ts"

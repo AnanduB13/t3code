@@ -25,11 +25,20 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
     let connectionExplicitlyAnnounced = false;
     let requestsVersion = 0;
     const activeRequestIds = new Set<string>();
+    const cancelActiveRequests = () => {
+      const handler = get.once(options.requestHandlerAtom);
+      for (const requestId of activeRequestIds) handler.cancel(requestId);
+      activeRequestIds.clear();
+    };
 
     const consume = (result: RequestStreamResult<E>) => {
-      if (!AsyncResult.isSuccess(result)) return;
+      if (!AsyncResult.isSuccess(result)) {
+        cancelActiveRequests();
+        return;
+      }
       const event = result.value;
       if (event.type === "connected") {
+        if (activeConnectionId !== event.connectionId) cancelActiveRequests();
         activeConnectionId = event.connectionId;
         connectionExplicitlyAnnounced = true;
         return;
@@ -46,42 +55,53 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
         activeConnectionId = event.connectionId;
       } else if (activeConnectionId !== event.connectionId) {
         if (connectionExplicitlyAnnounced) return;
+        cancelActiveRequests();
         activeConnectionId = event.connectionId;
       }
       const request = event.request;
+      if (activeRequestIds.has(request.requestId)) return;
       activeRequestIds.add(request.requestId);
+      const canRespond = () =>
+        !disposed &&
+        activeConnectionId === event.connectionId &&
+        activeRequestIds.has(request.requestId);
       void get
         .once(options.requestHandlerAtom)
         .handle(request)
         .then(
           (result) =>
-            options.respond({
-              clientId: options.clientId,
-              connectionId: event.connectionId,
-              requestId: request.requestId,
-              ok: true,
-              ...(result === undefined ? {} : { result }),
-            }),
+            canRespond()
+              ? options.respond({
+                  clientId: options.clientId,
+                  connectionId: event.connectionId,
+                  requestId: request.requestId,
+                  ok: true,
+                  ...(result === undefined ? {} : { result }),
+                })
+              : undefined,
           (cause) =>
-            options.respond({
-              clientId: options.clientId,
-              connectionId: event.connectionId,
-              requestId: request.requestId,
-              ok: false,
-              error: {
-                _tag: "ComputerUseNativeExecutionError",
-                message: cause instanceof Error ? cause.message : String(cause),
-              },
-            }),
+            canRespond()
+              ? options.respond({
+                  clientId: options.clientId,
+                  connectionId: event.connectionId,
+                  requestId: request.requestId,
+                  ok: false,
+                  error: {
+                    _tag: "ComputerUseNativeExecutionError",
+                    message: cause instanceof Error ? cause.message : String(cause),
+                  },
+                })
+              : undefined,
         )
-        .finally(() => activeRequestIds.delete(request.requestId));
+        .catch((cause) => console.warn("Computer Use response could not be delivered", cause))
+        .finally(() => {
+          if (activeConnectionId === event.connectionId) activeRequestIds.delete(request.requestId);
+        });
     };
 
     get.addFinalizer(() => {
       disposed = true;
-      const handler = get.once(options.requestHandlerAtom);
-      for (const requestId of activeRequestIds) handler.cancel(requestId);
-      activeRequestIds.clear();
+      cancelActiveRequests();
     });
     const initialRequest = get.once(options.requestsAtom);
     if (AsyncResult.isSuccess(initialRequest) && initialRequest.value.type === "connected") {

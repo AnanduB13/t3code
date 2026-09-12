@@ -6,9 +6,19 @@ import {
   type ComputerUseStreamEvent,
 } from "@t3tools/contracts";
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import * as Cause from "effect/Cause";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createComputerUseRequestConsumerAtom } from "./computerUseRequestConsumer";
+import { createSerializedAbortableExecutor } from "@t3tools/shared/serializedAbortableExecutor";
+
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
 
 const threadId = ThreadId.make("thread-1");
 const request = (requestId: string): ComputerUseRequest => ({
@@ -26,6 +36,83 @@ const requestEvent = (requestId: string, connectionId = "connection-1") =>
   }) satisfies ComputerUseStreamEvent;
 
 describe("computerUseRequestConsumer", () => {
+  it("cancels renderer-queued work before it is sent to the native bridge", async () => {
+    const requestsAtom = Atom.make<AsyncResult.AsyncResult<ComputerUseStreamEvent, Error>>(
+      AsyncResult.initial(false),
+    );
+    const gate = deferred();
+    const started = deferred();
+    const bridge = vi.fn(async (input: ComputerUseRequest) => {
+      if (input.requestId === "first") {
+        started.resolve();
+        await gate.promise;
+      }
+    });
+    const executor = createSerializedAbortableExecutor(bridge);
+    const tasks: Promise<unknown>[] = [];
+    const consumer = createComputerUseRequestConsumerAtom({
+      requestsAtom,
+      clientId: "client-1",
+      label: "test:queued-cancel",
+      requestHandlerAtom: Atom.make({
+        handle: (input: ComputerUseRequest) => {
+          const task = executor.execute(input.requestId, input);
+          tasks.push(task);
+          return task;
+        },
+        cancel: executor.cancel,
+      }),
+      respond: async () => undefined,
+    });
+    const registry = AtomRegistry.make();
+    registry.mount(consumer);
+    registry.set(requestsAtom, AsyncResult.success(requestEvent("first")));
+    registry.set(requestsAtom, AsyncResult.success(requestEvent("queued")));
+    await started.promise;
+    registry.set(
+      requestsAtom,
+      AsyncResult.success({ type: "cancel", connectionId: "connection-1", requestId: "queued" }),
+    );
+    gate.resolve();
+    await Promise.allSettled(tasks);
+    expect(bridge.mock.calls.map(([input]) => input.requestId)).toEqual(["first"]);
+    registry.dispose();
+  });
+
+  it.each(["reconnect", "disconnect"] as const)(
+    "cancels old native work on %s and suppresses its late result",
+    async (transition) => {
+      const requestsAtom = Atom.make<AsyncResult.AsyncResult<ComputerUseStreamEvent, Error>>(
+        AsyncResult.initial(false),
+      );
+      const gate = deferred();
+      const handle = vi.fn(() => gate.promise);
+      const cancel = vi.fn();
+      const respond = vi.fn(async () => undefined);
+      const consumer = createComputerUseRequestConsumerAtom({
+        requestsAtom,
+        clientId: "client-1",
+        label: "test:connection-cancel",
+        requestHandlerAtom: Atom.make({ handle, cancel }),
+        respond,
+      });
+      const registry = AtomRegistry.make();
+      registry.mount(consumer);
+      registry.set(requestsAtom, AsyncResult.success(requestEvent("old")));
+      registry.set(
+        requestsAtom,
+        transition === "reconnect"
+          ? AsyncResult.success({ type: "connected", connectionId: "connection-2" })
+          : AsyncResult.failure(Cause.fail(new Error("Disconnected"))),
+      );
+      expect(cancel).toHaveBeenCalledWith("old");
+      gate.resolve();
+      await gate.promise;
+      expect(respond).not.toHaveBeenCalled();
+      registry.dispose();
+    },
+  );
+
   it("consumes every request emitted before React can render", async () => {
     const requestsAtom = Atom.make<AsyncResult.AsyncResult<ComputerUseStreamEvent, Error>>(
       AsyncResult.initial(false),

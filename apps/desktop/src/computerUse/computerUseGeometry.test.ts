@@ -75,14 +75,22 @@ describe("Computer Use window coordinate mapping", () => {
     ).toBe(false);
   });
 
-  it("prefers one exact title and refuses ambiguous partial window names", () => {
+  it("requires a unique exact title, including when a partial title has only one match", () => {
     const windows = [
       { id: "settings", title: "Settings" },
       { id: "docs", title: "Settings — Documentation" },
       { id: "general", title: "General — Settings" },
     ];
     expect(selectUniqueWindowByTitle(windows, "Settings").id).toBe("settings");
-    expect(() => selectUniqueWindowByTitle(windows, "Set")).toThrow("ambiguous");
+    expect(() => selectUniqueWindowByTitle(windows, "Set")).toThrow(
+      "No visible application window",
+    );
+    expect(() => selectUniqueWindowByTitle(windows, "Documentation")).toThrow(
+      "No visible application window",
+    );
+    expect(() => selectUniqueWindowByTitle([...windows, windows[0]!], "Settings")).toThrow(
+      "ambiguous",
+    );
     expect(() => selectUniqueWindowByTitle(windows, "Missing")).toThrow(
       "No visible application window",
     );

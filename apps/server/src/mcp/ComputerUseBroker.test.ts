@@ -9,6 +9,7 @@ import {
   type ComputerUseHost,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -44,6 +45,101 @@ const host = (clientId: string, target: ComputerUseDevice): ComputerUseHost => (
 });
 
 const makeBroker = ComputerUseBroker.make.pipe(Effect.provide(NodeServices.layer));
+
+it.effect(
+  "fails old pending work immediately when a client reconnects and keeps the new connection",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        const connected = yield* Deferred.make<void>();
+        const received = yield* Deferred.make<void>();
+        const events = yield* broker.connect(host("client-box", device("box", "Box")));
+        yield* Stream.runForEach(events, (event) =>
+          event.type === "connected"
+            ? Deferred.succeed(connected, undefined)
+            : event.type === "request"
+              ? Deferred.succeed(received, undefined)
+              : Effect.void,
+        ).pipe(Effect.forkScoped);
+        yield* Deferred.await(connected);
+        const pending = yield* broker
+          .invoke({ scope, operation: "listApps", input: {} })
+          .pipe(Effect.result, Effect.forkScoped);
+        yield* Deferred.await(received);
+        const replacementConnected = yield* Deferred.make<void>();
+        const replacement = yield* broker.connect(host("client-box", device("box", "Box")));
+        yield* Stream.runForEach(replacement, (event) =>
+          event.type === "connected"
+            ? Deferred.succeed(replacementConnected, undefined)
+            : event.type === "request"
+              ? broker.respond({
+                  clientId: "client-box",
+                  connectionId: event.connectionId,
+                  requestId: event.request.requestId,
+                  ok: true,
+                  result: { apps: [] },
+                })
+              : Effect.void,
+        ).pipe(Effect.forkScoped);
+        yield* Deferred.await(replacementConnected);
+        const result = yield* Fiber.join(pending);
+        expect(Result.isFailure(result) && result.failure._tag).toBe("ComputerUseUnavailableError");
+        expect(yield* broker.invoke({ scope, operation: "listApps", input: {} })).toEqual({
+          apps: [],
+        });
+      }),
+    ),
+);
+
+it.effect(
+  "pins an automatically selected device and does not report a replacement after disconnect",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        const connected = yield* Deferred.make<void>();
+        const events = yield* broker.connect(host("client-box", device("box", "Box")));
+        const consumer = yield* Stream.runForEach(events, (event) =>
+          event.type === "connected"
+            ? Deferred.succeed(connected, undefined)
+            : event.type === "request"
+              ? broker.respond({
+                  clientId: "client-box",
+                  connectionId: event.connectionId,
+                  requestId: event.request.requestId,
+                  ok: true,
+                  result: { apps: [] },
+                })
+              : Effect.void,
+        ).pipe(Effect.forkScoped);
+        yield* Deferred.await(connected);
+        yield* broker.invoke({ scope, operation: "listApps", input: {} });
+        yield* Fiber.interrupt(consumer);
+
+        const replacementConnected = yield* Deferred.make<void>();
+        const replacement = yield* broker.connect(
+          host("client-laptop", device("laptop", "Laptop")),
+        );
+        yield* Stream.runForEach(replacement, (event) =>
+          event.type === "connected"
+            ? Deferred.succeed(replacementConnected, undefined)
+            : Effect.void,
+        ).pipe(Effect.forkScoped);
+        yield* Deferred.await(replacementConnected);
+        expect((yield* broker.listDevices(scope)).selectedDeviceId).toBe("box");
+        const result = yield* broker
+          .invoke({ scope, operation: "listApps", input: {} })
+          .pipe(Effect.result);
+        expect(Result.isFailure(result) && result.failure._tag).toBe("ComputerUseUnavailableError");
+        if (Result.isFailure(result) && result.failure._tag === "ComputerUseUnavailableError") {
+          expect(result.failure.reason).toContain("selected Computer Use device");
+        }
+        yield* broker.selectDevice(scope, "laptop");
+        expect((yield* broker.listDevices(scope)).selectedDeviceId).toBe("laptop");
+      }),
+    ),
+);
 
 it.effect("requires the user-facing device choice when multiple desktops are connected", () =>
   Effect.scoped(

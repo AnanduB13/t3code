@@ -15,7 +15,7 @@ T3 Code provides the `computer_*` tools through its authenticated, provider-scop
    permissions must be granted. Include the returned availability reason when present.
    If a device reports `platformSupport: experimental`, say so before the first action and do not
    imply that its native integration has the same verification level as macOS.
-3. If exactly one available device is returned, use it. The broker selects it automatically for the current agent session.
+3. If `selectedDeviceId` identifies a disconnected or unavailable device, report that and ask before choosing a replacement. Otherwise, if exactly one available device is returned, use it. The broker selects it automatically for the current agent session.
 4. If `selectionRequired` is true, stop and ask the user which device should perform the task. Present the exact `label`, platform, and device ID for each choice. This is required even if one device appears to be the backend and another appears to be the prompting device.
 5. Only after the user chooses, call `computer_select_device` with the exact device ID. Never infer or silently choose a machine from its name.
 6. The selection is sticky for the provider session. If the selected device disconnects, report that and list devices again; do not fail over silently.
@@ -33,7 +33,7 @@ T3 Code provides the `computer_*` tools through its authenticated, provider-scop
 1. Call `computer_list_apps` when the window is not already known. Select the exact `windowId`; titles are descriptive labels, not identities. If multiple windows could satisfy the request, use their exact titles and focus state to disambiguate, and ask the user when intent is still ambiguous.
 2. Call `computer_get_app_state` with that `windowId` before acting. It focuses and captures only the selected window. Use accessibility text and elements first, and the screenshot for unlabeled or spatial UI.
 3. Execute one meaningful action with the same `windowId` and the fresh `observationId`. Prefer `elementIndex` for labeled controls. Otherwise use x/y pixels from the returned cropped screenshot, never coordinates from the full desktop or an older image. Use `computer_move` only when a hover is needed to reveal UI; clicks and positioned scrolling already move the cursor visibly.
-4. Observe again and verify the postcondition. Do not treat dispatching an input event as success.
+4. Prefer `observeAfter: true` on actions to receive the next screenshot and accessibility tree in the same call. Use the returned `observation.observationId` for the next action and verify the postcondition. If the response is `null` (including from an older host), call `computer_get_app_state` separately. If it reports `actionCompleted: true` with `observationError`, the input already happened: list/observe to recover, never repeat that action blindly. Do not treat dispatching an input event as success.
 5. Repeat until the user-visible result is verified.
 
 Observations are deliberately single-use. Coordinates and element rectangles are relative to that observation's original-resolution, window-only screenshot. The host maps them to the correct logical desktop coordinates, including Retina/display scaling. Re-list windows after a new dialog or window appears. Re-observe after every action, navigation, window movement, resize, animation, or layout change; stale observations are rejected instead of risking input in the wrong place.
@@ -44,12 +44,14 @@ or explicitly asks to continue.
 
 ## Navigating applications
 
+- Accessibility values ending in `…` were truncated; do not assume they contain the complete document.
 - Read the accessibility output as an indented tree. `depth` and `parentIndex` identify which toolbar, sidebar, group, sheet, or dialog owns a control. Do not select an element from its label alone when the same label appears in multiple groups.
 - Check `navigation.focusedElementIndex` before typing or pressing keys. Type only when the intended text field or editor is focused; otherwise click that enabled field, observe again, and then type.
 - Prefer controls marked `interactive: true` and `enabled: true`. Use `elementIndex` rather than estimating a coordinate when a semantic control is available.
 - Navigate from visible current state. If the destination is absent, use a visible sidebar, tab, toolbar, menu, disclosure control, or search field. Do not invent an application layout from memory.
 - Treat sheets, popovers, menus, and dialogs as state changes. Observe again immediately; if a separate window appeared, call `computer_list_apps` and select its new `windowId`.
 - Keyboard shortcuts may be used for standard navigation, but their result must be observed. Never assume a shortcut worked, focus stayed put, or a page finished loading.
+- Scroll deltas are native wheel steps, not screenshot pixels. Start with a small delta and inspect the result. Provide x/y to target a particular scroll pane; omitted coordinates target the window center.
 - The host moves the real pointer smoothly for clicks, drags, and positioned scrolling so the user can follow the action. Do not add decorative mouse movement or hover over unrelated sensitive content.
 - T3's Computer Use monitor displays every captured application image and a separate virtual agent pointer. Treat it as user-facing telemetry; it does not change the native operating system's focus or cursor limitations.
 

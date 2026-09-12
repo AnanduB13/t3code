@@ -68,6 +68,9 @@ const coordinateForAction = (
   }
   const x = finite(input.x);
   const y = finite(input.y);
+  if (operation === "scroll" && input.x === undefined && input.y === undefined) {
+    return { x: observation.screenshot.width / 2, y: observation.screenshot.height / 2 };
+  }
   return x === null || y === null ? null : { x, y };
 };
 

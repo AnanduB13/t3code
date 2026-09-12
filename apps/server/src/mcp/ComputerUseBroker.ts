@@ -47,7 +47,8 @@ interface State {
   readonly sequence: number;
 }
 
-const selectionKey = (scope: Scope) => `${scope.environmentId}\u0000${scope.providerSessionId}`;
+const selectionKey = (scope: Scope) =>
+  `${scope.environmentId}\u0000${scope.providerInstanceId}\u0000${scope.providerSessionId}`;
 const scopeFields = (scope: Scope) => ({
   environmentId: scope.environmentId,
   threadId: scope.threadId,
@@ -90,9 +91,8 @@ export const make = Effect.gen(function* () {
     connection: Connection,
   ) {
     const pending = yield* SynchronizedRef.modify(state, (current) => {
-      if (current.clients.get(clientId) !== connection) return [[] as Pending[], current] as const;
       const clients = new Map(current.clients);
-      clients.delete(clientId);
+      if (clients.get(clientId) === connection) clients.delete(clientId);
       const nextPending = new Map(current.pending);
       const removed: Pending[] = [];
       for (const [requestId, entry] of nextPending) {
@@ -156,11 +156,8 @@ export const make = Effect.gen(function* () {
       .map(({ host }) => host.device);
     const availableDevices = devices.filter(({ available }) => available);
     const selected = current.selections.get(selectionKey(scope));
-    const selectedDeviceId = availableDevices.some((device) => device.deviceId === selected)
-      ? selected!
-      : availableDevices.length === 1
-        ? availableDevices[0]!.deviceId
-        : null;
+    const selectedDeviceId =
+      selected ?? (availableDevices.length === 1 ? availableDevices[0]!.deviceId : null);
     return {
       devices,
       selectedDeviceId,
@@ -243,9 +240,11 @@ export const make = Effect.gen(function* () {
       const requestId = `computer-use-${current.sequence}`;
       const pending = new Map(current.pending);
       pending.set(requestId, { connection, deferred, scope, operation, timeoutMs });
+      const selections = new Map(current.selections);
+      selections.set(selectionKey(scope), connection.host.device.deviceId);
       return [
         { connections, selectedId, connection, requestId },
-        { ...current, pending, sequence: current.sequence + 1 },
+        { ...current, pending, selections, sequence: current.sequence + 1 },
       ] as const;
     });
     if (!route.connection) {
@@ -257,10 +256,9 @@ export const make = Effect.gen(function* () {
       }
       return yield* new ComputerUseUnavailableError({
         ...scopeFields(scope),
-        reason:
-          route.selectedId && route.connections.length === 0
-            ? "The selected Computer Use device is disconnected or does not support this action."
-            : "No Computer Use host is connected. Open T3 Code Desktop on the target device, enable Computer Use on this device in Settings → General, and grant screen/accessibility permissions.",
+        reason: route.selectedId
+          ? "The selected Computer Use device is disconnected or does not support this action."
+          : "No Computer Use host is connected. Open T3 Code Desktop on the target device, enable Computer Use on this device in Settings → General, and grant screen/accessibility permissions.",
       });
     }
     const cleanup = SynchronizedRef.update(state, (current) => {

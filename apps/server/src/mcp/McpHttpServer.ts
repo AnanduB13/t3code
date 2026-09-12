@@ -1,3 +1,4 @@
+import type { ComputerUseActionResult, ComputerUseAppState } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -19,7 +20,6 @@ import {
   ComputerUseStandardToolkitHandlersLive,
 } from "./toolkits/computer/handlers.ts";
 import {
-  ComputerGetAppStateTool,
   ComputerUseSnapshotToolkit,
   ComputerUseStandardToolkit,
 } from "./toolkits/computer/tools.ts";
@@ -35,6 +35,7 @@ import {
   PreviewSnapshotToolkit,
   PreviewStandardToolkit,
 } from "./toolkits/preview/tools.ts";
+import { computerUseToolResult } from "./toolkits/computer/results.ts";
 import * as VisualEvidence from "../visualEvidence/VisualEvidence.ts";
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
@@ -313,92 +314,77 @@ const registerComputerUseSnapshot = Effect.fn("McpHttpServer.registerComputerUse
     const server = yield* McpServer.McpServer;
     const broker = yield* ComputerUseBroker.ComputerUseBroker;
     const built = yield* ComputerUseSnapshotToolkit;
-    const tool = ComputerGetAppStateTool;
-    yield* server.addTool({
-      tool: new McpSchema.Tool({
-        name: tool.name,
-        description: Tool.getDescription(tool),
-        inputSchema: Tool.getJsonSchema(tool),
-        annotations: {
-          ...Context.getOption(tool.annotations, Tool.Title).pipe(
-            Option.map((title) => ({ title })),
-            Option.getOrUndefined,
-          ),
-          readOnlyHint: true,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: true,
-        },
-      }),
-      annotations: tool.annotations,
-      handle: (payload) =>
-        Effect.withFiber((fiber) => {
-          const invocation = Context.getUnsafe(
-            fiber.context,
-            McpInvocationContext.McpInvocationContext,
-          );
-          return built.handle("computer_get_app_state", payload).pipe(
-            Stream.unwrap,
-            Stream.run(Sink.last()),
-            Effect.flatMap(Effect.fromOption),
-            Effect.provideService(ComputerUseBroker.ComputerUseBroker, broker),
-            Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
-            Effect.matchCauseEffect({
-              onFailure: (cause) => {
-                const firstFailure = cause.reasons.find(Cause.isFailReason)?.error;
-                const errorTag =
-                  typeof firstFailure === "object" &&
-                  firstFailure !== null &&
-                  "_tag" in firstFailure &&
-                  typeof firstFailure._tag === "string"
-                    ? firstFailure._tag
-                    : "ComputerUseSnapshotError";
-                return Effect.succeed(
-                  new McpSchema.CallToolResult({
-                    isError: true,
-                    structuredContent: { error: { _tag: errorTag } },
-                    content: [{ type: "text", text: "Computer Use observation failed." }],
-                  }),
-                );
-              },
-              onSuccess: ({ encodedResult }) => {
-                const state = encodedResult as {
-                  readonly screenshot: {
-                    readonly mimeType: "image/png";
-                    readonly data: string;
-                    readonly width: number;
-                    readonly height: number;
-                  };
-                  readonly [key: string]: unknown;
-                };
-                const { screenshot, ...application } = state;
-                const metadata = {
-                  ...application,
-                  screenshot: {
-                    mimeType: screenshot.mimeType,
-                    width: screenshot.width,
-                    height: screenshot.height,
-                  },
-                };
-                return Effect.succeed(
-                  new McpSchema.CallToolResult({
-                    isError: false,
-                    structuredContent: metadata,
-                    content: [
-                      { type: "text", text: JSON.stringify(metadata) },
-                      {
-                        type: "image",
-                        data: new Uint8Array(Buffer.from(screenshot.data, "base64")),
-                        mimeType: screenshot.mimeType,
-                      },
-                    ],
-                  }),
-                );
-              },
-            }),
-          );
+    for (const tool of Object.values(ComputerUseSnapshotToolkit.tools)) {
+      yield* server.addTool({
+        tool: new McpSchema.Tool({
+          name: tool.name,
+          description: Tool.getDescription(tool),
+          inputSchema: Tool.getJsonSchema(tool),
+          annotations: {
+            ...Context.getOption(tool.annotations, Tool.Title).pipe(
+              Option.map((title) => ({ title })),
+              Option.getOrUndefined,
+            ),
+            readOnlyHint: Context.get(tool.annotations, Tool.Readonly),
+            destructiveHint: Context.get(tool.annotations, Tool.Destructive),
+            idempotentHint: Context.get(tool.annotations, Tool.Idempotent),
+            openWorldHint: Context.get(tool.annotations, Tool.OpenWorld),
+          },
         }),
-    });
+        annotations: tool.annotations,
+        handle: (payload) =>
+          Effect.withFiber((fiber) => {
+            const invocation = Context.getUnsafe(
+              fiber.context,
+              McpInvocationContext.McpInvocationContext,
+            );
+            return built.handle(tool.name, payload).pipe(
+              Stream.unwrap,
+              Stream.run(Sink.last()),
+              Effect.flatMap(Effect.fromOption),
+              Effect.provideService(ComputerUseBroker.ComputerUseBroker, broker),
+              Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+              Effect.matchCauseEffect({
+                onFailure: (cause) => {
+                  const firstFailure = cause.reasons.find(Cause.isFailReason)?.error;
+                  const errorTag =
+                    typeof firstFailure === "object" &&
+                    firstFailure !== null &&
+                    "_tag" in firstFailure &&
+                    typeof firstFailure._tag === "string"
+                      ? firstFailure._tag
+                      : "ComputerUseSnapshotError";
+                  return Effect.succeed(
+                    new McpSchema.CallToolResult({
+                      isError: true,
+                      structuredContent: { error: { _tag: errorTag } },
+                      content: [
+                        {
+                          type: "text",
+                          text:
+                            typeof firstFailure === "object" &&
+                            firstFailure !== null &&
+                            "reason" in firstFailure &&
+                            typeof firstFailure.reason === "string"
+                              ? firstFailure.reason
+                              : "Computer Use request failed. List devices and observe the window again before continuing.",
+                        },
+                      ],
+                    }),
+                  );
+                },
+                onSuccess: ({ encodedResult }) => {
+                  return Effect.succeed(
+                    computerUseToolResult(
+                      encodedResult as ComputerUseAppState | ComputerUseActionResult,
+                    ),
+                  );
+                },
+              }),
+            );
+          }),
+      });
+    }
   },
 );
 

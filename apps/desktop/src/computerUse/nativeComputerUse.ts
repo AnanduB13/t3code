@@ -1,4 +1,5 @@
 import type {
+  ComputerUseActionResult,
   ComputerUseAppState,
   ComputerUseDevice,
   ComputerUseOperation,
@@ -30,7 +31,7 @@ import {
   flattenAccessibilityTree,
   summarizeNavigation,
 } from "./computerUseAccessibility.ts";
-import { createSerializedAbortableExecutor } from "./computerUseExecution.ts";
+import { createSerializedAbortableExecutor } from "@t3tools/shared/serializedAbortableExecutor";
 
 interface ComputerUseRuntime {
   readonly platform: NodeJS.Platform;
@@ -168,7 +169,13 @@ const observations = new Map<string, Observation>();
 const OBSERVATION_TTL_MS = 30_000;
 
 const windowBounds = async (window: NativeWindow): Promise<ComputerUseBounds> => {
-  const region = await window.region;
+  const handle = Reflect.get(window, "windowHandle");
+  const { providerRegistry } = await loadNut();
+  // Window.region clips to the primary display, losing secondary-monitor coordinates.
+  const region =
+    typeof handle === "number"
+      ? await providerRegistry.getWindow().getWindowRegion(handle)
+      : await window.region;
   return { x: region.left, y: region.top, width: region.width, height: region.height };
 };
 
@@ -190,18 +197,28 @@ const enumerateWindows = async (): Promise<WindowRecord[]> => {
   const windows = await getWindows();
   const records = await Promise.all(
     windows.slice(0, 200).map(async (window) => {
-      const [title, bounds] = await Promise.all([window.title, windowBounds(window)]);
-      if (!title.trim() || bounds.width <= 1 || bounds.height <= 1) return null;
-      const nativeKey = await nativeWindowKey(window, title);
-      let windowId = windowIds.get(nativeKey);
-      if (!windowId) {
-        windowId = `window-${NodeCrypto.randomUUID()}`;
-        windowIds.set(nativeKey, windowId);
+      try {
+        const [title, bounds] = await Promise.all([window.title, windowBounds(window)]);
+        if (!title.trim() || bounds.width <= 1 || bounds.height <= 1) return null;
+        const nativeKey = await nativeWindowKey(window, title);
+        let windowId = windowIds.get(nativeKey);
+        if (!windowId) {
+          windowId = `window-${NodeCrypto.randomUUID()}`;
+          windowIds.set(nativeKey, windowId);
+        }
+        return { windowId, nativeKey, window, title, bounds } satisfies WindowRecord;
+      } catch {
+        // A window can disappear between enumeration and reading its title/bounds.
+        return null;
       }
-      return { windowId, nativeKey, window, title, bounds } satisfies WindowRecord;
     }),
   );
-  return records.filter((record): record is WindowRecord => record !== null);
+  const visible = records.filter((record): record is WindowRecord => record !== null);
+  const keys = new Set(visible.map((record) => record.nativeKey));
+  for (const key of windowIds.keys()) {
+    if (!keys.has(key)) windowIds.delete(key);
+  }
+  return visible;
 };
 
 const resolveWindow = async (input: { windowId?: string; app?: string }): Promise<WindowRecord> => {
@@ -365,19 +382,28 @@ const wait = async (durationMs: number, signal: AbortSignal) => {
   }
 };
 
-const captureSettledWindow = async (target: WindowRecord, signal: AbortSignal) => {
+const focusWindowIfNeeded = async (
+  target: WindowRecord,
+  signal: AbortSignal,
+  allowFocus = true,
+) => {
   requireNotAborted(signal);
-  const firstBounds = await windowBounds(target.window);
-  const first = await captureTargetWindow({ ...target, bounds: firstBounds });
-  await wait(120, signal);
-  const latestBounds = await windowBounds(target.window);
-  const latest = await captureTargetWindow({ ...target, bounds: latestBounds });
+  const { getActiveWindow } = await loadNut();
+  const active = await getActiveWindow().catch(() => null);
+  const activeKey = active ? await nativeWindowKey(active, await active.title) : null;
+  if (activeKey === target.nativeKey) return;
+  if (!allowFocus) {
+    throw new Error(
+      "The active window changed after the action. List windows and observe the new target.",
+    );
+  }
   requireNotAborted(signal);
-  // A second bounded sample avoids an obviously half-open menu without making
-  // dynamic clocks, carets, or video force six full PNG captures per observation.
-  return first.screenshot.data === latest.screenshot.data
-    ? { ...first, bounds: firstBounds }
-    : { ...latest, bounds: latestBounds };
+  if (!(await target.window.focus())) throw new Error("The target window could not be focused.");
+  await wait(150, signal);
+  const focused = await getActiveWindow();
+  if ((await nativeWindowKey(focused, await focused.title)) !== target.nativeKey) {
+    throw new Error("The target window did not gain focus. Observe the active window again.");
+  }
 };
 
 const discardExpiredObservations = () => {
@@ -393,17 +419,22 @@ const getAppState = async (
     app?: string;
   },
   signal: AbortSignal,
+  allowFocus = true,
 ): Promise<ComputerUseAppState> => {
   requireNotAborted(signal);
   const target = await resolveWindow(input);
-  await target.window.focus();
-  await wait(150, signal);
-  const { screenshot, coordinateSpace, bounds } = await captureSettledWindow(target, signal);
-  const elements = await target.window
-    .getElements(1_000)
-    .then((root) => flattenAccessibilityTree(root, coordinateSpace))
-    .catch(() => []);
+  await focusWindowIfNeeded(target, signal, allowFocus);
+  await wait(120, signal);
+  const bounds = await windowBounds(target.window);
+  const [{ screenshot, coordinateSpace }, root] = await Promise.all([
+    captureTargetWindow({ ...target, bounds }),
+    target.window.getElements(1_000).catch(() => null),
+  ]);
   requireNotAborted(signal);
+  if (!boundsMatch(bounds, await windowBounds(target.window))) {
+    throw new Error("The target window moved or resized during capture. Observe it again.");
+  }
+  const elements = root ? flattenAccessibilityTree(root, coordinateSpace) : [];
   const observationId = `observation-${NodeCrypto.randomUUID()}`;
   observations.set(observationId, {
     observationId,
@@ -455,14 +486,15 @@ const requireFreshObservation = async (input: Record<string, unknown>, signal: A
     throw new Error("The observation does not belong to the requested window. Observe it again.");
   }
   const target = await resolveWindow({ windowId });
+  await focusWindowIfNeeded(target, signal);
   const currentBounds = await windowBounds(target.window);
   if (!boundsMatch(observation.bounds, currentBounds)) {
     observations.delete(observationId);
     throw new Error("The target window moved or resized after observation. Observe it again.");
   }
-  await target.window.focus();
-  await wait(100, signal);
-  observations.delete(observationId);
+  requireNotAborted(signal);
+  // Any input invalidates every outstanding observation, including those from other sessions.
+  observations.clear();
   return { target, observation };
 };
 
@@ -507,12 +539,28 @@ const pointFromInput = (
 const moveVisibleCursor = async (
   nut: NutModule,
   point: { readonly x: number; readonly y: number },
+  signal: AbortSignal,
 ) => {
-  // Moving the real OS pointer makes agent activity observable to the user and
-  // avoids an instantaneous teleport that is difficult to follow or interrupt.
-  nut.mouse.config.mouseSpeed = 1_800;
+  requireNotAborted(signal);
+  const start = await nut.mouse.getPosition();
+  const pixelsPerSecond = 6_000;
+  const durationMs = Math.min(
+    120,
+    (Math.hypot(point.x - start.x, point.y - start.y) / pixelsPerSecond) * 1_000,
+  );
+  const steps = Math.max(1, Math.ceil(durationMs / 16));
   nut.mouse.config.autoDelayMs = 35;
-  await nut.mouse.move(nut.straightTo(new nut.Point(point.x, point.y)));
+  // nut-js mouse.move busy-waits for every pixel. A bounded path keeps IPC/Stop responsive.
+  for (let step = 1; step <= steps; step += 1) {
+    requireNotAborted(signal);
+    await nut.mouse.setPosition(
+      new nut.Point(
+        Math.round(start.x + ((point.x - start.x) * step) / steps),
+        Math.round(start.y + ((point.y - start.y) * step) / steps),
+      ),
+    );
+    if (step < steps) await wait(durationMs / steps, signal);
+  }
 };
 
 const keyFromName = async (name: string) => {
@@ -562,17 +610,19 @@ async function executeComputerUseNow(
 
   const { observation } = await requireFreshObservation(input, signal);
   const nut = await loadNut();
+  nut.keyboard.config.autoDelayMs = 0;
+  nut.providerRegistry.getKeyboard().setKeyboardDelay(0);
   requireNotAborted(signal);
   switch (operation) {
     case "move": {
       const point = pointFromInput(observation, input);
-      await moveVisibleCursor(nut, point);
+      await moveVisibleCursor(nut, point, signal);
       await wait(250, signal);
       return null;
     }
     case "click": {
       const point = pointFromInput(observation, input);
-      await moveVisibleCursor(nut, point);
+      await moveVisibleCursor(nut, point, signal);
       const button =
         input.mouseButton === "right"
           ? nut.Button.RIGHT
@@ -580,6 +630,7 @@ async function executeComputerUseNow(
             ? nut.Button.MIDDLE
             : nut.Button.LEFT;
       const count = Math.max(1, Math.min(3, Number(input.clickCount ?? 1)));
+      requireNotAborted(signal);
       if (count === 2) await nut.mouse.doubleClick(button);
       else {
         for (let index = 0; index < count; index += 1) {
@@ -598,10 +649,15 @@ async function executeComputerUseNow(
         x: Number(input.toX),
         y: Number(input.toY),
       });
-      await moveVisibleCursor(nut, from);
+      await moveVisibleCursor(nut, from, signal);
       requireNotAborted(signal);
-      nut.mouse.config.mouseSpeed = 1_400;
-      await nut.mouse.drag(nut.straightTo(new nut.Point(to.x, to.y)));
+      try {
+        await nut.mouse.pressButton(nut.Button.LEFT);
+        requireNotAborted(signal);
+        await moveVisibleCursor(nut, to, signal);
+      } finally {
+        await nut.mouse.releaseButton(nut.Button.LEFT);
+      }
       return null;
     }
     case "pressKey": {
@@ -623,37 +679,65 @@ async function executeComputerUseNow(
       );
       const keys = [...modifierKeys, await keyFromName(String(input.key))];
       requireNotAborted(signal);
-      await nut.keyboard.pressKey(...keys);
-      await nut.keyboard.releaseKey(...keys.toReversed());
+      try {
+        await nut.keyboard.pressKey(...keys);
+      } finally {
+        // nut-js expects modifiers followed by the key for both press and release.
+        await nut.keyboard.releaseKey(...keys);
+      }
       return null;
     }
     case "scroll": {
-      if (input.x !== undefined && input.y !== undefined) {
-        const point = screenshotPointToScreen(observation.coordinateSpace, {
-          x: Number(input.x),
-          y: Number(input.y),
-        });
-        await moveVisibleCursor(nut, point);
-      }
+      const point = screenshotPointToScreen(observation.coordinateSpace, {
+        x:
+          input.x === undefined ? observation.coordinateSpace.screenshotWidth / 2 : Number(input.x),
+        y:
+          input.y === undefined
+            ? observation.coordinateSpace.screenshotHeight / 2
+            : Number(input.y),
+      });
+      await moveVisibleCursor(nut, point, signal);
       requireNotAborted(signal);
       const deltaY = Number(input.deltaY ?? 0);
       const deltaX = Number(input.deltaX ?? 0);
       if (deltaY > 0) await nut.mouse.scrollDown(Math.ceil(deltaY));
       if (deltaY < 0) await nut.mouse.scrollUp(Math.ceil(-deltaY));
+      requireNotAborted(signal);
       if (deltaX > 0) await nut.mouse.scrollRight(Math.ceil(deltaX));
       if (deltaX < 0) await nut.mouse.scrollLeft(Math.ceil(-deltaX));
       return null;
     }
     case "typeText":
-      requireNotAborted(signal);
-      await nut.keyboard.type(String(input.text ?? ""));
+      for (const character of String(input.text ?? "")) {
+        requireNotAborted(signal);
+        // Each call yields to IPC, so Stop can interrupt long text without using the clipboard.
+        await nut.keyboard.type(character);
+      }
       return null;
   }
 }
 
 const executor = createSerializedAbortableExecutor(
-  (input: { readonly operation: ComputerUseOperation; readonly rawInput: unknown }, signal) =>
-    executeComputerUseNow(input.operation, input.rawInput, signal),
+  async (
+    input: { readonly operation: ComputerUseOperation; readonly rawInput: unknown },
+    signal,
+  ) => {
+    const result = await executeComputerUseNow(input.operation, input.rawInput, signal);
+    if (input.operation === "listApps" || input.operation === "getAppState") return result;
+    const action = input.rawInput as { readonly observeAfter?: boolean; readonly windowId: string };
+    if (!action.observeAfter) return result;
+    requireNotAborted(signal);
+    try {
+      const observation = await getAppState({ windowId: action.windowId }, signal, false);
+      return { actionCompleted: true, observation } satisfies ComputerUseActionResult;
+    } catch (cause) {
+      requireNotAborted(signal);
+      return {
+        actionCompleted: true,
+        observationError: cause instanceof Error ? cause.message : String(cause),
+      } satisfies ComputerUseActionResult;
+    }
+  },
 );
 
 export function executeComputerUse(
@@ -670,4 +754,5 @@ export function cancelComputerUse(requestId: string) {
 
 export function cancelAllComputerUse() {
   executor.cancelAll();
+  observations.clear();
 }

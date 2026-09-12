@@ -1,4 +1,5 @@
 import {
+  ComputerUseActionResult,
   ComputerUseAppList,
   ComputerUseAppState,
   ComputerUseAppTargetInput,
@@ -42,7 +43,7 @@ const navigationAction = <T extends Tool.Any>(tool: T): T =>
   tool
     .annotate(Tool.OpenWorld, true)
     .annotate(Tool.Destructive, false)
-    .annotate(Tool.Idempotent, true) as T;
+    .annotate(Tool.Idempotent, false) as T;
 const observation = <T extends Tool.Any>(tool: T): T =>
   tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, false) as T;
 
@@ -93,9 +94,9 @@ export const ComputerGetAppStateTool = observation(
 export const ComputerClickTool = action(
   Tool.make("computer_click", {
     description:
-      "Click within the exact window from the latest observation. Pass its windowId and observationId, then either an enabled interactive accessibility elementIndex (preferred) or x/y pixels measured in that observation's cropped screenshot. The real OS cursor moves visibly to the target. The observation is single-use; observe again after the action.",
+      "Click within the exact window from the latest observation. Pass its windowId and observationId, then either an enabled interactive accessibility elementIndex (preferred) or x/y pixels measured in that observation's cropped screenshot. The real OS cursor moves visibly to the target. The observation is single-use; set observeAfter=true to return the next observation without a separate call.",
     parameters: ComputerUseClickInput,
-    success: Schema.Null,
+    success: ComputerUseActionResult,
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "Click desktop"),
@@ -103,9 +104,9 @@ export const ComputerClickTool = action(
 export const ComputerMoveTool = navigationAction(
   Tool.make("computer_move", {
     description:
-      "Move the real OS cursor visibly within the exact window from the latest observation without clicking. Pass windowId and observationId, then either elementIndex or x/y pixels from the cropped screenshot. Use only when hover is necessary to reveal a tooltip or control, then observe again.",
+      "Move the real OS cursor visibly within the exact window from the latest observation without clicking. Pass windowId and observationId, then either elementIndex or x/y pixels from the cropped screenshot. Use only when hover is necessary to reveal a tooltip or control, set observeAfter=true to return the next observation.",
     parameters: ComputerUseMoveInput,
-    success: Schema.Null,
+    success: ComputerUseActionResult,
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "Move desktop cursor"),
@@ -113,9 +114,9 @@ export const ComputerMoveTool = navigationAction(
 export const ComputerDragTool = action(
   Tool.make("computer_drag", {
     description:
-      "Drag between screenshot-relative points in one exact, freshly observed window. Pass windowId and observationId; observe again afterward.",
+      "Drag between screenshot-relative points in one exact, freshly observed window. Pass windowId and observationId; set observeAfter=true to return the next observation.",
     parameters: ComputerUseDragInput,
-    success: Schema.Null,
+    success: ComputerUseActionResult,
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "Drag desktop"),
@@ -123,9 +124,9 @@ export const ComputerDragTool = action(
 export const ComputerPressKeyTool = action(
   Tool.make("computer_press_key", {
     description:
-      "Focus the exact window from a fresh observation and press a key, optionally with modifiers. Pass windowId and observationId; observe again afterward.",
+      "Focus the exact window from a fresh observation and press a key, optionally with modifiers. Pass windowId and observationId; set observeAfter=true to return the next observation.",
     parameters: ComputerUsePressKeyInput,
-    success: Schema.Null,
+    success: ComputerUseActionResult,
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "Press desktop key"),
@@ -133,9 +134,9 @@ export const ComputerPressKeyTool = action(
 export const ComputerScrollTool = action(
   Tool.make("computer_scroll", {
     description:
-      "Scroll the exact window from a fresh observation, optionally at x/y pixels in its cropped screenshot. Pass windowId and observationId; observe again afterward.",
+      "Scroll the exact window from a fresh observation, at x/y pixels in its cropped screenshot (defaults to its center). Deltas are native wheel steps, not screenshot pixels. Pass windowId and observationId; set observeAfter=true to return the next observation.",
     parameters: ComputerUseScrollInput,
-    success: Schema.Null,
+    success: ComputerUseActionResult,
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "Scroll desktop"),
@@ -143,9 +144,9 @@ export const ComputerScrollTool = action(
 export const ComputerTypeTextTool = action(
   Tool.make("computer_type_text", {
     description:
-      "Focus the exact window from a fresh observation and type literal text into its focused control. Pass windowId and observationId and observe again afterward. Never type passwords, authentication secrets, or payment details; hand those steps to the user.",
+      "Focus the exact window from a fresh observation and type literal text into its focused control. Pass windowId and observationId and set observeAfter=true to return the next observation. Never type passwords, authentication secrets, or payment details; hand those steps to the user.",
     parameters: ComputerUseTypeTextInput,
-    success: Schema.Null,
+    success: ComputerUseActionResult,
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "Type desktop text"),
@@ -168,6 +169,10 @@ export const ComputerUseStandardToolkit = Toolkit.make(
   ComputerListDevicesTool,
   ComputerSelectDeviceTool,
   ComputerListAppsTool,
+);
+
+export const ComputerUseSnapshotToolkit = Toolkit.make(
+  ComputerGetAppStateTool,
   ComputerMoveTool,
   ComputerClickTool,
   ComputerDragTool,
@@ -175,5 +180,3 @@ export const ComputerUseStandardToolkit = Toolkit.make(
   ComputerScrollTool,
   ComputerTypeTextTool,
 );
-
-export const ComputerUseSnapshotToolkit = Toolkit.make(ComputerGetAppStateTool);
