@@ -97,6 +97,40 @@ describe("buildHomeThreadGroups", () => {
     expect(buildGroups([chatsProject], [chatsThread])).toEqual([]);
   });
 
+  it("shows only standalone chats in chats mode", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const chatsProject = makeProject({
+      environmentId,
+      id: GENERAL_CHATS_PROJECT_ID,
+      title: "Chats",
+    });
+    const project = makeProject({
+      environmentId,
+      id: ProjectId.make("project-1"),
+      title: "Project",
+    });
+    const chatsThread = makeThread({
+      environmentId,
+      id: ThreadId.make("chat-thread"),
+      projectId: chatsProject.id,
+      title: "Ad hoc chat",
+    });
+    const projectThread = makeThread({
+      environmentId,
+      id: ThreadId.make("project-thread"),
+      projectId: project.id,
+      title: "Project task",
+    });
+
+    const groups = buildGroups([chatsProject, project], [chatsThread, projectThread], {
+      mode: "chats",
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.title).toBe("Chats");
+    expect(groups[0]?.threads.map((thread) => thread.id)).toEqual([chatsThread.id]);
+  });
+
   it("builds one v2 scope for the same repository across environments", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");

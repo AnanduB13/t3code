@@ -3,6 +3,7 @@ import {
   GENERAL_CHATS_PROJECT_ID,
   GENERAL_CHATS_PROJECT_TITLE,
   GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
   isGeneralChatsProject,
 } from "@t3tools/client-runtime/general-chats";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
@@ -15,6 +16,7 @@ export {
   GENERAL_CHATS_PROJECT_ID,
   GENERAL_CHATS_PROJECT_TITLE,
   GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
   isGeneralChatsProject,
 };
 export const GENERAL_CHAT_NEW_THREAD_OPTIONS = {
@@ -58,29 +60,4 @@ export function resolveGeneralChatNewThreadOptions(
 ): GeneralChatNewThreadOptions | undefined {
   const generalChatOptions = getGeneralChatNewThreadOptions(projectId);
   return generalChatOptions ? { ...options, ...generalChatOptions } : options;
-}
-
-export function isGeneralChatsProjectAlreadyExistsError(error: unknown): boolean {
-  const detail = `Project '${GENERAL_CHATS_PROJECT_ID}' already exists and cannot be created twice.`;
-  if (typeof error !== "object" || error === null) {
-    return false;
-  }
-
-  const candidate = error as Record<string, unknown>;
-  if (
-    candidate._tag === "OrchestrationCommandInvariantError" &&
-    candidate.commandType === "project.create" &&
-    candidate.detail === detail
-  ) {
-    return true;
-  }
-
-  // RPC failures arrive at the UI as an Error with its typed invariant
-  // flattened into the message. Treat only this exact idempotent create race
-  // as success; every other project-create failure remains visible.
-  return (
-    error instanceof Error &&
-    error.message.includes("Orchestration command invariant failed (project.create):") &&
-    error.message.includes(detail)
-  );
 }

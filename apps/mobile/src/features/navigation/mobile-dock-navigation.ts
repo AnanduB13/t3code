@@ -1,4 +1,5 @@
 export type MobileDockDestination = "chat" | "pull-requests" | "usage" | "settings";
+export type MobileHomeMode = "projects" | "chats";
 
 /** The dock belongs to top-level browsing surfaces, never thread or composer flows. */
 export function mobileDockDestinationForPathname(pathname: string): MobileDockDestination | null {

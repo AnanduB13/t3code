@@ -24,6 +24,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { isGeneralChatsProjectId } from "@t3tools/client-runtime/general-chats";
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@t3tools/contracts";
 
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
@@ -164,6 +165,7 @@ export function NewTaskDraftScreen(props: {
   const controlsBottomPadding = Math.max(insets.bottom, 10);
   const keyboardOpenedOffset = Math.max(0, controlsBottomPadding - 8);
   const { projectScopes, selectedProject, selectedProjectKey, setProject } = flow;
+  const isGeneralChat = selectedProject ? isGeneralChatsProjectId(selectedProject.id) : false;
   const { connectedEnvironments } = useRemoteConnectionStatus();
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,
@@ -870,11 +872,18 @@ export function NewTaskDraftScreen(props: {
         selectedEnvironmentServerConfig,
         draft.modelSelection ?? null,
       ) ?? flow.selectedModel;
-    const workspaceMode = draft.workspaceSelection?.mode ?? flow.workspaceMode;
-    const selectedBranchName = draft.workspaceSelection?.branch ?? flow.selectedBranchName;
-    const selectedWorktreePath =
-      draft.workspaceSelection?.worktreePath ?? flow.selectedWorktreePath;
-    const startFromOrigin = draft.workspaceSelection?.startFromOrigin ?? flow.startFromOrigin;
+    const workspaceMode = isGeneralChat
+      ? "local"
+      : (draft.workspaceSelection?.mode ?? flow.workspaceMode);
+    const selectedBranchName = isGeneralChat
+      ? null
+      : (draft.workspaceSelection?.branch ?? flow.selectedBranchName);
+    const selectedWorktreePath = isGeneralChat
+      ? null
+      : (draft.workspaceSelection?.worktreePath ?? flow.selectedWorktreePath);
+    const startFromOrigin = isGeneralChat
+      ? false
+      : (draft.workspaceSelection?.startFromOrigin ?? flow.startFromOrigin);
     const runtimeMode = draft.runtimeMode ?? flow.runtimeMode;
     const interactionMode = resolveProviderInteractionMode(
       selectedEnvironmentServerConfig?.providers.find(
@@ -1118,30 +1127,36 @@ export function NewTaskDraftScreen(props: {
 
   const hero = (
     <View className="items-center gap-6 px-6" testID="new-task-hero">
-      <View className="w-full items-center gap-1.5">
+      {isGeneralChat ? (
         <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
-          What should we build
+          What do you want to chat about?
         </Text>
-        <View className="max-w-full flex-row items-center justify-center">
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">in </Text>
-          <Pressable
-            accessibilityHint="Opens the project picker"
-            accessibilityLabel={`Change project from ${selectedProject.title}`}
-            accessibilityRole="button"
-            disabled={isComposerInteractionLocked}
-            onPress={chooseProject}
-            className="min-w-0 max-w-[250px] border-b border-foreground-muted active:opacity-65"
-          >
-            <Text
-              className="text-2xl font-t3-medium tracking-tight text-foreground"
-              numberOfLines={1}
+      ) : (
+        <View className="w-full items-center gap-1.5">
+          <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
+            What should we build
+          </Text>
+          <View className="max-w-full flex-row items-center justify-center">
+            <Text className="text-2xl font-t3-medium tracking-tight text-foreground">in </Text>
+            <Pressable
+              accessibilityHint="Opens the project picker"
+              accessibilityLabel={`Change project from ${selectedProject.title}`}
+              accessibilityRole="button"
+              disabled={isComposerInteractionLocked}
+              onPress={chooseProject}
+              className="min-w-0 max-w-[250px] border-b border-foreground-muted active:opacity-65"
             >
-              {selectedProject.title}
-            </Text>
-          </Pressable>
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">?</Text>
+              <Text
+                className="text-2xl font-t3-medium tracking-tight text-foreground"
+                numberOfLines={1}
+              >
+                {selectedProject.title}
+              </Text>
+            </Pressable>
+            <Text className="text-2xl font-t3-medium tracking-tight text-foreground">?</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       <ComposerInlineControl
         accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
@@ -1237,7 +1252,7 @@ export function NewTaskDraftScreen(props: {
           />
         </View>
       ) : null}
-      <View className="pb-1">{workspaceControls}</View>
+      {isGeneralChat ? null : <View className="pb-1">{workspaceControls}</View>}
 
       {modelUnavailable ? (
         <Pressable

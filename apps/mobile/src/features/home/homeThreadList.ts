@@ -5,6 +5,8 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import {
   excludeGeneralChatsProject,
+  GENERAL_CHATS_PROJECT_TITLE,
+  isGeneralChatsProject,
   isGeneralChatsProjectId,
 } from "@t3tools/client-runtime/general-chats";
 import type {
@@ -30,6 +32,7 @@ import * as Order from "effect/Order";
 
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
+import type { MobileHomeMode } from "../navigation/mobile-dock-navigation";
 
 export type HomeProjectSortOrder = Exclude<SidebarProjectSortOrder, "manual">;
 
@@ -168,6 +171,30 @@ export interface HomeThreadGroup {
   readonly newThreadTarget: EnvironmentProject | null;
 }
 
+function buildHomeChatScope(input: {
+  readonly projects: ReadonlyArray<EnvironmentProject>;
+  readonly environmentId: EnvironmentId | null;
+}): HomeProjectScope | null {
+  const projects = input.projects.filter(
+    (project) =>
+      isGeneralChatsProject(project) &&
+      (input.environmentId === null || project.environmentId === input.environmentId),
+  );
+  const representative = projects[0];
+  if (!representative) return null;
+
+  return {
+    key: "general-chats",
+    title: GENERAL_CHATS_PROJECT_TITLE,
+    representative,
+    projects,
+    projectRefs: projects.map((project) => ({
+      environmentId: project.environmentId,
+      projectId: project.id,
+    })),
+  };
+}
+
 interface MutableHomeThreadGroup {
   readonly key: string;
   readonly projects: EnvironmentProject[];
@@ -214,6 +241,7 @@ export function buildHomeThreadGroups(input: {
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
+  readonly mode?: MobileHomeMode;
   /** Current time used for the recency window; defaults to now. Injectable for tests. */
   readonly now?: number;
 }): ReadonlyArray<HomeThreadGroup> {
@@ -222,7 +250,13 @@ export function buildHomeThreadGroups(input: {
   const groupTitleByKey = new Map<string, string>();
   const groupKeyByProjectKey = new Map<string, string>();
 
-  for (const scope of buildHomeProjectScopes(input)) {
+  const mode = input.mode ?? "projects";
+  const scopes =
+    mode === "chats"
+      ? [buildHomeChatScope(input)].filter((scope): scope is HomeProjectScope => scope !== null)
+      : buildHomeProjectScopes(input);
+
+  for (const scope of scopes) {
     groupTitleByKey.set(scope.key, scope.title);
     groups.set(scope.key, {
       key: scope.key,
@@ -239,7 +273,7 @@ export function buildHomeThreadGroups(input: {
   }
 
   for (const pendingTask of input.pendingTasks ?? []) {
-    if (isGeneralChatsProjectId(pendingTask.creation.projectId)) {
+    if (isGeneralChatsProjectId(pendingTask.creation.projectId) !== (mode === "chats")) {
       continue;
     }
     if (input.environmentId !== null && pendingTask.message.environmentId !== input.environmentId) {

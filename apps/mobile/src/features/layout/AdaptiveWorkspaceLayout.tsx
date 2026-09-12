@@ -48,6 +48,7 @@ import {
 import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { MobileBottomDock } from "../navigation/MobileBottomDock";
+import type { MobileHomeMode } from "../navigation/mobile-dock-navigation";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
@@ -57,6 +58,7 @@ interface AdaptiveWorkspaceContextValue {
   readonly panes: WorkspacePaneLayout;
   readonly fileInspector: FileInspectorPaneLayout;
   readonly primarySidebarSearchQuery: string;
+  readonly homeMode: MobileHomeMode;
   readonly activateAuxiliaryPaneRole: (role: WorkspaceAuxiliaryPaneRole) => () => void;
   /**
    * Route screens hand their inspector pane content to the workspace so it
@@ -68,6 +70,7 @@ interface AdaptiveWorkspaceContextValue {
    */
   readonly registerWorkspaceInspector: (render: () => ReactNode) => () => void;
   readonly setPrimarySidebarSearchQuery: (query: string) => void;
+  readonly setHomeMode: (mode: MobileHomeMode) => void;
   readonly showAuxiliaryPane: (role: WorkspaceAuxiliaryPaneRole) => void;
   readonly toggleAuxiliaryPane: () => void;
   readonly togglePrimarySidebar: () => void;
@@ -90,9 +93,11 @@ const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
   panes: compactPanes,
   fileInspector: compactFileInspector,
   primarySidebarSearchQuery: "",
+  homeMode: "projects",
   activateAuxiliaryPaneRole: () => () => undefined,
   registerWorkspaceInspector: () => () => undefined,
   setPrimarySidebarSearchQuery: () => undefined,
+  setHomeMode: () => undefined,
   showAuxiliaryPane: () => undefined,
   toggleAuxiliaryPane: () => undefined,
   togglePrimarySidebar: () => undefined,
@@ -236,6 +241,7 @@ function AdaptiveWorkspaceLayoutContent(
     null,
   );
   const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
+  const [homeMode, setHomeMode] = useState<MobileHomeMode>("projects");
   const [focusedAuxiliaryPaneRole, setFocusedAuxiliaryPaneRole] =
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
   const baseLayout = useMemo(() => deriveLayout({ width, height }), [height, width]);
@@ -409,9 +415,11 @@ function AdaptiveWorkspaceLayoutContent(
       panes,
       fileInspector,
       primarySidebarSearchQuery,
+      homeMode,
       activateAuxiliaryPaneRole,
       registerWorkspaceInspector,
       setPrimarySidebarSearchQuery,
+      setHomeMode,
       showAuxiliaryPane,
       toggleAuxiliaryPane,
       togglePrimarySidebar,
@@ -423,9 +431,11 @@ function AdaptiveWorkspaceLayoutContent(
       layout,
       panes,
       primarySidebarSearchQuery,
+      homeMode,
       registerWorkspaceInspector,
       showAuxiliaryPane,
       setPrimarySidebarSearchQuery,
+      setHomeMode,
       setAuxiliaryPaneWidth,
       toggleAuxiliaryPane,
       togglePrimarySidebar,
@@ -564,7 +574,11 @@ function AdaptiveWorkspaceLayoutContent(
               {props.children}
             </View>
             {Platform.OS === "android" && !layout.usesSplitView ? (
-              <MobileBottomDock pathname={props.navigationPathname} />
+              <MobileBottomDock
+                homeMode={homeMode}
+                pathname={props.navigationPathname}
+                onHomeModeChange={setHomeMode}
+              />
             ) : null}
           </View>
           <WorkspaceInspectorPane

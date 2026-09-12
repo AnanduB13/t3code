@@ -11,6 +11,7 @@ import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
+import { isGeneralChatsProjectId } from "@t3tools/client-runtime/general-chats";
 import { sortPinnedThreadsByOrderKey } from "@t3tools/client-runtime/state/thread-sort";
 import type {
   EnvironmentId,
@@ -57,6 +58,7 @@ import {
   type ThreadListV2ListItem,
 } from "../threads/threadListV2";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
+import type { MobileHomeMode } from "../navigation/mobile-dock-navigation";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
   buildHomeListLayout,
@@ -78,6 +80,7 @@ import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-sw
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface HomeScreenProps {
+  readonly mode: MobileHomeMode;
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
@@ -137,6 +140,7 @@ const PRE_LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT = 44;
 function deriveEmptyState(props: {
   readonly catalogState: WorkspaceState;
   readonly projectCount: number;
+  readonly mode: MobileHomeMode;
 }): { readonly title: string; readonly detail: string; readonly loading: boolean } {
   const { catalogState } = props;
   if (catalogState.isLoadingConnections) {
@@ -183,6 +187,13 @@ function deriveEmptyState(props: {
   }
 
   if (props.projectCount === 0 && catalogState.hasLoadedShellSnapshot) {
+    if (props.mode === "chats") {
+      return {
+        title: "No chats yet",
+        detail: "Create a chat to start a conversation without a project.",
+        loading: false,
+      };
+    }
     return {
       title: "No projects found",
       detail: "The connected environment did not report any projects.",
@@ -191,8 +202,11 @@ function deriveEmptyState(props: {
   }
 
   return {
-    title: "No threads yet",
-    detail: "Create a task to start a new coding session in one of your connected projects.",
+    title: props.mode === "chats" ? "No chats yet" : "No threads yet",
+    detail:
+      props.mode === "chats"
+        ? "Create a chat to start a conversation without a project."
+        : "Create a task to start a new coding session in one of your connected projects.",
     loading: false,
   };
 }
@@ -366,30 +380,47 @@ export function HomeScreen(props: HomeScreenProps) {
           ),
     [props.pendingTasks, selectedProjectRefKeys],
   );
+  const modeThreads = useMemo(
+    () =>
+      scopedThreads.filter(
+        (thread) => isGeneralChatsProjectId(thread.projectId) === (props.mode === "chats"),
+      ),
+    [props.mode, scopedThreads],
+  );
+  const modePendingTasks = useMemo(
+    () =>
+      scopedPendingTasks.filter(
+        (pendingTask) =>
+          isGeneralChatsProjectId(pendingTask.creation.projectId) === (props.mode === "chats"),
+      ),
+    [props.mode, scopedPendingTasks],
+  );
 
   const projectGroups = useMemo(() => {
     if (threadListV2Enabled) return [];
     return buildHomeThreadGroups({
       projects: scopedProjects,
-      threads: scopedThreads,
-      pendingTasks: scopedPendingTasks,
+      threads: modeThreads,
+      pendingTasks: modePendingTasks,
       environmentId: props.selectedEnvironmentId,
       searchQuery: props.searchQuery,
       matchedThreadKeys,
       projectSortOrder: props.projectSortOrder,
       threadSortOrder: props.threadSortOrder,
       projectGroupingMode: props.projectGroupingMode,
+      mode: props.mode,
     });
   }, [
     props.projectGroupingMode,
     props.projectSortOrder,
+    props.mode,
     props.searchQuery,
     props.selectedEnvironmentId,
     props.threadSortOrder,
     matchedThreadKeys,
-    scopedPendingTasks,
     scopedProjects,
-    scopedThreads,
+    modePendingTasks,
+    modeThreads,
     threadListV2Enabled,
   ]);
 
@@ -660,7 +691,7 @@ export function HomeScreen(props: HomeScreenProps) {
     // Settled threads are live shells; archived threads keep their original
     // "hidden from lists" meaning.
     return buildThreadListV2Items({
-      threads: props.threads.filter((thread) => thread.archivedAt === null),
+      threads: modeThreads.filter((thread) => thread.archivedAt === null),
       environmentId: props.selectedEnvironmentId,
       projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
       searchQuery: props.searchQuery,
@@ -683,7 +714,7 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozeEnvironmentIds,
     props.searchQuery,
     props.selectedEnvironmentId,
-    props.threads,
+    modeThreads,
     matchedThreadKeys,
     threadListV2Enabled,
     v2ScopedProjectGroup,
@@ -710,7 +741,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2PendingTasks = useMemo(
     () =>
       threadListV2Enabled
-        ? props.pendingTasks.filter(
+        ? modePendingTasks.filter(
             (pendingTask) =>
               (props.selectedEnvironmentId === null ||
                 pendingTask.message.environmentId === props.selectedEnvironmentId) &&
@@ -726,7 +757,7 @@ export function HomeScreen(props: HomeScreenProps) {
           )
         : [],
     [
-      props.pendingTasks,
+      modePendingTasks,
       props.selectedEnvironmentId,
       threadListV2Enabled,
       v2ScopedProjectKeys,
@@ -1040,7 +1071,7 @@ export function HomeScreen(props: HomeScreenProps) {
   // full-page "No threads yet". Settled threads are unarchived live shells,
   // so the v1 check already covers v2.
   const hasAnyThreads =
-    props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
+    modeThreads.some((thread) => thread.archivedAt === null) || modePendingTasks.length > 0;
   const hasResults = projectGroups.length > 0;
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
@@ -1052,7 +1083,8 @@ export function HomeScreen(props: HomeScreenProps) {
   // reconnects never shift the rows.
   const emptyState = deriveEmptyState({
     catalogState: props.catalogState,
-    projectCount: props.projects.length,
+    projectCount: props.mode === "chats" ? modeThreads.length : projectScopes.length,
+    mode: props.mode,
   });
 
   if (!hasAnyThreads) {
@@ -1091,6 +1123,8 @@ export function HomeScreen(props: HomeScreenProps) {
   const listEmpty = !hasResults ? (
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
       <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
+    ) : props.mode === "chats" ? (
+      <EmptyState title="No chats yet" detail="Create a chat to start a conversation." />
     ) : selectedProjectScope !== null ? (
       <EmptyState
         title={`No threads in ${selectedProjectScope.title}`}

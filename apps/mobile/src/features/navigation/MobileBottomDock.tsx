@@ -11,7 +11,9 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { MenuAction } from "@react-native-menu/menu";
 
+import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { GlassSurface } from "../../components/GlassSurface";
@@ -19,6 +21,7 @@ import { cn } from "../../lib/cn";
 import {
   mobileDockDestinationForPathname,
   type MobileDockDestination,
+  type MobileHomeMode,
 } from "./mobile-dock-navigation";
 
 const ITEMS: ReadonlyArray<{
@@ -95,10 +98,28 @@ function MobileDockItem(props: {
   );
 }
 
-export function MobileBottomDock(props: { readonly pathname: string }) {
+export function MobileBottomDock(props: {
+  readonly homeMode: MobileHomeMode;
+  readonly pathname: string;
+  readonly onHomeModeChange: (mode: MobileHomeMode) => void;
+}) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const activeDestination = mobileDockDestinationForPathname(props.pathname);
+  const homeModeActions: MenuAction[] = [
+    {
+      id: "projects",
+      title: "Projects",
+      image: "folder",
+      state: props.homeMode === "projects" ? "on" : undefined,
+    },
+    {
+      id: "chats",
+      title: "Chats",
+      image: "text.bubble",
+      state: props.homeMode === "chats" ? "on" : undefined,
+    },
+  ];
 
   if (activeDestination === null) {
     return null;
@@ -126,6 +147,41 @@ export function MobileBottomDock(props: { readonly pathname: string }) {
     }
   };
 
+  const renderItem = (item: (typeof ITEMS)[number]) => {
+    const dockItem = (onPress: () => void) => (
+      <MobileDockItem
+        active={activeDestination === item.destination}
+        icon={item.icon}
+        label={item.label}
+        onPress={onPress}
+      />
+    );
+
+    if (item.destination !== "chat" || activeDestination !== "chat") {
+      return (
+        <View key={item.destination} className="min-w-0 flex-1">
+          {dockItem(() => navigate(item.destination))}
+        </View>
+      );
+    }
+
+    return (
+      <AndroidAnchoredMenu
+        key={item.destination}
+        actions={homeModeActions}
+        className="min-w-0 flex-1"
+        onPressAction={(event) => {
+          const mode = event.nativeEvent.event;
+          if (mode === "projects" || mode === "chats") {
+            props.onHomeModeChange(mode);
+          }
+        }}
+      >
+        {(open) => dockItem(open)}
+      </AndroidAnchoredMenu>
+    );
+  };
+
   return (
     <View className="bg-screen px-3 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
       <View
@@ -139,15 +195,7 @@ export function MobileBottomDock(props: { readonly pathname: string }) {
           className="flex-row px-1.5 py-1"
           style={{ borderRadius: 28 }}
         >
-          {ITEMS.map((item) => (
-            <MobileDockItem
-              key={item.destination}
-              active={activeDestination === item.destination}
-              icon={item.icon}
-              label={item.label}
-              onPress={() => navigate(item.destination)}
-            />
-          ))}
+          {ITEMS.map(renderItem)}
         </GlassSurface>
       </Animated.View>
     </View>

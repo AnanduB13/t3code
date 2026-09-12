@@ -21,6 +21,7 @@ import {
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
 import type { HomeProjectSortOrder } from "./homeThreadList";
+import type { MobileHomeMode } from "../navigation/mobile-dock-navigation";
 import { WorkspaceConnectionTitle } from "./WorkspaceConnectionTitle";
 import {
   buildHomeListFilterMenu,
@@ -36,6 +37,7 @@ import {
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
 export function HomeHeader(props: {
+  readonly mode: MobileHomeMode;
   readonly environments: ReadonlyArray<HomeHeaderEnvironment>;
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly searchQuery: string;
@@ -94,7 +96,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
           })),
         ],
       },
-      ...(threadListV2Enabled
+      ...(threadListV2Enabled || props.mode === "chats"
         ? []
         : ([
             {
@@ -119,6 +121,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
     ],
     [
       props.environments,
+      props.mode,
       props.projectSortOrder,
       props.selectedEnvironmentId,
       props.threadSortOrder,
@@ -286,42 +289,54 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
           </View>
 
           <View className="min-h-12 flex-row gap-2.5">
-            <ControlPillMenu
-              actions={projectActions}
-              className="w-[42%]"
-              onPressAction={handleMenuAction}
-              renderLeadingAction={renderProjectFavicon}
-            >
-              <Pressable
-                accessibilityLabel={`Project: ${selectedProjectLabel}`}
-                accessibilityRole="button"
-                className="min-h-12 flex-row items-center gap-2 rounded-2xl border border-input-border bg-input px-3"
-              >
-                {selectedProject?.environmentId === undefined ? (
-                  <SymbolView name="folder" size={17} tintColor={mutedColor} type="monochrome" />
-                ) : (
-                  <ProjectFavicon
-                    environmentId={selectedProject.environmentId}
-                    faviconPath={selectedProject.faviconPath}
-                    projectTitle={selectedProject.label}
-                    size={18}
-                    workspaceRoot={selectedProject.workspaceRoot}
-                  />
-                )}
+            {props.mode === "chats" ? (
+              <View className="min-h-12 w-[42%] flex-row items-center gap-2 rounded-2xl border border-input-border bg-input px-3">
+                <SymbolView name="text.bubble" size={17} tintColor={mutedColor} type="monochrome" />
                 <RNText
                   numberOfLines={1}
                   className="min-w-0 flex-1 text-sm font-t3-medium text-foreground"
                 >
-                  {selectedProjectLabel}
+                  Chats
                 </RNText>
-                <SymbolView
-                  name="chevron.down"
-                  size={14}
-                  tintColor={mutedColor}
-                  type="monochrome"
-                />
-              </Pressable>
-            </ControlPillMenu>
+              </View>
+            ) : (
+              <ControlPillMenu
+                actions={projectActions}
+                className="w-[42%]"
+                onPressAction={handleMenuAction}
+                renderLeadingAction={renderProjectFavicon}
+              >
+                <Pressable
+                  accessibilityLabel={`Project: ${selectedProjectLabel}`}
+                  accessibilityRole="button"
+                  className="min-h-12 flex-row items-center gap-2 rounded-2xl border border-input-border bg-input px-3"
+                >
+                  {selectedProject?.environmentId === undefined ? (
+                    <SymbolView name="folder" size={17} tintColor={mutedColor} type="monochrome" />
+                  ) : (
+                    <ProjectFavicon
+                      environmentId={selectedProject.environmentId}
+                      faviconPath={selectedProject.faviconPath}
+                      projectTitle={selectedProject.label}
+                      size={18}
+                      workspaceRoot={selectedProject.workspaceRoot}
+                    />
+                  )}
+                  <RNText
+                    numberOfLines={1}
+                    className="min-w-0 flex-1 text-sm font-t3-medium text-foreground"
+                  >
+                    {selectedProjectLabel}
+                  </RNText>
+                  <SymbolView
+                    name="chevron.down"
+                    size={14}
+                    tintColor={mutedColor}
+                    type="monochrome"
+                  />
+                </Pressable>
+              </ControlPillMenu>
+            )}
 
             <View className="min-h-12 min-w-0 flex-1 flex-row items-center gap-2 rounded-2xl border border-input-border bg-input px-3">
               <SymbolView
@@ -527,7 +542,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
           </NativeHeaderToolbar.Menu>
           <NativeHeaderToolbar.Spacer flexible />
           <NativeHeaderToolbar.Button
-            accessibilityLabel="New task"
+            accessibilityLabel={props.mode === "chats" ? "New chat" : "New task"}
             icon="square.and.pencil"
             onPress={props.onStartNewTask}
             separateBackground

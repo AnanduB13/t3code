@@ -10,6 +10,7 @@ import { SymbolView } from "../../components/AppSymbol";
  */
 export function AndroidHomeFabLayout(props: {
   readonly onStartNewTask: () => void;
+  readonly accessibilityLabel?: string;
   readonly children: ReactNode;
 }) {
   if (Platform.OS !== "android") {
@@ -21,6 +22,7 @@ export function AndroidHomeFabLayout(props: {
 
 function AndroidHomeFab(props: {
   readonly onStartNewTask: () => void;
+  readonly accessibilityLabel?: string;
   readonly children: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -28,7 +30,7 @@ function AndroidHomeFab(props: {
     <View className="flex-1">
       {props.children}
       <Pressable
-        accessibilityLabel="New task"
+        accessibilityLabel={props.accessibilityLabel ?? "New task"}
         accessibilityRole="button"
         onPress={props.onStartNewTask}
         className="absolute right-5 size-14 items-center justify-center rounded-full bg-primary shadow-lg"

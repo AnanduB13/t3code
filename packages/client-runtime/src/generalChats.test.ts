@@ -5,6 +5,7 @@ import {
   excludeGeneralChatsProject,
   excludeGeneralChatsThreads,
   GENERAL_CHATS_PROJECT_ID,
+  isGeneralChatsProjectAlreadyExistsError,
   isGeneralChatsProject,
   isGeneralChatsProjectId,
 } from "./generalChats.ts";
@@ -24,5 +25,16 @@ describe("general chats identity", () => {
     expect(excludeGeneralChatsThreads(threads)).toEqual([
       { id: ThreadId.make("thread-1"), projectId: regularProjectId },
     ]);
+  });
+
+  it("recognizes only the duplicate general chats project invariant", () => {
+    expect(
+      isGeneralChatsProjectAlreadyExistsError({
+        _tag: "OrchestrationCommandInvariantError",
+        commandType: "project.create",
+        detail: `Project '${GENERAL_CHATS_PROJECT_ID}' already exists and cannot be created twice.`,
+      }),
+    ).toBe(true);
+    expect(isGeneralChatsProjectAlreadyExistsError(new Error("already exists"))).toBe(false);
   });
 });
