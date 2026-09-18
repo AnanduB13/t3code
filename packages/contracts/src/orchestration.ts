@@ -980,6 +980,7 @@ const ThreadQueueSteerCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  messageIds: Schema.optional(Schema.Array(MessageId)),
   createdAt: IsoDateTime,
 });
 

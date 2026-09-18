@@ -13,6 +13,10 @@ T3 Code works with the platforms your team already uses:
 
 ## What You Can Do
 
+In web and desktop threads, click an image in **changed files** to preview its current
+workspace contents. Click a text file to view its turn diff, or **Open diff** to view
+the full turn diff.
+
 ### Start Projects from Anywhere
 
 **Clone repositories directly**

@@ -40,7 +40,7 @@ describe("QueuedMessageChips", () => {
       markup.indexOf("Then update the docs"),
     );
     expect(markup).toContain('aria-label="Steer queued prompt 1"');
-    expect(markup).toContain('aria-label="Steer queued prompts 1 through 2"');
+    expect(markup).toContain('aria-label="Steer queued prompt 2"');
     expect(markup.match(/aria-label="Reorder queued prompt/g)).toHaveLength(2);
     expect(markup.match(/aria-label="Edit queued message"/g)).toHaveLength(2);
     expect(markup.match(/aria-label="Remove queued message"/g)).toHaveLength(2);

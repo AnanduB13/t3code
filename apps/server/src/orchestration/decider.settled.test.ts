@@ -185,7 +185,7 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
-  it.effect("settling a pinned and snoozed thread clears the pin and snooze", () =>
+  it.effect("settling a pinned and snoozed thread preserves the pin and clears snooze", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({
         command: {
@@ -199,11 +199,7 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
         }),
       });
       const events = Array.isArray(result) ? result : [result];
-      expect(events.map((entry) => entry.type)).toEqual([
-        "thread.settled",
-        "thread.unpinned",
-        "thread.unsnoozed",
-      ]);
+      expect(events.map((entry) => entry.type)).toEqual(["thread.settled", "thread.unsnoozed"]);
     }),
   );
 

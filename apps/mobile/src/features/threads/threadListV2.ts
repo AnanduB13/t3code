@@ -436,10 +436,10 @@ export function buildThreadListV2Items(input: {
       }
       continue;
     }
-    if (supportsSettlement && thread.settledOverride === "settled") {
-      settled.push(thread);
-    } else if (thread.pinnedAt != null) {
+    if (thread.pinnedAt != null) {
       pinned.push(thread);
+    } else if (supportsSettlement && thread.settledOverride === "settled") {
+      settled.push(thread);
     } else {
       active.push(thread);
     }

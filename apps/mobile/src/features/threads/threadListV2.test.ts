@@ -356,7 +356,7 @@ describe("buildThreadListV2Items", () => {
     expect(layout.snoozedCount).toBe(1);
   });
 
-  it("places settled pinned threads in the settled shelf", () => {
+  it("keeps settled pinned threads in the pinned block", () => {
     const layout = buildThreadListV2Items({
       threads: [
         makeThread({ id: ThreadId.make("active"), title: "Active" }),
@@ -373,9 +373,23 @@ describe("buildThreadListV2Items", () => {
       now: NOW,
     });
 
-    expect(layout.items.map((item) => item.thread.id)).toEqual(["active", "pinned-settled"]);
-    expect(layout.items.map((item) => item.pinned)).toEqual([false, false]);
-    expect(layout.settledCount).toBe(1);
+    expect(layout.items.map((item) => item.thread.id)).toEqual(["pinned-settled", "active"]);
+    expect(layout.items.map((item) => item.pinned)).toEqual([true, false]);
+    expect(layout.items[0]?.thread.settledOverride).toBe("settled");
+    expect(layout.settledCount).toBe(0);
+
+    const unpinnedLayout = buildThreadListV2Items({
+      threads: layout.items.map(({ thread }) => ({ ...thread, pinnedAt: null })),
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(unpinnedLayout.items.map((item) => item.thread.id)).toEqual([
+      "active",
+      "pinned-settled",
+    ]);
+    expect(unpinnedLayout.items.map((item) => item.pinned)).toEqual([false, false]);
+    expect(unpinnedLayout.settledCount).toBe(1);
   });
 
   it("keeps active pinned threads in the pinned block", () => {

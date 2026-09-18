@@ -128,7 +128,10 @@ export interface ThreadDetailScreenProps {
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onSteerQueuedMessage: (messageId: MessageId) => Promise<void>;
+  readonly onSteerQueuedMessage: (
+    messageId: MessageId,
+    messageIds?: ReadonlyArray<MessageId>,
+  ) => Promise<void>;
   readonly onRemoveQueuedMessage: (messageId: MessageId) => Promise<void>;
   readonly onSendMessage: () => Promise<MessageId | null>;
   readonly onReconnectEnvironment: () => void;

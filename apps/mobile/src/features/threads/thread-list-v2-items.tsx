@@ -466,8 +466,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     [snoozePresets],
   );
   // Pinned cards keep the full lifecycle menu; only the pin item flips to
-  // Unpin. (Settling a pinned thread clears the pin server-side; snoozing
-  // hides the card until wake with the pin intact.)
+  // Unpin. Settling preserves the pin; snoozing hides the card until wake.
   const pinMenuItem = useMemo<MenuAction[]>(
     () =>
       props.pinningSupported

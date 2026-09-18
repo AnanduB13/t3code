@@ -29,12 +29,13 @@ import {
 } from "lucide-react";
 import type { MessageId, OrchestrationQueuedMessage } from "@t3tools/contracts";
 
+import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /**
  * Queued follow-up messages held server-side while a turn runs. Each chip
- * offers Steer (send the selected prefix at the provider's next accepted
+ * offers Steer (send explicitly selected prompts at the provider's next accepted
  * boundary) and delete; the queue otherwise drains in order after completion.
  */
 export const QueuedMessageChips = memo(function QueuedMessageChips({
@@ -49,11 +50,15 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   readonly queuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
   readonly attachmentUrlById?: ReadonlyMap<string, string>;
   readonly steerDisabled?: boolean;
-  readonly onSteer: (messageId: MessageId) => void;
+  readonly onSteer: (messageId: MessageId, messageIds?: ReadonlyArray<MessageId>) => void;
   readonly onRemove: (messageId: MessageId) => void;
   readonly onUpdate: (messageId: MessageId, text: string) => void;
   readonly onReorder: (messageIds: ReadonlyArray<MessageId>) => void;
 }) {
+  const [steerSelection, setSteerSelection] = useState<ReadonlyArray<MessageId> | null>(null);
+  const selectedMessages = queuedMessages.filter((message) =>
+    steerSelection?.includes(message.messageId),
+  );
   const [editingId, setEditingId] = useState<MessageId | null>(null);
   const [draftText, setDraftText] = useState("");
   const sensors = useSensors(
@@ -234,12 +239,11 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                               size="xs"
                               variant="ghost"
                               disabled={steerDisabled}
-                              aria-label={
-                                index === 0
-                                  ? "Steer queued prompt 1"
-                                  : `Steer queued prompts 1 through ${index + 1}`
-                              }
-                              onClick={() => onSteer(queuedMessage.messageId)}
+                              aria-label={`Steer queued prompt ${index + 1}`}
+                              onClick={() => {
+                                if (queuedMessages.length === 1) onSteer(queuedMessage.messageId);
+                                else setSteerSelection([queuedMessage.messageId]);
+                              }}
                             />
                           }
                         >
@@ -252,9 +256,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                         >
                           {steerDisabled
                             ? "Waiting for the agent to start"
-                            : index === 0
-                              ? "Send this prompt after the current provider step"
-                              : `Send prompts 1–${index + 1} in order after the current provider step`}
+                            : "Send this prompt into the active turn"}
                         </TooltipPopup>
                       </Tooltip>
                       <Tooltip>
@@ -280,6 +282,64 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
           </ol>
         </SortableContext>
       </DndContext>
+      <Dialog
+        open={steerSelection !== null}
+        onOpenChange={(open) => {
+          if (!open) setSteerSelection(null);
+        }}
+      >
+        <DialogPopup className="p-4">
+          <DialogTitle>Choose prompts to steer</DialogTitle>
+          <DialogDescription>
+            Selected prompts are sent in queue order. Unselected prompts stay queued.
+          </DialogDescription>
+          <div className="my-4 max-h-64 space-y-2 overflow-y-auto">
+            {queuedMessages.map((message, index) => (
+              <label
+                key={message.messageId}
+                className="flex items-start gap-3 rounded-md border border-border p-3 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1 shrink-0"
+                  checked={steerSelection?.includes(message.messageId) ?? false}
+                  onChange={(event) =>
+                    setSteerSelection((current) =>
+                      event.target.checked
+                        ? [...(current ?? []), message.messageId]
+                        : (current ?? []).filter((id) => id !== message.messageId),
+                    )
+                  }
+                />
+                <span className="min-w-0 whitespace-pre-wrap break-words">
+                  {index + 1}.{" "}
+                  {message.text ||
+                    message.attachments.map((attachment) => attachment.name).join(", ")}
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setSteerSelection(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={steerDisabled || selectedMessages.length === 0}
+              onClick={() => {
+                const target = selectedMessages.at(-1);
+                if (!target) return;
+                onSteer(
+                  target.messageId,
+                  selectedMessages.map((message) => message.messageId),
+                );
+                setSteerSelection(null);
+              }}
+            >
+              Steer selected ({selectedMessages.length})
+            </Button>
+          </div>
+        </DialogPopup>
+      </Dialog>
     </section>
   );
 });

@@ -265,11 +265,11 @@ function ThreadRouteContent(
     () => (props.renderInspector ? { routeThreadIdentity, mode: "route" } : null),
   );
   const handleSteerQueuedMessage = useCallback(
-    async (messageId: MessageId) => {
+    async (messageId: MessageId, messageIds?: ReadonlyArray<MessageId>) => {
       if (!selectedThread) return;
       const result = await steerQueuedMessage({
         environmentId: selectedThread.environmentId,
-        input: { threadId: selectedThread.id, messageId },
+        input: { threadId: selectedThread.id, messageId, ...(messageIds ? { messageIds } : {}) },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);

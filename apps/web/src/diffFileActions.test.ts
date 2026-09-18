@@ -1,14 +1,70 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { openDiffFilePrimaryAction, resolveDiffPathForWorkspace } from "./diffFileActions";
+import {
+  openDiffFilePrimaryAction,
+  openTurnDiffAction,
+  resolveDiffPathForWorkspace,
+} from "./diffFileActions";
+import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
 import { selectThreadRightPanelState, useRightPanelStore } from "./rightPanelStore";
 
 const THREAD_REF = scopeThreadRef(
   EnvironmentId.make("environment-local"),
   ThreadId.make("thread-1"),
 );
+
+describe("openTurnDiffAction", () => {
+  const turnId = TurnId.make("turn-1");
+  const input = {
+    threadRef: THREAD_REF,
+    turnId,
+    workspaceRoot: "/repo/frontend",
+    repositoryRoot: "/repo",
+  };
+
+  beforeEach(() => {
+    useRightPanelStore.setState({ byThreadKey: {} });
+    useDiffPanelStore.setState({ byThreadKey: {} });
+  });
+
+  it.each(["features-coral-live.png", "screenshot.PNG", "diagram.svg"])(
+    "replaces a previously opened file with the clicked image: %s",
+    (name) => {
+      useRightPanelStore.getState().openFile(THREAD_REF, "other.ts");
+      openTurnDiffAction({ ...input, filePath: `frontend/output/${name}` });
+
+      expect(
+        selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+      ).toMatchObject({ isOpen: true, activeSurfaceId: `file:output/${name}` });
+    },
+  );
+
+  it("can return from an image preview to a selected text diff", () => {
+    openTurnDiffAction({ ...input, filePath: "frontend/output/image.png" });
+    openTurnDiffAction({ ...input, filePath: "frontend/app.ts" });
+
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({ isOpen: true, activeSurfaceId: "diff" });
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({ kind: "turn", turnId, filePath: "frontend/app.ts" });
+  });
+
+  it("opens the full turn diff without a file selection", () => {
+    openTurnDiffAction({ ...input, filePath: "frontend/output/image.png" });
+    openTurnDiffAction(input);
+
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({ isOpen: true, activeSurfaceId: "diff" });
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({ kind: "turn", turnId, filePath: null });
+  });
+});
 
 describe("openDiffFilePrimaryAction", () => {
   beforeEach(() => {

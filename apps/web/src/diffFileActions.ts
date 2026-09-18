@@ -1,7 +1,9 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { isWindowsAbsolutePath, normalizeProjectPathForComparison } from "@t3tools/shared/path";
 
 import { useRightPanelStore } from "./rightPanelStore";
+import { useDiffPanelStore } from "./diffPanelStore";
 import { resolvePathLinkTarget } from "./terminal-links";
 
 interface OpenDiffFilePrimaryActionInput {
@@ -10,6 +12,30 @@ interface OpenDiffFilePrimaryActionInput {
   readonly activeCwd: string | undefined;
   readonly repositoryRoot?: string | undefined;
   readonly openInEditor: (targetPath: string) => void;
+}
+
+/** Routes changed images to the file preview and other selections to the turn diff. */
+export function openTurnDiffAction(input: {
+  readonly threadRef: ScopedThreadRef;
+  readonly turnId: TurnId;
+  readonly filePath?: string;
+  readonly workspaceRoot: string | undefined;
+  readonly repositoryRoot: string | undefined;
+}): void {
+  if (input.filePath && isWorkspaceImagePreviewPath(input.filePath)) {
+    const workspacePath = resolveDiffPathForWorkspace({
+      filePath: input.filePath,
+      workspaceRoot: input.workspaceRoot,
+      repositoryRoot: input.repositoryRoot,
+    });
+    if (workspacePath) {
+      useRightPanelStore.getState().openFile(input.threadRef, workspacePath);
+    }
+    return;
+  }
+
+  useDiffPanelStore.getState().selectTurn(input.threadRef, input.turnId, input.filePath);
+  useRightPanelStore.getState().open(input.threadRef, "diff");
 }
 
 function normalizedRelativePathSegments(filePath: string): ReadonlyArray<string> | null {

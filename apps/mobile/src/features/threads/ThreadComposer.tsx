@@ -143,7 +143,10 @@ export interface ThreadComposerProps {
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onSteerQueuedMessage: (messageId: MessageId) => Promise<void>;
+  readonly onSteerQueuedMessage: (
+    messageId: MessageId,
+    messageIds?: ReadonlyArray<MessageId>,
+  ) => Promise<void>;
   readonly onRemoveQueuedMessage: (messageId: MessageId) => Promise<void>;
   readonly onSendMessage: () => Promise<MessageId | null>;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
@@ -243,9 +246,13 @@ const ProviderUsagePill = memo(function ProviderUsagePill(props: {
 
 const QueuedPromptStack = memo(function QueuedPromptStack(props: {
   readonly messages: ReadonlyArray<OrchestrationQueuedMessage>;
-  readonly onSteer: (messageId: MessageId) => Promise<void>;
+  readonly onSteer: (messageId: MessageId, messageIds?: ReadonlyArray<MessageId>) => Promise<void>;
   readonly onRemove: (messageId: MessageId) => Promise<void>;
 }) {
+  const [steerSelection, setSteerSelection] = useState<ReadonlyArray<MessageId> | null>(null);
+  const selectedMessages = props.messages.filter((message) =>
+    steerSelection?.includes(message.messageId),
+  );
   const [busyMessageId, setBusyMessageId] = useState<MessageId | null>(null);
 
   const runAction = useCallback(
@@ -274,6 +281,14 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
         fallbackClassName="border border-border bg-card-translucent"
         style={{ borderRadius: 20 }}
       >
+        {steerSelection !== null ? (
+          <View className="gap-1 px-3 pt-3">
+            <Text className="text-sm font-t3-bold text-foreground">Choose prompts to steer</Text>
+            <Text className="text-xs text-foreground-muted">
+              Selected prompts are sent in queue order. Unselected prompts stay queued.
+            </Text>
+          </View>
+        ) : null}
         <ScrollView
           accessibilityLabel={`${props.messages.length} queued prompt${props.messages.length === 1 ? "" : "s"}`}
           bounces={false}
@@ -296,6 +311,26 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
                 exiting={FadeOut.duration(100).reduceMotion(ReduceMotion.System)}
                 className={`min-h-12 flex-row items-center gap-2 px-3 py-2 ${index > 0 ? "border-t border-border" : ""}`}
               >
+                {steerSelection !== null ? (
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={`Select queued prompt ${index + 1}: ${promptLabel}`}
+                    accessibilityState={{ checked: steerSelection.includes(message.messageId) }}
+                    disabled={busyMessageId !== null}
+                    onPress={() =>
+                      setSteerSelection((current) =>
+                        current?.includes(message.messageId)
+                          ? current.filter((id) => id !== message.messageId)
+                          : [...(current ?? []), message.messageId],
+                      )
+                    }
+                    className="size-10 items-center justify-center rounded-md bg-subtle"
+                  >
+                    <Text className="text-lg text-foreground">
+                      {steerSelection.includes(message.messageId) ? "☑" : "☐"}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <View className="size-6 shrink-0 items-center justify-center rounded-full bg-subtle">
                   <Text className="text-2xs font-t3-bold text-foreground-muted">{index + 1}</Text>
                 </View>
@@ -309,24 +344,30 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
                     </Text>
                   ) : null}
                 </View>
-                <Pressable
-                  accessibilityLabel={`Steer queued prompt ${index + 1}`}
-                  accessibilityRole="button"
-                  disabled={isBusy}
-                  onPress={() => void runAction(message.messageId, props.onSteer)}
-                  className="h-8 flex-row items-center gap-1 rounded-full bg-subtle px-2.5 active:opacity-65 disabled:opacity-40"
-                >
-                  <SymbolView
-                    name="arrow.turn.left.up"
-                    size={13}
-                    tintColorClassName="accent-foreground-muted"
-                  />
-                  <Text className="text-xs font-t3-bold text-foreground-muted">Steer</Text>
-                </Pressable>
+                {steerSelection === null ? (
+                  <Pressable
+                    accessibilityLabel={`Steer queued prompt ${index + 1}`}
+                    accessibilityRole="button"
+                    disabled={busyMessageId !== null}
+                    onPress={() => {
+                      if (props.messages.length === 1)
+                        void runAction(message.messageId, props.onSteer);
+                      else setSteerSelection([message.messageId]);
+                    }}
+                    className="h-8 flex-row items-center gap-1 rounded-full bg-subtle px-2.5 active:opacity-65 disabled:opacity-40"
+                  >
+                    <SymbolView
+                      name="arrow.turn.left.up"
+                      size={13}
+                      tintColorClassName="accent-foreground-muted"
+                    />
+                    <Text className="text-xs font-t3-bold text-foreground-muted">Steer</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   accessibilityLabel={`Remove queued prompt ${index + 1}`}
                   accessibilityRole="button"
-                  disabled={isBusy}
+                  disabled={busyMessageId !== null}
                   onPress={() => void runAction(message.messageId, props.onRemove)}
                   className="size-8 items-center justify-center rounded-full active:bg-subtle active:opacity-65 disabled:opacity-40"
                 >
@@ -344,6 +385,38 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
             );
           })}
         </ScrollView>
+        {steerSelection !== null ? (
+          <View className="flex-row justify-end gap-3 px-3 py-2">
+            <Pressable
+              accessibilityRole="button"
+              disabled={busyMessageId !== null}
+              onPress={() => setSteerSelection(null)}
+              className="p-2"
+            >
+              <Text className="text-sm text-foreground-muted">Cancel</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busyMessageId !== null || selectedMessages.length === 0}
+              className="rounded-full bg-subtle p-2 disabled:opacity-40"
+              onPress={() => {
+                const target = selectedMessages.at(-1);
+                if (!target) return;
+                void runAction(target.messageId, async (messageId) => {
+                  await props.onSteer(
+                    messageId,
+                    selectedMessages.map((message) => message.messageId),
+                  );
+                  setSteerSelection(null);
+                });
+              }}
+            >
+              <Text className="text-sm font-t3-bold text-foreground">
+                Steer selected ({selectedMessages.length})
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
         <View className="h-3" />
       </GlassSurface>
     </Animated.View>

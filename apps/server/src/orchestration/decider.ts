@@ -190,13 +190,13 @@ const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(functio
   if (text.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
     return yield* new OrchestrationCommandInvariantError({
       commandType: input.commandType,
-      detail: `Queued prompts through '${queuedMessage.messageId}' exceed the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS}-character steer limit.`,
+      detail: `Selected queued prompts exceed the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS}-character steer limit.`,
     });
   }
   if (attachments.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
     return yield* new OrchestrationCommandInvariantError({
       commandType: input.commandType,
-      detail: `Queued prompts through '${queuedMessage.messageId}' exceed the ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS}-attachment steer limit.`,
+      detail: `Selected queued prompts exceed the ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS}-attachment steer limit.`,
     });
   }
 
@@ -587,24 +587,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: alreadySettled ? thread.updatedAt : occurredAt,
         },
       };
-      // Settling is "I'm done with this": clear states that would keep the
-      // row pinned or snoozed instead of showing the new settled state.
+      // Settlement preserves pinning; clear snooze so the settled thread is visible.
       const companionEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      if (thread.pinnedAt != null) {
-        companionEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.unpinned" as const,
-          payload: {
-            threadId: command.threadId,
-            updatedAt: occurredAt,
-          },
-        });
-      }
       if (thread.snoozedUntil != null) {
         companionEvents.push({
           ...(yield* withEventBase({
@@ -1167,13 +1151,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     case "thread.queue.steer": {
       const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
       const queuedMessages = queuedMessagesForThread(thread);
-      const messageIndex = queuedMessages.findIndex(
-        (message) => message.messageId === command.messageId,
+      const messageIds = command.messageIds ?? [command.messageId];
+      const selectedIds = new Set(messageIds);
+      const selectedMessages = queuedMessages.filter((message) =>
+        selectedIds.has(message.messageId),
       );
-      if (messageIndex < 0) {
+      const queuedIds = new Set(queuedMessages.map((message) => message.messageId));
+      const missingMessageId = [command.messageId, ...messageIds].find((id) => !queuedIds.has(id));
+      if (missingMessageId !== undefined) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Queued message '${command.messageId}' does not exist on thread '${command.threadId}'.`,
+          detail: `Queued message '${missingMessageId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      if (
+        messageIds.length === 0 ||
+        selectedIds.size !== messageIds.length ||
+        !selectedIds.has(command.messageId)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Select existing queued prompts without duplicates, including the target prompt.",
         });
       }
       const racesPendingStart =
@@ -1189,7 +1187,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         commandId: command.commandId,
         readModel,
         thread,
-        queuedMessages: queuedMessages.slice(0, messageIndex + 1),
+        queuedMessages: selectedMessages,
         commandType: command.type,
         occurredAt: command.createdAt,
       });

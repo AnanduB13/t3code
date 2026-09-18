@@ -2380,10 +2380,10 @@ export default function Sidebar() {
       // Snooze outranks settlement and pinning until the thread wakes.
       if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) {
         snoozed.push(thread);
-      } else if (supportsSettlement && thread.settledOverride === "settled") {
-        settled.push(thread);
       } else if (thread.pinnedAt != null) {
         pinned.push(thread);
+      } else if (supportsSettlement && thread.settledOverride === "settled") {
+        settled.push(thread);
       } else {
         active.push(thread);
       }

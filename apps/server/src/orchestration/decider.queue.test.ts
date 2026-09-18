@@ -398,43 +398,117 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
     }),
   );
 
-  it.effect("steer preserves every earlier queued prompt in order", () =>
+  it.effect(
+    "steer sends only the selected prompt and leaves earlier and later prompts queued",
+    () =>
+      Effect.gen(function* () {
+        let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+        for (const suffix of ["first", "second", "later"]) {
+          readModel = yield* applyPlanned(
+            readModel,
+            yield* decideOrchestrationCommand({ command: turnStartCommand(suffix), readModel }),
+          );
+        }
+
+        const planned = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.queue.steer",
+            commandId: asCommandId("cmd-steer-second"),
+            threadId: THREAD_ID,
+            messageId: asMessageId("message-second"),
+            createdAt: NOW,
+          },
+          readModel,
+        });
+        const events = Array.isArray(planned) ? planned : [planned];
+        expect(events.map((event) => event.type)).toEqual([
+          "thread.queued-message-removed",
+          "thread.message-sent",
+          "thread.turn-start-requested",
+        ]);
+
+        const projected = yield* applyPlanned(readModel, planned);
+        const thread = projected.threads.find((entry) => entry.id === THREAD_ID);
+        expect(thread?.queuedMessages.map((entry) => entry.messageId)).toEqual([
+          asMessageId("message-first"),
+          asMessageId("message-later"),
+        ]);
+        expect(
+          thread?.messages.find((entry) => entry.id === asMessageId("message-second"))?.text,
+        ).toBe("Follow up second");
+      }),
+  );
+
+  it.effect("steer combines only explicit selections in queue order", () =>
     Effect.gen(function* () {
       let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
       for (const suffix of ["first", "second", "later"]) {
         readModel = yield* applyPlanned(
           readModel,
-          yield* decideOrchestrationCommand({ command: turnStartCommand(suffix), readModel }),
+          yield* decideOrchestrationCommand({
+            command: turnStartCommand(suffix),
+            readModel,
+          }),
         );
       }
-
-      const planned = yield* decideOrchestrationCommand({
-        command: {
-          type: "thread.queue.steer",
-          commandId: asCommandId("cmd-steer-second"),
-          threadId: THREAD_ID,
-          messageId: asMessageId("message-second"),
-          createdAt: NOW,
-        },
-        readModel,
+      const command = yield* decodeClientCommand({
+        type: "thread.queue.steer",
+        commandId: asCommandId("cmd-select"),
+        threadId: THREAD_ID,
+        messageId: asMessageId("message-later"),
+        messageIds: [asMessageId("message-later"), asMessageId("message-first")],
+        createdAt: NOW,
       });
-      const events = Array.isArray(planned) ? planned : [planned];
-      expect(events.map((event) => event.type)).toEqual([
-        "thread.queued-message-removed",
-        "thread.queued-message-removed",
-        "thread.message-sent",
-        "thread.turn-start-requested",
-      ]);
-
-      const projected = yield* applyPlanned(readModel, planned);
+      if (command.type !== "thread.queue.steer") throw new Error("Expected steer command");
+      const projected = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({ command, readModel }),
+      );
       const thread = projected.threads.find((entry) => entry.id === THREAD_ID);
       expect(thread?.queuedMessages.map((entry) => entry.messageId)).toEqual([
-        asMessageId("message-later"),
+        asMessageId("message-second"),
       ]);
       expect(
-        thread?.messages.find((entry) => entry.id === asMessageId("message-second"))?.text,
-      ).toBe("Follow up first\n\nFollow up second");
+        thread?.messages.find((entry) => entry.id === asMessageId("message-later"))?.text,
+      ).toBe("Follow up first\n\nFollow up later");
     }),
+  );
+
+  it.effect(
+    "steer rejects empty, duplicate, missing, or inconsistent selections without consuming the queue",
+    () =>
+      Effect.gen(function* () {
+        let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({
+            command: turnStartCommand("first"),
+            readModel,
+          }),
+        );
+        for (const ids of [
+          [],
+          ["message-first", "message-first"],
+          ["message-first", "missing"],
+          ["missing"],
+        ]) {
+          const result = yield* decideOrchestrationCommand({
+            command: {
+              type: "thread.queue.steer",
+              commandId: asCommandId("cmd-invalid-selection"),
+              threadId: THREAD_ID,
+              messageId: asMessageId("message-first"),
+              messageIds: ids.map(asMessageId),
+              createdAt: NOW,
+            },
+            readModel,
+          }).pipe(Effect.flip);
+          expect(result._tag).toBe("OrchestrationCommandInvariantError");
+        }
+        expect(
+          readModel.threads.find((entry) => entry.id === THREAD_ID)?.queuedMessages,
+        ).toHaveLength(1);
+      }),
   );
 
   it.effect("steer rejects while the session is still starting", () =>

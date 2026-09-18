@@ -86,7 +86,7 @@ import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { useDiffPanelStore } from "../diffPanelStore";
+import { openTurnDiffAction } from "../diffFileActions";
 import {
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
@@ -6506,11 +6506,11 @@ function ChatViewContent(props: ChatViewProps) {
   };
 
   const onSteerQueuedMessage = useCallback(
-    async (messageId: MessageId) => {
+    async (messageId: MessageId, messageIds?: ReadonlyArray<MessageId>) => {
       if (!activeThread) return;
       const result = await steerQueuedMessage({
         environmentId,
-        input: { threadId: activeThread.id, messageId },
+        input: { threadId: activeThread.id, messageId, ...(messageIds ? { messageIds } : {}) },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
@@ -7209,11 +7209,18 @@ function ChatViewContent(props: ChatViewProps) {
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
-      useDiffPanelStore.getState().selectTurn(activeThreadRef, turnId, filePath);
-      useRightPanelStore.getState().open(activeThreadRef, "diff");
+      openTurnDiffAction({
+        threadRef: activeThreadRef,
+        turnId,
+        ...(filePath ? { filePath } : {}),
+        workspaceRoot: activeThread?.worktreePath ?? activeProject?.workspaceRoot,
+        repositoryRoot: activeThread?.worktreePath
+          ? undefined
+          : activeProject?.repositoryIdentity?.rootPath,
+      });
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, isServerThread, onDiffPanelOpen],
+    [activeThreadRef, activeThread?.worktreePath, activeProject, isServerThread, onDiffPanelOpen],
   );
   // Both the Map and the revert handler are read from refs at call-time so
   // the callback reference is fully stable and never busts context identity.

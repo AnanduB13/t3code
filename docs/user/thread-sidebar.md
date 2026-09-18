@@ -11,14 +11,17 @@ completions can still appear as unread. Reading a chat does not change its sort 
 status. Update the server and clients to use shared read status.
 
 Pin a thread from its context menu to keep it in the pinned section above your active work.
+Settling a pinned thread, including automatically after a pull request merges, keeps it in the
+pinned section. Unpinning a settled thread moves it to the settled section.
 `mod+shift+p` pins or unpins the thread you have open. Pinned threads are shown independently of
 their project, including when you connect to more than one environment.
 
 To require confirmation before unpinning, enable **Settings → General → Unpin confirmation**. The
 confirmation applies to the sidebar controls, thread menus, and the `mod+shift+p` shortcut.
 
-Pinned threads still move to **Settled** when they become inactive. They also move when their pull
-request merges if **Auto-settle merged threads** is enabled.
+Pinned threads can still settle when they become inactive or when their pull request merges if
+**Auto-settle merged threads** is enabled. They remain in the pinned section with their pin order
+preserved.
 
 Each server stores its own copy of the automatic settlement settings and checks them even when no
 web, desktop, or mobile client is connected. By default, it settles threads after three days without
