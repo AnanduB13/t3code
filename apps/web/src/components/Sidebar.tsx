@@ -3383,6 +3383,7 @@ export default function Sidebar() {
           api.contextMenu.show(
             buildThreadActionMenuItems({
               branch: thread.branch ?? null,
+              hasLinkedPullRequest: thread.linkedPullRequest != null,
               isPinned,
               isSettled,
               isSnoozed,
@@ -3410,6 +3411,23 @@ export default function Sidebar() {
           return;
         }
         switch (clicked.value) {
+          case "unlink-pull-request": {
+            const result = await updateThreadMetadata({
+              environmentId: threadRef.environmentId,
+              input: { threadId: threadRef.threadId, linkedPullRequest: null },
+            });
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Failed to unlink pull request",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+            return;
+          }
           case "project-settings": {
             const projectGroup = projectGroupsRef.current.find((group) =>
               group.memberProjectRefs.some(

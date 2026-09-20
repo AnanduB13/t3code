@@ -19,6 +19,7 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "unlink-pull-request"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -28,6 +29,7 @@ export type ThreadActionMenuId =
 
 export interface ThreadActionMenuState {
   readonly branch: string | null;
+  readonly hasLinkedPullRequest: boolean;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly isSnoozed: boolean;
@@ -107,6 +109,9 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.hasLinkedPullRequest
+      ? [{ id: "unlink-pull-request" as const, label: "Unlink pull request" }]
+      : []),
     {
       id: "copy",
       label: "Copy",

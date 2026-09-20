@@ -13,6 +13,24 @@ describe("buildRuntimeInstructions", () => {
     },
   );
 
+  it.each(["Claude Code", "Cursor", "Grok", "OpenCode", "Antigravity"])(
+    "gives %s a research workflow only when browser tools are attached",
+    (harness) => {
+      const enabled = buildRuntimeInstructions({ harness, browserToolsAvailable: true });
+      expect(enabled).toContain("preview_status");
+      expect(enabled).toContain("preview_open");
+      expect(enabled).toContain("inspect their destination pages");
+      expect(enabled).toContain("shopping comparisons (including Amazon)");
+      for (const browserToolsAvailable of [false, undefined]) {
+        const disabled = buildRuntimeInstructions({ harness, browserToolsAvailable });
+        expect(disabled).not.toContain("preview_");
+        expect(disabled).not.toContain("Do not switch to global browser skills");
+        expect(disabled).toContain("A search URL alone does not complete");
+        expect(disabled).toContain("If no research tools are available, say so");
+      }
+    },
+  );
+
   it("keeps known model and effort metadata on one line", () => {
     expect(
       buildRuntimeInstructions({

@@ -54,6 +54,43 @@ const DAEMON_POLL_MS = 100;
 const HUB_RESTART_STABLE_UPTIME_MS = 60_000;
 const HUB_RESTART_MAX_DELAY_MS = 30_000;
 
+/** Activate an existing KVM membership when the server predates the group change. */
+const hubLaunchCommand = Effect.fn("LocalDeviceHost.hubLaunchCommand")(function* (
+  executable: string,
+  args: ReadonlyArray<string>,
+) {
+  const platform = yield* HostProcessPlatform;
+  const launchArgs =
+    platform === "linux" || platform === "win32" ? [...args, "--platform", "android"] : [...args];
+  const direct = { command: executable, args: launchArgs };
+  if (platform !== "linux") return direct;
+  const fs = yield* FileSystem.FileSystem;
+  if (!(yield* fs.exists("/dev/kvm").pipe(Effect.orElseSucceed(() => false)))) return direct;
+  const accessible = yield* fs.access("/dev/kvm", { readable: true, writable: true }).pipe(
+    Effect.map(() => true),
+    Effect.orElseSucceed(() => false),
+  );
+  if (accessible) return direct;
+  const runner = yield* ProcessRunner.ProcessRunner;
+  const usable = yield* runner
+    .run({
+      command: "sg",
+      args: ["kvm", "-c", "test -r /dev/kvm && test -w /dev/kvm"],
+      stdin: "",
+      timeout: Duration.seconds(3),
+    })
+    .pipe(
+      Effect.map((result) => result.code === 0),
+      Effect.orElseSucceed(() => false),
+    );
+  if (!usable) return direct;
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  return {
+    command: "sg",
+    args: ["kvm", "-c", `exec ${[executable, ...launchArgs].map(quote).join(" ")}`],
+  };
+});
+
 /**
  * Written beside the agent-device state so a server that dies without running
  * its finalizers (SIGKILL, dev-runner restarts) does not leave a hub bound to
@@ -319,27 +356,27 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
     );
     const origin = `http://127.0.0.1:${port}`;
     const scope = yield* Scope.make("sequential");
+    const launch = yield* hubLaunchCommand(process.execPath, [
+      hubTool.entryPath,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--hide-sidebar",
+      "--hide-boot-device",
+    ]).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(ProcessRunner.ProcessRunner, runner),
+    );
     const child = yield* spawner
       .spawn(
-        ChildProcess.make(
-          process.execPath,
-          [
-            hubTool.entryPath,
-            "--port",
-            String(port),
-            "--host",
-            "127.0.0.1",
-            "--hide-sidebar",
-            "--hide-boot-device",
-          ],
-          {
-            detached: false,
-            shell: false,
-            stdout: "pipe",
-            stderr: "pipe",
-            env: hubEnvironment(),
-          },
-        ),
+        ChildProcess.make(launch.command, launch.args, {
+          detached: false,
+          shell: false,
+          stdout: "pipe",
+          stderr: "pipe",
+          env: hubEnvironment(),
+        }),
       )
       .pipe(
         Effect.provideService(Scope.Scope, scope),
@@ -695,4 +732,5 @@ export const __testing = {
   androidSdk,
   platformReason,
   deviceHostEnvironment,
+  hubLaunchCommand,
 };

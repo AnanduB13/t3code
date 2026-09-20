@@ -13,6 +13,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ApprovalRequestId,
+  EnvironmentId,
   ClaudeSettings,
   ProviderDriverKind,
   ProviderItemId,
@@ -32,6 +33,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -345,6 +348,41 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  for (const [label, capabilities, expected] of [
+    ["preview", new Set(["preview"]), true],
+    ["device-only", new Set(["device"]), false],
+    ["legacy", undefined, true],
+  ] as const) {
+    it.effect(`includes browser research guidance for ${label} MCP sessions: ${expected}`, () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        McpProviderSession.setMcpProviderSession({
+          environmentId: EnvironmentId.make("browser-test"),
+          threadId: THREAD_ID,
+          providerSessionId: "browser-test",
+          providerInstanceId: ProviderInstanceId.make("claude"),
+          endpoint: "http://localhost:9999/mcp",
+          authorizationHeader: "Bearer test",
+          ...(capabilities ? { capabilities } : {}),
+        });
+        const adapter = yield* ClaudeAdapter;
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+        });
+        const prompt = harness.getLastCreateQueryInput()?.options.systemPrompt;
+        assert.ok(prompt && typeof prompt !== "string" && !Array.isArray(prompt));
+        assert.equal(prompt.append?.includes("preview_open"), expected);
+        assert.ok(prompt.append?.includes("A search URL alone does not complete"));
+      }).pipe(
+        Effect.ensuring(Effect.sync(() => McpProviderSession.clearMcpProviderSession(THREAD_ID))),
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+  }
+
   it.effect("derives bypass permission mode from full-access runtime policy", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -360,8 +398,7 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(createInput?.options.systemPrompt, {
         type: "preset",
         preset: "claude_code",
-        append:
-          "<runtime_info>In case you're asked: you are running in T3 Code through the Claude Code harness. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>",
+        append: buildRuntimeInstructions({ harness: "Claude Code" }),
       });
       assert.equal(createInput?.options.permissionMode, "bypassPermissions");
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, true);

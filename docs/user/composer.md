@@ -61,6 +61,9 @@ attach the comment, or leave it blank to keep just the quote. You can type befor
 chip, such as a quote followed by "what do you mean?". A selection must stay within one response
 and fit in 8,000 characters.
 
+To hide or restore the selection button, toggle **Settings → General → Cite selected text**.
+It is enabled by default and saved on this device. Turning it off leaves existing quotes usable.
+
 The chip shows your comment when it has one, or a short quote preview otherwise. Use the pencil
 button to add or change the comment, and the remove button to delete the quote and its comment from
 the draft. Copying, reloading, and restoring a [stashed prompt](#prompt-stash) keep each comment

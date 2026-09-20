@@ -13,6 +13,11 @@ This is a collaborative browser host, not yet a server-hosted browser service. W
 Desktop renderer, web and mobile clients cannot create an automation-capable browser. They may still
 receive provider-specific web-search results, but those results are not visible as a live shared tab.
 
+All six provider adapters include shared research instructions. Browser-specific guidance is gated
+by the preview capability captured when the provider session attaches its MCP server, so a
+device-only configuration or a session without T3 MCP does not suppress other browser tools. Externally managed
+OpenCode servers do not receive preview guidance because T3 does not attach its MCP server there.
+
 ## Native Computer Use
 
 The computer toolset routes provider-scoped MCP calls through the Computer Use broker to an opted-in

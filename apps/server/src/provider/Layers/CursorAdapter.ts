@@ -124,6 +124,7 @@ interface PendingUserInput {
 }
 
 interface CursorSessionContext {
+  readonly browserToolsAvailable: boolean;
   readonly threadId: ThreadId;
   session: ProviderSession;
   readonly scope: Scope.Closeable;
@@ -776,6 +777,8 @@ export function makeCursorAdapter(
           };
 
           ctx = {
+            browserToolsAvailable:
+              mcpSession !== undefined && (mcpSession.capabilities?.has("preview") ?? true),
             threadId: input.threadId,
             session,
             scope: sessionScope,
@@ -1030,7 +1033,11 @@ export function makeCursorAdapter(
                 ...promptParts,
                 {
                   type: "text",
-                  text: buildRuntimeInstructions({ harness: "Cursor", model: resolvedModel }),
+                  text: buildRuntimeInstructions({
+                    harness: "Cursor",
+                    browserToolsAvailable: ctx.browserToolsAvailable,
+                    model: resolvedModel,
+                  }),
                 },
               ],
             })

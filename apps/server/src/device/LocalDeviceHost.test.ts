@@ -112,3 +112,65 @@ it.effect(
       expect(yield* fs.exists(`${baseDir}/tools`)).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+const hubCommand = (platform: NodeJS.Platform, accessible: boolean, groupExitCode = 0) =>
+  LocalDeviceHost.__testing.hubLaunchCommand("/node path/node", ["/hub's/cli.mjs"]).pipe(
+    Effect.provideService(HostProcessPlatform, platform),
+    Effect.provideService(
+      FileSystem.FileSystem,
+      FileSystem.makeNoop({
+        exists: () => Effect.succeed(true),
+        ...(accessible ? { access: () => Effect.void } : {}),
+      }),
+    ),
+    Effect.provideService(ProcessRunner.ProcessRunner, {
+      run: () =>
+        Effect.succeed({
+          stdout: "",
+          stderr: "",
+          code: ChildProcessSpawner.ExitCode(groupExitCode),
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        }),
+    }),
+  );
+
+describe("device hub launch", () => {
+  it.effect("limits Linux discovery to Android and activates a usable KVM group", () =>
+    Effect.gen(function* () {
+      const launch = yield* hubCommand("linux", false);
+      expect(launch.command).toBe("sg");
+      expect(launch.args).toEqual([
+        "kvm",
+        "-c",
+        "exec '/node path/node' '/hub'\\''s/cli.mjs' '--platform' 'android'",
+      ]);
+    }),
+  );
+  it.effect("does not switch groups when KVM is already accessible or group access fails", () =>
+    Effect.gen(function* () {
+      for (const [accessible, exitCode] of [
+        [true, 0],
+        [false, 1],
+      ] as const) {
+        expect(yield* hubCommand("linux", accessible, exitCode)).toEqual({
+          command: "/node path/node",
+          args: ["/hub's/cli.mjs", "--platform", "android"],
+        });
+      }
+    }),
+  );
+  it.effect("keeps both platforms on macOS and only Android on Windows", () =>
+    Effect.gen(function* () {
+      expect((yield* hubCommand("darwin", true)).args).toEqual(["/hub's/cli.mjs"]);
+      expect((yield* hubCommand("win32", true)).args).toEqual([
+        "/hub's/cli.mjs",
+        "--platform",
+        "android",
+      ]);
+    }),
+  );
+});

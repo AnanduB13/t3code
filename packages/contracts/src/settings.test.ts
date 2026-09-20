@@ -50,6 +50,18 @@ describe("ClaudeSettings auto-compaction", () => {
   });
 });
 
+describe("ClientSettings cite selected text", () => {
+  it("keeps citations enabled for existing settings", () => {
+    expect(decodeClientSettings({}).citeSelectedText).toBe(true);
+  });
+
+  it.each([false, true])("persists the preference when set to %s", (enabled) => {
+    const patch = decodeClientSettingsPatch({ citeSelectedText: enabled });
+    const settings = decodeClientSettings({ ...decodeClientSettings({}), ...patch });
+    expect(decodeClientSettings(encodeClientSettings(settings)).citeSelectedText).toBe(enabled);
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

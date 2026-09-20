@@ -190,6 +190,7 @@ interface TurnIntent {
 }
 
 interface SessionContext {
+  readonly browserToolsAvailable: boolean;
   readonly threadId: ThreadId;
   readonly cwd: string;
   readonly nativeSessionId: string;
@@ -863,6 +864,8 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                 updatedAt: createdAt,
               };
               context = {
+                browserToolsAvailable:
+                  mcp !== undefined && (mcp.capabilities?.has("preview") ?? true),
                 threadId: input.threadId,
                 cwd,
                 nativeSessionId: started.sessionId,
@@ -1085,7 +1088,11 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                   ...prompt,
                   {
                     type: "text",
-                    text: buildRuntimeInstructions({ harness: "Antigravity", model }),
+                    text: buildRuntimeInstructions({
+                      harness: "Antigravity",
+                      browserToolsAvailable: context.browserToolsAvailable,
+                      model,
+                    }),
                   },
                 ],
               },
