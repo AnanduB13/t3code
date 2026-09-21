@@ -47,8 +47,6 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
-import { cn } from "~/lib/utils";
-import { selectThreadRightPanelState, useRightPanelStore } from "~/rightPanelStore";
 import { GENERAL_CHATS_PROJECT_ID } from "../../generalChats";
 
 export function shouldShowProjectHeaderActions(projectId: ProjectId | undefined): boolean {
@@ -178,9 +176,6 @@ export const ChatHeader = memo(function ChatHeader({
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
-  );
-  const rightPanelOpen = useRightPanelStore(
-    (state) => selectThreadRightPanelState(state.byThreadKey, activeThreadRef).isOpen,
   );
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -413,11 +408,7 @@ export const ChatHeader = memo(function ChatHeader({
         <div
           ref={headerActionsRef}
           data-chat-header-actions
-          className={cn(
-            "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
-            rightPanelOpen ? "pr-0" : "pr-16",
-            "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
-          )}
+          className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3"
         >
           {activeProjectScripts && (
             <ProjectScriptsControl
