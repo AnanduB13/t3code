@@ -261,6 +261,26 @@ export interface BoundComposerAttachment {
   attachmentId: string;
 }
 
+/** Keep binary attachments in first-reference order, even after chips move or uploads finish out of order. */
+export function orderComposerAttachments<
+  T extends ComposerImageAttachment | ComposerFileAttachment,
+>(prompt: string, attachments: ReadonlyArray<T>): T[] {
+  const byContextId = new Map(
+    attachments.map((attachment) => [
+      toKindScopedComposerContextId(attachment.type, attachment.id),
+      attachment,
+    ]),
+  );
+  const ordered: T[] = [];
+  for (const occurrence of collectComposerContextReferences(prompt)) {
+    const attachment = byContextId.get(occurrence.contextId);
+    if (!attachment) continue;
+    ordered.push(attachment);
+    byContextId.delete(occurrence.contextId);
+  }
+  return [...ordered, ...byContextId.values()];
+}
+
 /** Clipboard payloads may only point at attachments that already exist on the server. */
 export function uploadedAttachmentContextRecord(
   attachment: ComposerImageAttachment | ComposerFileAttachment,

@@ -38,7 +38,6 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
@@ -145,7 +144,8 @@ import {
   type ComposerBannerStackContent,
   type ComposerBannerStackItem,
 } from "./ComposerBannerStack";
-import { compressImageForStash, prepareImageForAttachment } from "../../lib/imageCompression";
+import { compressImageForStash } from "../../lib/imageCompression";
+import { attachComposerImages } from "./composerImageAttachments";
 import {
   fileAttachmentTooLargeMessage,
   formatAttachmentSize,
@@ -199,6 +199,7 @@ import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../.
 import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
 import {
   ComposerContextActionsContext,
+  PreparingImageContextIdsContext,
   composerContextRecordsFromDraft,
   uploadedContextRecordFromDraft,
 } from "../composerContextPresentation";
@@ -1584,6 +1585,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const questionPreparations = useQuestionAttachmentPreparation((state) => state.counts);
   const prompt = composerDraft.prompt;
   const composerImages = attachmentDraft.images;
+  const [preparingImageContextIds, setPreparingImageContextIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const composerFiles = attachmentDraft.files;
   // A question answer has no chips: its files live in the question draft and show in the
   // strip. Only the thread prompt's references decide which files leave the strip.
@@ -1620,12 +1624,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const uncommittedSnapShotIds = pendingSnapShotIds.filter(
     (id) => !composerImages.some((image) => image.id === id),
   );
+  const inlineImageContextIds = useMemo(
+    () => new Set(questionAttachmentTarget ? [] : collectInlineContextIds(prompt)),
+    [prompt, questionAttachmentTarget],
+  );
   const standaloneComposerImages = useMemo(() => {
     const previewAnnotationIds = new Set(
       composerPreviewAnnotations.map((annotation) => annotation.id),
     );
-    return composerImages.filter((image) => !previewAnnotationIds.has(image.id));
-  }, [composerImages, composerPreviewAnnotations]);
+    return composerImages.filter(
+      (image) =>
+        !previewAnnotationIds.has(image.id) &&
+        // Snap Shot captures retain their capture details and arrival controls.
+        (image.source?.kind === "snap-shot" ||
+          !inlineImageContextIds.has(imageContextReference(image).contextId)),
+    );
+  }, [composerImages, composerPreviewAnnotations, inlineImageContextIds]);
   const nonPersistedComposerImageIds = attachmentDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
   const openPrLink = useOpenPrLink(routeThreadRef);
@@ -1636,6 +1650,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       expandImage: (imageId: string) => {
         const preview = buildExpandedImagePreview(composerImages, imageId);
         if (preview) onExpandImage(preview);
+      },
+      retryImage: (imageId: string) => {
+        const image = composerImages.find((candidate) => candidate.id === imageId);
+        if (image)
+          retryAttachmentUpload({ environmentId, image, draftTarget: attachmentDraftTarget });
       },
       openFile: setPreviewFileId,
       openMention: (path: string) => useRightPanelStore.getState().openFile(routeThreadRef, path),
@@ -1663,7 +1682,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         openPrLink(event, url);
       },
     }),
-    [composerFiles, composerImages, environmentId, onExpandImage, openPrLink, routeThreadRef],
+    [
+      attachmentDraftTarget,
+      composerFiles,
+      composerImages,
+      environmentId,
+      onExpandImage,
+      openPrLink,
+      routeThreadRef,
+    ],
   );
   const composerContextRecords = useMemo(
     () =>
@@ -2676,11 +2703,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [attachmentDraftTarget, addComposerDraftImages],
   );
 
-  const addComposerImagesToDraft = useCallback(
-    (images: ComposerImageAttachment[]) => addComposerDraftImages(attachmentDraftTarget, images),
-    [attachmentDraftTarget, addComposerDraftImages],
-  );
-
   const addComposerFilesToDraft = useCallback(
     (files: ComposerFileAttachment[]) =>
       addComposerDraftFiles(attachmentDraftTarget, files, {
@@ -3305,6 +3327,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reviewComments: Map<string, ReviewCommentContext>;
   }>({ terminals: new Map(), reviewComments: new Map() });
   const removedAttachmentContextPayloadsRef = useRef<RetainedAttachmentContextPayloads>({
+    images: new Map(),
     files: new Map(),
     previewAnnotations: new Map(),
   });
@@ -3333,6 +3356,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         );
         return;
       }
+      const previousReferencedContextIds = new Set(collectInlineContextIds(promptRef.current));
       promptRef.current = nextPrompt;
       setPrompt(nextPrompt);
       // Any edit ends browsing, even one later undone by hand: typing a
@@ -3390,11 +3414,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
       const attachmentChanges = reconcileAttachmentContextReferences({
         referencedContextIds: referenced,
+        previousReferencedContextIds,
         files: composerFiles,
         images: composerImages,
         previewAnnotations: composerPreviewAnnotations,
         retained: removedAttachmentContextPayloadsRef.current,
       });
+      for (const imageId of attachmentChanges.imagesToRemove) {
+        // Keep the completed upload available for undo, as with file chips.
+        removeComposerDraftImage(attachmentDraftTarget, imageId);
+      }
+      if (attachmentChanges.imagesToRestore.length > 0) {
+        addComposerDraftImages(
+          attachmentDraftTarget,
+          attachmentChanges.imagesToRestore.map((image) => ({
+            ...image,
+            previewUrl: URL.createObjectURL(image.file),
+          })),
+          { allowDuplicates: true },
+        );
+      }
       for (const annotationId of attachmentChanges.annotationIdsToRemove) {
         // Keep the upload queue entry alive: undo restores the image that owns it.
         removeComposerDraftPreviewAnnotation(composerDraftTarget, annotationId);
@@ -3433,6 +3472,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerFiles,
       removeComposerDraftReviewComment,
       removeComposerDraftPreviewAnnotation,
+      removeComposerDraftImage,
       removeComposerDraftFile,
       addComposerDraftReviewComment,
       addComposerDraftPreviewAnnotation,
@@ -3776,7 +3816,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         toastManager.add({
           type: "info",
           title: "Still compressing a pasted image.",
-          description: "Send again once its thumbnail appears.",
+          description: "Send again once its image chip is ready.",
         });
         return;
       }
@@ -5266,6 +5306,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // large image is being compressed, and the attachments and errors belong
     // to the thread the paste happened in.
     const threadId = activeThreadId;
+    const selection = options?.selection ?? composerEditorRef.current?.readSelectionRange();
 
     // Validation happens synchronously so concurrent pastes see each other:
     // accepted files reserve their attachment slots (via the pending counter)
@@ -5353,10 +5394,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const storedIds = new Set(addComposerFilesToDraft(acceptedFiles));
       const storedFiles = acceptedFiles.filter((file) => storedIds.has(file.id));
       if (storedFiles.length > 0) {
-        insertedAny = insertAttachmentReferences(
-          storedFiles.map(fileContextReference),
-          options?.selection,
-        );
+        insertedAny = insertAttachmentReferences(storedFiles.map(fileContextReference), selection);
       }
       if (options?.source?._tag === "pasted-text" && storedFiles.length > 0) {
         const attached = storedFiles[0]!;
@@ -5378,62 +5416,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     );
     if (questionAttachmentTarget)
       changeQuestionAttachmentPreparation(questionAttachmentTarget, acceptedImages.length);
+    const reservedImageContextIds: string[] = [];
     try {
-      const nextImages: ComposerImageAttachment[] = [];
-      let compressionError: string | null = null;
-      for (const file of acceptedImages) {
-        // Images over the wire cap are downscaled to fit rather than
-        // refused; files already within it pass through byte-for-byte.
-        const compressed = await prepareImageForAttachment(
-          file,
-          PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-        );
-        if (!compressed.ok) {
-          compressionError =
-            compressed.reason === "unreadable"
-              ? `'${file.name}' could not be read as an image.`
-              : `'${file.name}' is too large to attach, even after compression.`;
-          continue;
-        }
-        const attachmentFile = compressed.file;
-        const previewUrl = URL.createObjectURL(attachmentFile);
-        nextImages.push({
-          type: "image",
-          id: randomUUID(),
-          name: attachmentFile.name || "image",
-          mimeType: attachmentFile.type,
-          sizeBytes: attachmentFile.size,
-          previewUrl,
-          file: attachmentFile,
-        });
-      }
-      if (
-        questionAttachmentTarget &&
-        !useQuestionAttachmentPreparation.getState().counts[questionAttachmentTarget]
-      ) {
-        for (const image of nextImages) URL.revokeObjectURL(image.previewUrl);
-        return false;
-      }
-      const storedImageIds = new Set(
-        nextImages.length === 1 && nextImages[0]
-          ? addComposerImage(nextImages[0])
-          : nextImages.length > 1
-            ? addComposerImagesToDraft(nextImages)
-            : [],
-      );
-      const storedImages = nextImages.filter((image) => storedImageIds.has(image.id));
-      if (storedImages.length > 0) {
-        insertedAny =
-          insertAttachmentReferences(storedImages.map(imageContextReference)) || insertedAny;
-      }
-      // Only failures are reported here. Success must not pass `null`: by
-      // now other work (a failed send, an overlapping paste) may have set a
-      // thread error this call knows nothing about, and clearing it would
-      // swallow that message.
-      if (compressionError !== null) {
-        setThreadError(threadId, compressionError);
-      }
+      const result = await attachComposerImages({
+        files: acceptedImages,
+        draftTarget: attachmentDraftTarget,
+        draftKey: attachmentTargetKey,
+        // Generic files in this paste have already advanced the caret.
+        insertReferences: (references) => {
+          reservedImageContextIds.push(...references.map((reference) => reference.contextId));
+          setPreparingImageContextIds(
+            (previous) => new Set([...previous, ...reservedImageContextIds]),
+          );
+          return insertAttachmentReferences(references, insertedAny ? undefined : selection);
+        },
+        retainedImages: removedAttachmentContextPayloadsRef.current.images,
+        ...(questionAttachmentTarget
+          ? {
+              canAttach: () =>
+                Boolean(
+                  useQuestionAttachmentPreparation.getState().counts[questionAttachmentTarget],
+                ),
+            }
+          : {}),
+      });
+      insertedAny = result.insertedReferences || insertedAny;
+      if (result.error !== null) setThreadError(threadId, result.error);
     } finally {
+      setPreparingImageContextIds((previous) => {
+        const next = new Set(previous);
+        for (const id of reservedImageContextIds) next.delete(id);
+        return next;
+      });
       if (questionAttachmentTarget)
         changeQuestionAttachmentPreparation(questionAttachmentTarget, -acceptedImages.length);
       const remaining =
@@ -6812,66 +6826,68 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   </Dialog>
                 ) : null}
                 <ComposerContextActionsContext value={composerContextActions}>
-                  <ComposerPromptEditor
-                    editorRef={composerEditorRef}
-                    richTextEnabled={settings.composerRichTextEnabled}
-                    value={
-                      isComposerApprovalState
-                        ? ""
-                        : activePendingProgress
-                          ? activePendingProgress.customAnswer
-                          : prompt
-                    }
-                    cursor={composerCursor}
-                    contextRecords={composerContextRecords}
-                    buildContextClipboardFragment={buildContextClipboardFragment}
-                    importContextFragment={importContextFragment}
-                    skills={selectedProviderSkills}
-                    containerClassName={cn(isComposerResting && "min-w-0 flex-1")}
-                    className={cn(
-                      showMobilePendingAnswerActions && "max-sm:pb-11",
-                      isComposerResting &&
-                        "max-h-8 min-h-8 overflow-hidden whitespace-pre! leading-8",
-                      isComposerApprovalState && "min-h-8",
-                    )}
-                    placeholderClassName={cn(
-                      isComposerResting &&
-                        "flex items-center overflow-hidden whitespace-nowrap leading-8",
-                    )}
-                    onChange={onPromptChange}
-                    onVisibleSelectionChange={expandComposerForEditorChange}
-                    onCommandKeyDown={onComposerCommandKey}
-                    onPageScrollKeyDown={onPageScrollKeyDown}
-                    onPageScrollKeyUp={onPageScrollKeyUp}
-                    onPageScrollRelease={onPageScrollRelease}
-                    onCitationSubmitAndSend={submitCitationAndSend}
-                    onPaste={onComposerPaste}
-                    placeholder={
-                      isComposerApprovalState
-                        ? (activePendingApproval?.detail ??
-                          "Resolve this approval request to continue")
-                        : activePendingProgress
-                          ? isChoiceOnlyPendingQuestion
-                            ? "Choose an option above"
-                            : "Type your own answer, or leave this blank to use the selected option"
-                          : showPlanFollowUpPrompt && activeProposedPlan
-                            ? "Add feedback to refine the plan, or leave this blank to implement it"
-                            : projectSelectionRequired
-                              ? "Choose a project above to start a thread"
-                              : showProviderUnavailable
-                                ? "Enable a provider in Settings to send a message"
-                                : phase === "disconnected"
-                                  ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
-                    }
-                    disabled={
-                      isConnecting ||
-                      isComposerApprovalState ||
-                      projectSelectionRequired ||
-                      isChoiceOnlyPendingQuestion ||
-                      activePendingIsResponding
-                    }
-                  />
+                  <PreparingImageContextIdsContext value={preparingImageContextIds}>
+                    <ComposerPromptEditor
+                      editorRef={composerEditorRef}
+                      richTextEnabled={settings.composerRichTextEnabled}
+                      value={
+                        isComposerApprovalState
+                          ? ""
+                          : activePendingProgress
+                            ? activePendingProgress.customAnswer
+                            : prompt
+                      }
+                      cursor={composerCursor}
+                      contextRecords={composerContextRecords}
+                      buildContextClipboardFragment={buildContextClipboardFragment}
+                      importContextFragment={importContextFragment}
+                      skills={selectedProviderSkills}
+                      containerClassName={cn(isComposerResting && "min-w-0 flex-1")}
+                      className={cn(
+                        showMobilePendingAnswerActions && "max-sm:pb-11",
+                        isComposerResting &&
+                          "max-h-8 min-h-8 overflow-hidden whitespace-pre! leading-8",
+                        isComposerApprovalState && "min-h-8",
+                      )}
+                      placeholderClassName={cn(
+                        isComposerResting &&
+                          "flex items-center overflow-hidden whitespace-nowrap leading-8",
+                      )}
+                      onChange={onPromptChange}
+                      onVisibleSelectionChange={expandComposerForEditorChange}
+                      onCommandKeyDown={onComposerCommandKey}
+                      onPageScrollKeyDown={onPageScrollKeyDown}
+                      onPageScrollKeyUp={onPageScrollKeyUp}
+                      onPageScrollRelease={onPageScrollRelease}
+                      onCitationSubmitAndSend={submitCitationAndSend}
+                      onPaste={onComposerPaste}
+                      placeholder={
+                        isComposerApprovalState
+                          ? (activePendingApproval?.detail ??
+                            "Resolve this approval request to continue")
+                          : activePendingProgress
+                            ? isChoiceOnlyPendingQuestion
+                              ? "Choose an option above"
+                              : "Type your own answer, or leave this blank to use the selected option"
+                            : showPlanFollowUpPrompt && activeProposedPlan
+                              ? "Add feedback to refine the plan, or leave this blank to implement it"
+                              : projectSelectionRequired
+                                ? "Choose a project above to start a thread"
+                                : showProviderUnavailable
+                                  ? "Enable a provider in Settings to send a message"
+                                  : phase === "disconnected"
+                                    ? DISCONNECTED_COMPOSER_PLACEHOLDER
+                                    : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                      }
+                      disabled={
+                        isConnecting ||
+                        isComposerApprovalState ||
+                        projectSelectionRequired ||
+                        isChoiceOnlyPendingQuestion ||
+                        activePendingIsResponding
+                      }
+                    />
+                  </PreparingImageContextIdsContext>
                 </ComposerContextActionsContext>
                 {isComposerResting ? collapsedComposerImagePreviews : null}
                 {showMobilePendingAnswerActions ? (

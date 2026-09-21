@@ -175,10 +175,11 @@ by any part of its pull request numbers. A complete number is also resolved dire
 pull request is older than the recent list. Type a single word after `#` to search pull requests in
 the repository by text. Choose a result to insert it as a chip.
 
-Images keep their thumbnail shelf above the text and also get a chip at your cursor, so you can
-say exactly which image you mean. Deleting an image chip leaves the image on the shelf; removing
-the thumbnail asks first when the image is still mentioned in your text, then removes both. Files
-exist only as chips: deleting a file's last chip removes the file from the message.
+On web and desktop, pasted images appear once, as a chip at your cursor. Keep typing around
+each chip to explain which image you mean; the agent receives those references in the same
+order, even if image preparation or uploads finish out of order. Select an image chip to
+preview it, or to retry a failed upload. Deleting the last chip for an image or file removes
+that attachment from the message; undo restores it.
 
 Copy text that holds chips and paste it into another draft, in the same thread or another one,
 and the chips come along with what they point to. Images and files are fetched again from the

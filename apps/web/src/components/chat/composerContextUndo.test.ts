@@ -5,6 +5,7 @@ import type { ComposerFileAttachment, ComposerImageAttachment } from "../../comp
 import {
   buildMessageContext,
   fileContextReference,
+  imageContextReference,
   previewAnnotationContextId,
 } from "../../lib/composerContextRecords";
 import {
@@ -49,13 +50,14 @@ const annotation = {
 } satisfies PreviewAnnotationPayload;
 
 function retention(): RetainedAttachmentContextPayloads {
-  return { files: new Map(), previewAnnotations: new Map() };
+  return { images: new Map(), files: new Map(), previewAnnotations: new Map() };
 }
 
 describe("reconcileAttachmentContextReferences", () => {
   it("restores file bytes after deleting and undoing its chip", () => {
     const retained = retention();
     const removed = reconcileAttachmentContextReferences({
+      previousReferencedContextIds: new Set(),
       referencedContextIds: new Set(),
       files: [file],
       images: [],
@@ -65,6 +67,7 @@ describe("reconcileAttachmentContextReferences", () => {
     expect(removed.filesToRemove).toEqual(["file-1"]);
 
     const restored = reconcileAttachmentContextReferences({
+      previousReferencedContextIds: new Set(),
       referencedContextIds: new Set([fileContextReference(file).contextId]),
       files: [],
       images: [],
@@ -92,6 +95,7 @@ describe("reconcileAttachmentContextReferences", () => {
   it("restores an annotation and its screenshot attachment after undo", () => {
     const retained = retention();
     const removed = reconcileAttachmentContextReferences({
+      previousReferencedContextIds: new Set(),
       referencedContextIds: new Set(),
       files: [],
       images: [image],
@@ -101,6 +105,7 @@ describe("reconcileAttachmentContextReferences", () => {
     expect(removed.annotationIdsToRemove).toEqual(["annotation-1"]);
 
     const restored = reconcileAttachmentContextReferences({
+      previousReferencedContextIds: new Set(),
       referencedContextIds: new Set([previewAnnotationContextId(annotation.id)]),
       files: [],
       images: [],
@@ -135,5 +140,46 @@ describe("reconcileAttachmentContextReferences", () => {
         attachmentId: "uploaded-screenshot",
       }),
     ]);
+  });
+});
+
+describe("image chip removal", () => {
+  it("removes only the last reference and restores the image bytes on undo", () => {
+    const retained = retention();
+    const contextId = imageContextReference(image).contextId;
+    const input = {
+      previousReferencedContextIds: new Set([contextId]),
+      files: [],
+      images: [image],
+      previewAnnotations: [],
+      retained,
+    };
+    expect(
+      reconcileAttachmentContextReferences({ ...input, referencedContextIds: new Set([contextId]) })
+        .imagesToRemove,
+    ).toEqual([]);
+    expect(
+      reconcileAttachmentContextReferences({ ...input, referencedContextIds: new Set() })
+        .imagesToRemove,
+    ).toEqual([image.id]);
+    const restored = reconcileAttachmentContextReferences({
+      ...input,
+      images: [],
+      referencedContextIds: new Set([contextId]),
+    });
+    expect(restored.imagesToRestore[0]?.file).toBe(binary);
+  });
+
+  it("keeps legacy images and annotation screenshots without standalone image chips", () => {
+    const result = reconcileAttachmentContextReferences({
+      previousReferencedContextIds: new Set(),
+      referencedContextIds: new Set([previewAnnotationContextId(annotation.id)]),
+      files: [],
+      images: [image],
+      previewAnnotations: [annotation],
+      retained: retention(),
+    });
+    expect(result.imagesToRemove).toEqual([]);
+    expect(result.annotationIdsToRemove).toEqual([]);
   });
 });

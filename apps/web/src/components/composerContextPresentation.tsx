@@ -67,6 +67,7 @@ export type ComposerDraftContextRecord =
 /** What a chip can do beyond showing itself; the composer supplies the handlers. */
 export interface ComposerContextActions {
   expandImage: (imageId: string) => void;
+  retryImage: (imageId: string) => void;
   expandVideo: (fileId: string) => void;
   openFile: (fileId: string) => void;
   openMention: (path: string) => void;
@@ -75,6 +76,7 @@ export interface ComposerContextActions {
 
 export const ComposerContextActionsContext = createContext<ComposerContextActions>({
   expandImage: () => {},
+  retryImage: () => {},
   expandVideo: () => {},
   openFile: () => {},
   openMention: () => {},
@@ -93,6 +95,8 @@ export function uploadedContextRecordFromDraft(entry: ComposerDraftContextRecord
 export const ComposerContextRecordsContext = createContext<ComposerDraftContextRecords>(
   EMPTY_COMPOSER_CONTEXT_RECORDS,
 );
+
+export const PreparingImageContextIdsContext = createContext<ReadonlySet<string>>(new Set());
 
 export function composerContextRecordsFromDraft(input: {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
@@ -191,13 +195,22 @@ function ImageContextChip(props: {
             className={COMPOSER_INLINE_CHIP_CLASS_NAME}
             labelClassName={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}
             size={formatAttachmentSize(props.record.sizeBytes)}
-            suffix={uploadStatusSuffix(props.upload)}
-            onClick={() => actions.expandImage(props.record.id)}
+            suffix={
+              props.upload?.status === "failed"
+                ? "upload failed · retry"
+                : uploadStatusSuffix(props.upload)
+            }
+            onClick={() =>
+              props.upload?.status === "failed"
+                ? actions.retryImage(props.record.id)
+                : actions.expandImage(props.record.id)
+            }
           />
         }
       />
       <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap leading-tight">
         {attachmentTooltip(props.record, props.upload)}
+        {props.upload?.status === "failed" ? "\nSelect to retry the upload." : ""}
       </TooltipPopup>
     </Tooltip>
   );
@@ -459,6 +472,18 @@ export function ComposerContextReferenceChip(props: {
   label: string;
 }): ReactElement {
   const records = use(ComposerContextRecordsContext);
+  const preparingIds = use(PreparingImageContextIdsContext);
+  if (props.kind === "image" && preparingIds.has(props.contextId)) {
+    return (
+      <UnresolvedChip
+        label={`${props.label} · preparing`}
+        className={COMPOSER_INLINE_CHIP_CLASS_NAME}
+        labelClassName={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}
+        tooltip="Preparing this image. You can keep typing while it finishes."
+        tooltipClassName="max-w-80 leading-tight"
+      />
+    );
+  }
   return composerContextPresentationRegistry.render(props.kind, records.get(props.contextId), {
     label: props.label,
   });

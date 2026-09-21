@@ -320,6 +320,7 @@ import {
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import {
   buildMessageContext,
+  orderComposerAttachments,
   previewAnnotationContextLabel,
   previewAnnotationContextReference,
   reviewCommentContextLabel,
@@ -7574,7 +7575,10 @@ export default function ChatView(props: ChatViewProps) {
 
     const composerImagesSnapshot = [...composerImages];
     const composerFilesSnapshot = [...composerFiles];
-    const composerAttachmentsSnapshot = [...composerImagesSnapshot, ...composerFilesSnapshot];
+    const composerAttachmentsSnapshot = orderComposerAttachments(promptForSend, [
+      ...composerImagesSnapshot,
+      ...composerFilesSnapshot,
+    ]);
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
