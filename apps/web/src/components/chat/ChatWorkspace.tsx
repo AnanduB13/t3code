@@ -2,6 +2,9 @@ import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  cloneElement,
+  type ComponentProps,
+  type ReactElement,
   useEffect,
   useLayoutEffect,
   memo,
@@ -192,6 +195,7 @@ function ChatWorkspaceDivider(props: {
 
 const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
   readonly threadRef: ScopedThreadRef;
+  readonly routeView?: ReactElement<ComponentProps<typeof ChatView>> | undefined;
   readonly active: boolean;
   readonly reserveNativeControls: boolean;
   readonly paneCount: number;
@@ -207,7 +211,7 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
     status,
   });
 
-  if (!shell && !detail) {
+  if (!props.routeView && !shell && !detail) {
     return (
       <div className="grid min-h-0 place-items-center bg-background p-6 text-center text-sm text-muted-foreground">
         This chat is unavailable. Select this pane, then choose another thread from the sidebar.
@@ -217,23 +221,35 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <ChatView
-        environmentId={props.threadRef.environmentId}
-        threadId={props.threadRef.threadId}
-        routeKind="server"
-        threadSyncPhase={threadSyncPhase}
-        reserveTitleBarControlInset={props.reserveNativeControls}
-        workspacePaneActive={props.active}
-        chatPaneCount={props.paneCount}
-        chatLayoutColumns={props.columns}
-        onSetChatLayout={props.onSetLayout}
-        withDiffWorkerPool={false}
-      />
+      {cloneElement(
+        props.routeView ?? (
+          <ChatView
+            environmentId={props.threadRef.environmentId}
+            threadId={props.threadRef.threadId}
+            routeKind="server"
+            threadSyncPhase={threadSyncPhase}
+          />
+        ),
+        {
+          reserveTitleBarControlInset: props.reserveNativeControls,
+          workspacePaneActive: props.active,
+          chatPaneCount: props.paneCount,
+          chatLayoutColumns: props.columns,
+          onSetChatLayout: props.onSetLayout,
+          withDiffWorkerPool: false,
+        },
+      )}
     </div>
   );
 });
 
-export function ChatWorkspace({ routeThreadRef }: { readonly routeThreadRef: ScopedThreadRef }) {
+export function ChatWorkspace({
+  routeThreadRef,
+  routeView,
+}: {
+  readonly routeThreadRef: ScopedThreadRef;
+  readonly routeView: ReactElement<ComponentProps<typeof ChatView>>;
+}) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const paneThreadKeys = useChatWorkspaceLayoutStore((state) => state.paneThreadKeys);
@@ -360,6 +376,12 @@ export function ChatWorkspace({ routeThreadRef }: { readonly routeThreadRef: Sco
                 ) : (
                   <ChatWorkspacePane
                     threadRef={threadRef}
+                    routeView={
+                      threadRef.environmentId === routeEnvironmentId &&
+                      threadRef.threadId === routeThreadId
+                        ? routeView
+                        : undefined
+                    }
                     active={active}
                     reserveNativeControls={isMobile || index === visibleColumns - 1}
                     paneCount={paneEntries.length}

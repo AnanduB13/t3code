@@ -17,6 +17,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import type { ProviderClientDefinition } from "./providerDriverMeta";
+import { SettingsRow } from "./settingsLayout";
 
 export interface ProviderSettingsFieldModel {
   readonly key: string;
@@ -118,17 +119,13 @@ export function deriveProviderSettingsFields(
     });
 }
 
-export function readProviderConfigString(config: unknown, key: string): string {
+function readProviderConfigString(config: unknown, key: string): string {
   if (config === null || typeof config !== "object") return "";
   const value = (config as Record<string, unknown>)[key];
   return typeof value === "string" ? value : "";
 }
 
-export function readProviderConfigBoolean(
-  config: unknown,
-  key: string,
-  defaultValue = false,
-): boolean {
+function readProviderConfigBoolean(config: unknown, key: string, defaultValue = false): boolean {
   if (config === null || typeof config !== "object") return defaultValue;
   const value = (config as Record<string, unknown>)[key];
   return typeof value === "boolean" ? value : defaultValue;
@@ -165,8 +162,11 @@ interface ProviderSettingsFormProps {
   readonly definition: ProviderClientDefinition;
   readonly value: unknown;
   readonly idPrefix: string;
-  /** `grid` emits label/control cells for the provider setup page's two-column layout. */
-  readonly variant: "card" | "dialog" | "grid";
+  /**
+   * `card` stacks label over control, `dialog` is the compact wizard layout,
+   * and `settings` renders the shared settings row treatment.
+   */
+  readonly variant: "card" | "dialog" | "grid" | "settings";
   readonly onChange: (nextConfig: Record<string, unknown> | undefined) => void;
 }
 
@@ -318,6 +318,67 @@ function ProviderSettingsFieldRow({
     );
   }
 
+  if (variant === "settings") {
+    const descriptionId = field.description ? `${inputId}-description` : undefined;
+    const control =
+      field.control === "switch" ? (
+        <Switch
+          checked={readProviderConfigBoolean(value, field.key, field.defaultBooleanValue)}
+          onCheckedChange={(checked) =>
+            onChange(nextProviderConfigWithFieldValue(value, field, Boolean(checked)))
+          }
+          aria-label={field.label}
+          aria-describedby={descriptionId}
+        />
+      ) : field.control === "select" ? (
+        <ProviderSettingsSelect
+          field={field}
+          value={value}
+          inputId={inputId}
+          size="sm"
+          className="w-full max-w-full @min-[32rem]/settings-row:w-56"
+          onChange={onChange}
+        />
+      ) : field.control === "textarea" ? (
+        <Textarea
+          id={inputId}
+          aria-describedby={descriptionId}
+          className="w-full max-w-full @min-[32rem]/settings-row:w-[min(24rem,50cqw)]"
+          value={readProviderConfigString(value, field.key)}
+          onChange={(event) =>
+            onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
+          }
+          placeholder={field.placeholder}
+          spellCheck={false}
+        />
+      ) : (
+        <DraftInput
+          id={inputId}
+          aria-describedby={descriptionId}
+          size="sm"
+          className="w-full max-w-full @min-[32rem]/settings-row:w-56"
+          type={field.control === "password" ? "password" : undefined}
+          autoComplete={field.control === "password" ? "off" : undefined}
+          value={readProviderConfigString(value, field.key)}
+          onCommit={(next) => onChange(nextProviderConfigWithFieldValue(value, field, next))}
+          placeholder={field.placeholder}
+          spellCheck={false}
+        />
+      );
+
+    return (
+      <SettingsRow
+        title={
+          field.control === "switch" ? field.label : <label htmlFor={inputId}>{field.label}</label>
+        }
+        description={
+          field.description ? <span id={descriptionId}>{field.description}</span> : undefined
+        }
+        control={control}
+      />
+    );
+  }
+
   if (field.control === "switch") {
     return (
       <FieldFrame variant={variant}>
@@ -386,6 +447,7 @@ function ProviderSettingsFieldRow({
         {variant === "card" ? (
           <DraftInput
             id={inputId}
+            size="sm"
             className="mt-1.5"
             type={type}
             autoComplete={field.control === "password" ? "off" : undefined}

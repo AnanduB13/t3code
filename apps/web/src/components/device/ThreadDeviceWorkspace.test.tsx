@@ -64,7 +64,7 @@ it("keeps dismissed sessions closed on remount and floats devices independently 
     renderer = create(<ThreadDeviceWorkspace threadRef={ref} />);
   });
   expect(useRightPanelStore.getState().byThreadKey[key]?.isOpen ?? false).toBe(false);
-  usePreviewMiniPlayerStore.getState().open(ref, "browser-a");
+  usePreviewMiniPlayerStore.getState().open(ref, { kind: "browser", tabId: "browser-a" });
   await act(async () => {
     useDeviceWorkspaceStore.getState().float(ref, {
       hostId: device.hostId,
@@ -74,9 +74,15 @@ it("keeps dismissed sessions closed on remount and floats devices independently 
     });
   });
   expect(useDeviceWorkspaceStore.getState().floating[key]?.deviceId).toBe("pixel");
-  expect(usePreviewMiniPlayerStore.getState().byThreadKey[key]?.tabId).toBe("browser-a");
+  expect(usePreviewMiniPlayerStore.getState().byThreadKey[key]?.source).toEqual({
+    kind: "browser",
+    tabId: "browser-a",
+  });
   await act(async () => {
     useDeviceWorkspaceStore.getState().dock(ref);
   });
-  expect(usePreviewMiniPlayerStore.getState().byThreadKey[key]?.tabId).toBe("browser-a");
+  expect(usePreviewMiniPlayerStore.getState().byThreadKey[key]?.source).toEqual({
+    kind: "browser",
+    tabId: "browser-a",
+  });
 });

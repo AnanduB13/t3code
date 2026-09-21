@@ -40,6 +40,7 @@ function makeShell(input: {
 }): OrchestrationThreadShell {
   const threadId = ThreadId.make("thread-1");
   return {
+    pullRequests: [],
     id: threadId,
     projectId: ProjectId.make("project-1"),
     title: "Thread",

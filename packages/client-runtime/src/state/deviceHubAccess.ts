@@ -18,21 +18,13 @@ import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
 import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
-import { buildEnvironmentAuthHeaders } from "./environmentHttpAuth.ts";
-import { executeEnvironmentHttpRequest, makeEnvironmentHttpApiClient } from "../rpc/http.ts";
+import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
+import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
+import type { DeviceHubAccess } from "../device/hubAccess.ts";
+
+export { type DeviceHubAccess, withDeviceHubQuery } from "../device/hubAccess.ts";
 
 const TICKET_TIMEOUT_MS = 8_000;
-
-export interface DeviceHubAccess {
-  /** Absolute origin-relative base, e.g. `https://env.example/api/device-hub`. */
-  readonly httpBase: string;
-  /** Same base with the `ws(s)` scheme. */
-  readonly wsBase: string;
-  /** Query parameters to append to every hub request; empty for cookie sessions. */
-  readonly query: Readonly<Record<string, string>>;
-  /** Whether requests must include cookies (same-origin session). */
-  readonly credentials: boolean;
-}
 
 export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDeviceHubAccess")(
   function* (input: {
@@ -46,19 +38,17 @@ export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDevi
     }
     const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
 
-    const url = environmentEndpointUrl(input.prepared.httpBaseUrl, "/api/auth/websocket-ticket");
-    const client = yield* makeEnvironmentHttpApiClient(input.prepared.httpBaseUrl);
-    const headers = yield* buildEnvironmentAuthHeaders(
-      input.prepared.httpAuthorization,
-      "POST",
-      url,
+    const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
+    const ticket = yield* executeAuthenticatedEnvironmentHttpRequest({
+      prepared: input.prepared,
       signer,
-    );
-    const ticket = yield* executeEnvironmentHttpRequest(
-      url,
-      TICKET_TIMEOUT_MS,
-      client.auth.webSocketTicket({ headers }),
-    );
+      remoteAuthorization,
+      method: "POST",
+      url: (base) => environmentEndpointUrl(base, "/api/auth/websocket-ticket"),
+      timeoutMs: TICKET_TIMEOUT_MS,
+      group: "auth",
+      request: ({ client, headers }) => client.webSocketTicket({ headers }),
+    });
     return {
       httpBase,
       wsBase,
@@ -67,10 +57,3 @@ export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDevi
     };
   },
 );
-
-export const withDeviceHubQuery = (url: string, access: DeviceHubAccess): string => {
-  const entries = Object.entries(access.query);
-  if (entries.length === 0) return url;
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}${new URLSearchParams(entries).toString()}`;
-};

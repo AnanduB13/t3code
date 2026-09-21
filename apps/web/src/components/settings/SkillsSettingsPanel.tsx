@@ -1,3 +1,4 @@
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomValue } from "@effect/atom-react";
 import {
   isAtomCommandInterrupted,
@@ -451,12 +452,14 @@ function EnvironmentSkills(props: {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="font-medium text-sm">${selectedSkill.name}</h3>
-                    <p
-                      className="truncate text-muted-foreground text-xs"
-                      title={selectedSkill.path}
-                    >
-                      {selectedSkill.path}
-                    </p>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<p className="truncate text-muted-foreground text-xs" />}
+                      >
+                        {selectedSkill.path}
+                      </TooltipTrigger>
+                      <TooltipPopup>{selectedSkill.path}</TooltipPopup>
+                    </Tooltip>
                   </div>
                   <Button
                     size="sm"

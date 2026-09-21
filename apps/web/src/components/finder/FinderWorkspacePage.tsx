@@ -1,3 +1,4 @@
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { EnvironmentId, FilesystemBrowseEntry } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import {
@@ -694,14 +695,22 @@ export function FinderWorkspacePage() {
                     entry={entry}
                     {...(view === "grid" ? { className: "size-9 text-blue-400" } : {})}
                   />
-                  <span
-                    className={
-                      view === "grid" ? "block w-full min-w-0 truncate text-center" : "truncate"
-                    }
-                    title={entry.name}
-                  >
-                    {entry.name}
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span
+                          className={
+                            view === "grid"
+                              ? "block w-full min-w-0 truncate text-center"
+                              : "truncate"
+                          }
+                        />
+                      }
+                    >
+                      {entry.name}
+                    </TooltipTrigger>
+                    <TooltipPopup>{entry.name}</TooltipPopup>
+                  </Tooltip>
                   {view === "list" && (entry.kind ?? "directory") === "directory" ? (
                     <ChevronRightIcon className="size-3 text-muted-foreground" />
                   ) : null}

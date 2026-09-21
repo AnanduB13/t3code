@@ -106,15 +106,18 @@ function UsageLimits() {
               title: tokenUsage.trackedThreads.toLocaleString(),
             },
           ].map((metric) => (
-            <div
-              key={metric.label}
-              title={metric.title}
-              className="flex items-center gap-3 border-t border-border/60 px-4 py-4 first:border-t-0 sm:block sm:border-l sm:border-t-0 sm:first:border-l-0 sm:text-center"
-            >
-              <ScanLineIcon className="size-4 text-muted-foreground sm:mx-auto sm:mb-2" />
-              <div className="text-lg font-semibold tabular-nums">{metric.value}</div>
-              <div className="text-xs text-muted-foreground">{metric.label}</div>
-            </div>
+            <Tooltip key={metric.label}>
+              <TooltipTrigger
+                render={
+                  <div className="flex items-center gap-3 border-t border-border/60 px-4 py-4 first:border-t-0 sm:block sm:border-l sm:border-t-0 sm:first:border-l-0 sm:text-center" />
+                }
+              >
+                <ScanLineIcon className="size-4 text-muted-foreground sm:mx-auto sm:mb-2" />
+                <div className="text-lg font-semibold tabular-nums">{metric.value}</div>
+                <div className="text-xs text-muted-foreground">{metric.label}</div>
+              </TooltipTrigger>
+              <TooltipPopup>{metric.title}</TooltipPopup>
+            </Tooltip>
           ))}
         </div>
       ) : null}
@@ -287,7 +290,6 @@ function ActivityGrid({
                     <button
                       type="button"
                       aria-label={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
-                      title={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
                       className={cn(
                         "aspect-square min-w-2.5 rounded-[3px] outline-none transition-[box-shadow,transform] hover:ring-2 hover:ring-primary/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card",
                         level === 0 && "bg-muted/70",

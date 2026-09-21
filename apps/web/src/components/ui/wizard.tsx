@@ -130,6 +130,7 @@ export function WizardSteps({
 
 export function WizardPanel({
   children,
+  holdHeight = false,
 }: {
   readonly children: ReactNode;
   readonly holdHeight?: boolean;

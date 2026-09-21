@@ -32,7 +32,9 @@ describe("preview automation ownership", () => {
   });
 
   it("hides a reused floating tab without treating it as automation-owned", () => {
-    usePreviewMiniPlayerStore.getState().open(threadRef, "reused-user-tab");
+    usePreviewMiniPlayerStore
+      .getState()
+      .open(threadRef, { kind: "browser", tabId: "reused-user-tab" });
 
     expect(prepareCompletedThreadPreviewCleanup(threadRef)).toEqual([]);
     expect(
@@ -41,7 +43,7 @@ describe("preview automation ownership", () => {
   });
 
   it("hides the floating preview and returns automation-created tabs for closing", () => {
-    usePreviewMiniPlayerStore.getState().open(threadRef, "agent-tab");
+    usePreviewMiniPlayerStore.getState().open(threadRef, { kind: "browser", tabId: "agent-tab" });
     markPreviewTabAutomationOwned(threadRef, "agent-tab");
 
     expect(prepareCompletedThreadPreviewCleanup(threadRef)).toEqual(["agent-tab"]);

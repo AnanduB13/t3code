@@ -10,13 +10,13 @@ yourself. Agents get the same device through `device_*` tools and the
 Open the right panel in a project thread and choose **Device**. On first use,
 the panel walks through three steps: starting the device hub, checking iOS and
 Android support, and choosing whether agents may control devices. Opening the
-panel alone does not download or start anything. You can also use **Open device**
-in the command palette, or assign a keybinding to `device.toggle`. If the hub is already
+panel alone does not download or start anything. If the hub is already
 installed, the setup screen says so and reuses it.
 
 Choose a running device to watch it, or choose **Start** next to a stopped
 device to boot it. The panel shows when you or an agent starts a device.
-Each device opens in its own tab. Use **+ → Device** to select another simulator or emulator.
+Each device opens in its own tab. Use **+ → Device** to open another, and
+double-click a tab name or choose **Rename** from its context menu to rename it.
 Only the visible tab streams video; switching tabs keeps both devices running.
 Choose **Float device over chat** in the toolbar to keep watching and tapping the
 device in a small window while the right panel shows something else; drag the
@@ -32,11 +32,6 @@ and Command-line Tools (latest), plus a virtual device created in Android
 Studio's Device Manager. T3 Code detects standard SDK locations; set
 `ANDROID_HOME` for a custom location. The panel explains missing dependencies.
 After installing them, restart the environment server and refresh devices.
-
-On Linux and Windows, device discovery checks Android only. Linux emulators
-need access to `/dev/kvm` for hardware acceleration. If your account already
-belongs to the `kvm` group but the server started before that membership took
-effect, T3 Code activates it for the device helper when possible.
 
 The screen is interactive: click and drag to touch, type while the screen is
 focused, and use the toolbar for Home, Back, and Recents on Android, rotate on
@@ -57,18 +52,24 @@ back from the device after a change.
 
 ## Agents and devices
 
-When an agent opens a device, it opens a Device tab in web and desktop clients
-connected to the thread. Use **Float device over chat** to watch it alongside
-other panels. Browser floating-preview preferences remain independent.
-Mobile clients show device activity in the thread
-timeline. Agents drive the device through the `agent-device` command line. T3
+When an agent opens a device, it opens a Device tab in connected web and desktop clients.
+Use **Float device over chat** to watch it alongside other panels. Browser floating-preview
+preferences remain independent, so a browser and device can float at the same time.
+In the mobile app, open the agent's thread and tap the
+device button above the composer to watch the live screen and control it.
+If the thread has several devices open, choose one in the viewer. Closing the
+viewer stops streaming and leaves the device available to the agent. Device
+activity also appears in the thread timeline.
+
+Agents drive the device through the `agent-device` command line. T3
 Code installs and starts it only after **Agent device access** is enabled. iOS
 taps build a small test runner on first use, which takes a couple of minutes
 once per server. Restart an existing agent session after granting access so it
 receives the device CLI environment.
 
 To keep agents away from simulators, turn off **Agent device access** in
-**Settings → Integrations → Devices**. This denies agent device operations; your own Device panel is unaffected.
+**Settings → Integrations → Devices**. This hides the device tools from agents
+started from then on; your own Device panel is unaffected.
 
 ## Remote connections
 
@@ -79,14 +80,16 @@ still-image stream and Android cannot show video.
 
 ## SSH device hosts
 
-In Settings → Integrations → Devices, select one connected environment
-and add a host under **Device hosts**. Enter an SSH alias or `user@host`, with
+In Settings → Integrations → Devices, choose the environments that should use
+the host and add it under **Device hosts**. Enter an SSH alias or `user@host`, with
 an optional identity file and port. These resolve on the environment server,
 so use the SSH configuration and keys available there. Password prompts are
 not supported.
 
 **Test connection** checks SSH, Node, npm, and platform tools without installing
-anything. The first device listing installs pinned device tools on the host.
+anything, with a result for each selected environment. Targets that resolve to
+the environment’s own machine are skipped, since its devices are already local.
+The first device listing installs pinned device tools on the host.
 Node 22 or newer and npm must be available to non-interactive SSH commands.
 T3 checks common Homebrew and Android SDK locations; custom installations need
 the appropriate PATH and ANDROID_HOME on the host.

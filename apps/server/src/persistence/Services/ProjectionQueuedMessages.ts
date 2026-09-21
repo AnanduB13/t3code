@@ -3,6 +3,7 @@ import {
   IsoDateTime,
   MessageId,
   ModelSelection,
+  OrchestrationMessageContext,
   OrchestrationProposedPlanId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -16,6 +17,7 @@ export const ProjectionQueuedMessage = Schema.Struct({
   messageId: MessageId,
   threadId: ThreadId,
   text: Schema.String,
+  context: Schema.optional(OrchestrationMessageContext),
   attachments: Schema.Array(ChatAttachment),
   modelSelection: Schema.NullOr(ModelSelection),
   sourceProposedPlanThreadId: Schema.NullOr(ThreadId),

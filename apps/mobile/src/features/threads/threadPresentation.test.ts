@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { resolveThreadStatus } from "./threadPresentation";
 
 const completedThread: EnvironmentThreadShell = {
+  pullRequests: [],
   environmentId: EnvironmentId.make("environment-1"),
   id: ThreadId.make("thread-1"),
   projectId: ProjectId.make("project-1"),

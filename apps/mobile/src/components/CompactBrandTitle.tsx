@@ -8,7 +8,6 @@ import { AppText as Text } from "./AppText";
 import { T3Wordmark } from "./T3Wordmark";
 import { IPAD_HOME_TITLE_OFFSET } from "../lib/layoutMetrics";
 import { MOBILE_EDITION_LABEL } from "../lib/mobileBranding";
-import { useThemeColor } from "../lib/useThemeColor";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../native/native-glass";
 
 // Native leading items inherit different UIKit margins than title views.
@@ -33,11 +32,9 @@ export function brandTitleOffset(nativeLeadingItem = false): number {
 export function CompactBrandTitle(
   props: {
     readonly nativeLeadingItem?: boolean;
+    readonly allowFontScaling?: boolean;
   } = {},
 ) {
-  const iconColor = useThemeColor("--color-icon");
-  const mutedColor = useThemeColor("--color-foreground-muted");
-  const subtleColor = useThemeColor("--color-subtle");
   const titleOffset = brandTitleOffset(props.nativeLeadingItem === true);
 
   return (
@@ -53,10 +50,11 @@ export function CompactBrandTitle(
         marginLeft: titleOffset,
       }}
     >
-      <T3Wordmark color={iconColor} height={15} />
+      <T3Wordmark colorClassName="text-icon" height={15} />
       <Text
+        className="text-foreground-muted"
+        allowFontScaling={props.allowFontScaling}
         style={{
-          color: mutedColor,
           fontFamily: "DMSans-Medium",
           fontSize: 21,
           letterSpacing: -0.5,
@@ -65,16 +63,17 @@ export function CompactBrandTitle(
         Code
       </Text>
       <View
+        className="bg-subtle"
         style={{
-          backgroundColor: subtleColor,
           borderRadius: 999,
           paddingHorizontal: 6,
           paddingVertical: 2,
         }}
       >
         <Text
+          className="text-foreground-muted"
+          allowFontScaling={props.allowFontScaling}
           style={{
-            color: mutedColor,
             fontFamily: "DMSans-Bold",
             fontSize: 9,
             letterSpacing: 0.9,

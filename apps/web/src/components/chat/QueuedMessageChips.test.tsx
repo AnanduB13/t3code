@@ -63,7 +63,6 @@ describe("QueuedMessageChips", () => {
 
     expect(markup).toContain("image-1.png, image-2.png");
     expect(markup).toContain('src="https://assets.example.test/attachment-1.png"');
-    expect(markup).toContain('title="image-2.png"');
   });
 
   it("shows queued image attachments alongside prompt text", () => {

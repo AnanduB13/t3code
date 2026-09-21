@@ -15,7 +15,11 @@ import { AsyncResult } from "effect/unstable/reactivity";
 
 import { threadEnvironment } from "../../state/threads";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
-import { prepareTurnAttachments, validateDraftFileAttachments } from "../../lib/attachmentUpload";
+import {
+  prepareTurnAttachments,
+  releasePendingAttachmentUploads,
+  validateDraftFileAttachments,
+} from "../../lib/attachmentUpload";
 import { makeTurnCommandMetadata, type TurnCommandMetadata } from "../../lib/commandMetadata";
 import { buildProjectThreadStartTurnInput } from "../../lib/projectThreadStartTurn";
 import { randomHex } from "../../lib/uuid";
@@ -85,8 +89,8 @@ export function useCreateProjectThread() {
         // If persisting the references into the draft throws, the owner call
         // deletes the pending uploads it minted before rethrowing.
         prepared = await prepareTurnAttachments({
-          environmentId: input.project.environmentId,
           attachments: input.initialAttachments,
+          environmentId: input.project.environmentId,
           supportsImageUploads:
             appAtomRegistry.get(serverEnvironment.configValueAtom(input.project.environmentId))
               ?.environment.capabilities.attachmentUploads === true,
@@ -138,7 +142,6 @@ export function useCreateProjectThread() {
           messageId: metadata.messageId,
           createdAt: metadata.createdAt,
           text: initialMessageText,
-          attachments: input.initialAttachments,
           uploadedAttachments: prepared.attachments,
           modelSelection: input.modelSelection,
           runtimeMode: input.runtimeMode,
@@ -159,7 +162,10 @@ export function useCreateProjectThread() {
       }
       // The started turn holds its own copy of the bytes; a failed delete is
       // surfaced without failing the started task.
-      await prepared.releaseUploads().catch((error) => {
+      await releasePendingAttachmentUploads(
+        input.project.environmentId,
+        prepared.pendingAttachmentIds,
+      ).catch((error) => {
         console.warn("[project-thread] could not delete consumed pending uploads", error);
       });
       setPendingConnectionError(null);

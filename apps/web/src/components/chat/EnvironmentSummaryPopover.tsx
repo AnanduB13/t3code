@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { DiscoveredLocalServer, ScopedThreadRef, VcsStatusResult } from "@t3tools/contracts";
 import type { ElementType } from "react";
 import {
@@ -8,7 +9,6 @@ import {
   FolderGit2Icon,
   GitBranchIcon,
   GitCommitIcon,
-  GitPullRequestIcon,
   LaptopIcon,
   ListTreeIcon,
   RadioTowerIcon,
@@ -240,7 +240,7 @@ export function EnvironmentSummaryWidget({
                 />
                 {openPullRequest ? (
                   <SummaryRow
-                    icon={GitPullRequestIcon}
+                    icon={PullRequestGlyph.pullRequest}
                     label={`#${openPullRequest.number} ${openPullRequest.title}`}
                     detail={`${openPullRequest.headRef} → ${openPullRequest.baseRef}`}
                     trailing="Open"

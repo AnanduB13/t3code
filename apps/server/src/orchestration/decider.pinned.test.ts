@@ -36,6 +36,7 @@ function makeReadModel(input: {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
+        pullRequests: [],
         latestTurn: null,
         createdAt: NOW,
         updatedAt: NOW,
@@ -189,7 +190,9 @@ it.layer(NodeServices.layer)("pinned thread decider", (it) => {
       Effect.gen(function* () {
         const event = yield* decideOrchestrationCommand({
           command: {
-            type,
+            ...(type === "thread.auto-settle"
+              ? { type, settledAt: NOW, snapshotSequence: 0 }
+              : { type }),
             commandId: CommandId.make("cmd-settle-pinned"),
             threadId: ThreadId.make("thread-1"),
           },

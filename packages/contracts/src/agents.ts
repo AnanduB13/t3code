@@ -137,11 +137,8 @@ export const HermesDeleteSessionResult = Schema.Struct({
   deleted: Schema.Boolean,
 });
 
-export class HermesAgentError extends Schema.TaggedErrorClass<HermesAgentError>()(
-  "HermesAgentError",
-  {
-    operation: Schema.String,
-    message: Schema.String,
-    status: Schema.optional(Schema.Number),
-  },
-) {}
+export class HermesAgentError extends Schema.TaggedError<HermesAgentError>()("HermesAgentError", {
+  operation: Schema.String,
+  message: Schema.String,
+  status: Schema.optional(Schema.Number),
+}) {}

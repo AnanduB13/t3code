@@ -258,12 +258,7 @@ export function ActivityCenter() {
                         {entry.thread.projectId === GENERAL_CHATS_PROJECT_ID ? (
                           <MessageSquareIcon className="size-3.5 text-icon-muted" />
                         ) : project ? (
-                          <ProjectFavicon
-                            environmentId={project.environmentId}
-                            cwd={project.workspaceRoot}
-                            faviconPath={project.faviconPath}
-                            className="size-4"
-                          />
+                          <ProjectFavicon project={project} className="size-4" />
                         ) : (
                           <FolderIcon className="size-3.5 text-icon-muted" />
                         )}

@@ -150,26 +150,27 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                           >
                             {queuedMessage.attachments.slice(0, 3).map((attachment) => {
                               const attachmentUrl = attachmentUrlById?.get(attachment.id);
-                              return attachment.type === "image" && attachmentUrl ? (
-                                <img
-                                  key={attachment.id}
-                                  src={attachmentUrl}
-                                  alt=""
-                                  title={attachment.name}
-                                  className="size-6 rounded-md border border-border/80 bg-muted object-cover"
-                                />
-                              ) : (
-                                <span
-                                  key={attachment.id}
-                                  title={attachment.name}
-                                  className="flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-muted-foreground"
-                                >
-                                  {attachment.type === "pdf" ? (
-                                    <FileTextIcon className="size-3.5" />
-                                  ) : (
-                                    <ImageIcon className="size-3.5" />
-                                  )}
-                                </span>
+                              return (
+                                <Tooltip key={attachment.id}>
+                                  <TooltipTrigger render={<span className="inline-flex" />}>
+                                    {attachment.type === "image" && attachmentUrl ? (
+                                      <img
+                                        src={attachmentUrl}
+                                        alt=""
+                                        className="size-6 rounded-md border border-border/80 bg-muted object-cover"
+                                      />
+                                    ) : (
+                                      <span className="flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-muted-foreground">
+                                        {attachment.type === "pdf" ? (
+                                          <FileTextIcon className="size-3.5" />
+                                        ) : (
+                                          <ImageIcon className="size-3.5" />
+                                        )}
+                                      </span>
+                                    )}
+                                  </TooltipTrigger>
+                                  <TooltipPopup>{attachment.name}</TooltipPopup>
+                                </Tooltip>
                               );
                             })}
                             {queuedMessage.attachments.length > 3 ? (

@@ -1,6 +1,7 @@
 import {
   ClientOrchestrationCommand,
   CommandId,
+  ComposerContextId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
@@ -167,6 +168,135 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
         "thread.message-sent",
         "thread.turn-start-requested",
       ]);
+    }),
+  );
+
+  it.effect(
+    "explicit steering starts immediately without consuming previously queued prompts",
+    () =>
+      Effect.gen(function* () {
+        let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({ command: turnStartCommand("waiting"), readModel }),
+        );
+        const projected = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({
+            command: { ...turnStartCommand("steer-now"), followUpBehavior: "steer" },
+            readModel,
+          }),
+        );
+        const thread = projected.threads.find((entry) => entry.id === THREAD_ID)!;
+        expect(thread.queuedMessages.map((message) => message.messageId)).toEqual([
+          asMessageId("message-waiting"),
+        ]);
+        expect(thread.messages.at(-1)?.text).toBe("Follow up steer-now");
+        expect(thread.pendingTurnStart?.messageId).toBe(asMessageId("message-steer-now"));
+      }),
+  );
+
+  it.effect("keeps rich context through queue persistence and multi-prompt steering", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      const records = [
+        {
+          version: 1 as const,
+          contextId: ComposerContextId.make("first"),
+          kind: "mention" as const,
+          label: "@a.ts",
+          path: "a.ts",
+        },
+        {
+          version: 1 as const,
+          contextId: ComposerContextId.make("second"),
+          kind: "skill" as const,
+          label: "$review",
+          name: "review",
+        },
+      ];
+      for (const [index, suffix] of ["first", "second"].entries()) {
+        const command = turnStartCommand(suffix);
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({
+            command: {
+              ...command,
+              message: { ...command.message, context: { version: 1, records: [records[index]!] } },
+            },
+            readModel,
+          }),
+        );
+      }
+      const thread = readModel.threads.find((entry) => entry.id === THREAD_ID)!;
+      expect(thread.queuedMessages.flatMap((message) => message.context?.records ?? [])).toEqual(
+        records,
+      );
+      const projected = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.queue.steer",
+            commandId: asCommandId("context-steer"),
+            threadId: THREAD_ID,
+            messageId: asMessageId("message-second"),
+            messageIds: [asMessageId("message-second"), asMessageId("message-first")],
+            createdAt: NOW,
+          },
+          readModel,
+        }),
+      );
+      expect(
+        projected.threads.find((entry) => entry.id === THREAD_ID)?.messages.at(-1)?.context,
+      ).toEqual({ version: 1, records });
+    }),
+  );
+
+  it.effect("rejects conflicting context IDs without dropping either queued prompt", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const suffix of ["first", "second"]) {
+        const command = turnStartCommand(suffix);
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({
+            command: {
+              ...command,
+              message: {
+                ...command.message,
+                context: {
+                  version: 1,
+                  records: [
+                    {
+                      version: 1,
+                      contextId: ComposerContextId.make("same-id"),
+                      kind: "mention",
+                      label: suffix,
+                      path: `${suffix}.ts`,
+                    },
+                  ],
+                },
+              },
+            },
+            readModel,
+          }),
+        );
+      }
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.queue.steer",
+          commandId: asCommandId("conflicting-context"),
+          threadId: THREAD_ID,
+          messageId: asMessageId("message-second"),
+          messageIds: [asMessageId("message-first"), asMessageId("message-second")],
+          createdAt: NOW,
+        },
+        readModel,
+      }).pipe(Effect.flip);
+      expect(error.message).toContain("conflicting context");
+      expect(
+        readModel.threads.find((entry) => entry.id === THREAD_ID)?.queuedMessages,
+      ).toHaveLength(2);
     }),
   );
 

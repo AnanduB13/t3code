@@ -1,3 +1,4 @@
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
@@ -72,39 +73,45 @@ export function ComposerWeeklyUsage(props: {
     remaining <= 10 ? "bg-destructive" : remaining <= 25 ? "bg-amber-500" : "bg-primary/80";
 
   return (
-    <div
-      className="hidden min-w-0 md:block md:justify-self-center"
-      data-chat-composer-weekly-usage="true"
-      title={`${provider.displayName} weekly usage: ${remaining}% remaining${resetLabel ? `, ${resetLabel}` : ""}`}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="flex min-w-0 shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground/75">
-          <span className="size-1.5 rounded-full bg-primary/70" aria-hidden="true" />
-          <span className="max-w-16 truncate">{provider.displayName}</span>
-        </div>
-        <div
-          className="h-1 w-[clamp(3.5rem,10vw,7.5rem)] shrink-0 overflow-hidden rounded-full bg-muted/80"
-          role="progressbar"
-          aria-label={`${provider.displayName} weekly usage remaining`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={remaining}
-        >
+    <Tooltip>
+      <TooltipTrigger
+        render={
           <div
-            className={cn("h-full rounded-full transition-[width] duration-500", barTone)}
-            style={{ width: `${weekly.remainingPercent}%` }}
+            className="hidden min-w-0 md:block md:justify-self-center"
+            data-chat-composer-weekly-usage="true"
           />
-        </div>
-        <span className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground/75">
-          {remaining}%
-        </span>
-        {resetLabel ? (
-          <span className="hidden shrink-0 items-center gap-1 text-[10px] text-muted-foreground/55 xl:flex">
-            <Clock3Icon className="size-2.5" />
-            {resetLabel}
+        }
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground/75">
+            <span className="size-1.5 rounded-full bg-primary/70" aria-hidden="true" />
+            <span className="max-w-16 truncate">{provider.displayName}</span>
+          </div>
+          <div
+            className="h-1 w-[clamp(3.5rem,10vw,7.5rem)] shrink-0 overflow-hidden rounded-full bg-muted/80"
+            role="progressbar"
+            aria-label={`${provider.displayName} weekly usage remaining`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={remaining}
+          >
+            <div
+              className={cn("h-full rounded-full transition-[width] duration-500", barTone)}
+              style={{ width: `${weekly.remainingPercent}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground/75">
+            {remaining}%
           </span>
-        ) : null}
-      </div>
-    </div>
+          {resetLabel ? (
+            <span className="hidden shrink-0 items-center gap-1 text-[10px] text-muted-foreground/55 xl:flex">
+              <Clock3Icon className="size-2.5" />
+              {resetLabel}
+            </span>
+          ) : null}
+        </div>
+      </TooltipTrigger>
+      <TooltipPopup>{`${provider.displayName} weekly usage: ${remaining}% remaining${resetLabel ? `, ${resetLabel}` : ""}`}</TooltipPopup>
+    </Tooltip>
   );
 }

@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
-import { ChatAttachment, ModelSelection } from "@t3tools/contracts";
+import { ChatAttachment, ModelSelection, OrchestrationMessageContext } from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -20,6 +20,7 @@ import {
 
 const ProjectionQueuedMessageDbRowSchema = ProjectionQueuedMessage.mapFields(
   Struct.assign({
+    context: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageContext)),
     attachments: Schema.fromJsonString(Schema.Array(ChatAttachment)),
     modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   }),
@@ -39,6 +40,7 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         thread_id,
         text,
         attachments_json,
+        context_json,
         model_selection_json,
         source_proposed_plan_thread_id,
         source_proposed_plan_id,
@@ -50,6 +52,7 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         ${row.threadId},
         ${row.text},
         ${JSON.stringify(row.attachments)},
+        ${row.context !== undefined ? JSON.stringify(row.context) : null},
         ${row.modelSelection !== null ? JSON.stringify(row.modelSelection) : null},
         ${row.sourceProposedPlanThreadId},
         ${row.sourceProposedPlanId},
@@ -72,6 +75,7 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         thread_id AS "threadId",
         text,
         attachments_json AS "attachments",
+        context_json AS "context",
         model_selection_json AS "modelSelection",
         source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
         source_proposed_plan_id AS "sourceProposedPlanId",
@@ -127,6 +131,12 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
 
   const listByThreadId: ProjectionQueuedMessageRepositoryShape["listByThreadId"] = (input) =>
     listProjectionQueuedMessageRows(input).pipe(
+      Effect.map((rows) =>
+        rows.map(({ context, ...row }) => ({
+          ...row,
+          ...(context === null ? {} : { context }),
+        })),
+      ),
       Effect.mapError(
         toPersistenceSqlError("ProjectionQueuedMessageRepository.listByThreadId:query"),
       ),

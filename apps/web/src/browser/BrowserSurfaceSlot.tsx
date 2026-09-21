@@ -8,6 +8,7 @@ export function BrowserSurfaceSlot(props: {
   readonly tabId: string;
   readonly visible: boolean;
   readonly cornerRadius?: number;
+  readonly zIndex?: number;
   readonly layoutVersion?: string | number;
   readonly className?: string;
   readonly fitSourceContent?: boolean;
@@ -17,13 +18,14 @@ export function BrowserSurfaceSlot(props: {
     tabId,
     visible,
     cornerRadius = 0,
+    zIndex = 30,
     layoutVersion,
     className,
     fitSourceContent = false,
     interactive = true,
   } = props;
   const elementRef = useRef<HTMLDivElement | null>(null);
-  const presentationRef = useRef({ visible, cornerRadius, interactive });
+  const presentationRef = useRef({ visible, cornerRadius, zIndex, interactive });
   const updateRef = useRef<(() => void) | null>(null);
 
   useLayoutEffect(() => {
@@ -43,6 +45,7 @@ export function BrowserSurfaceSlot(props: {
         presentation.visible && rect.width > 0 && rect.height > 0,
         presentation.cornerRadius,
         presentation.interactive,
+        presentation.zIndex,
       );
       if (presentation.visible && !presented) {
         lease.release();
@@ -57,6 +60,7 @@ export function BrowserSurfaceSlot(props: {
           rect.width > 0 && rect.height > 0,
           presentation.cornerRadius,
           presentation.interactive,
+          presentation.zIndex,
         );
       }
     };
@@ -64,6 +68,10 @@ export function BrowserSurfaceSlot(props: {
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
+    // Inline panels animate their outer width while keeping the content at
+    // full width. The slot moves without resizing, so measure on shell resizes too.
+    const panel = element.closest('[data-preview-panel-mode="inline"]');
+    if (panel) observer.observe(panel);
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     return () => {
@@ -76,9 +84,9 @@ export function BrowserSurfaceSlot(props: {
   }, [fitSourceContent, tabId]);
 
   useLayoutEffect(() => {
-    presentationRef.current = { visible, cornerRadius, interactive };
+    presentationRef.current = { visible, cornerRadius, zIndex, interactive };
     updateRef.current?.();
-  }, [cornerRadius, interactive, layoutVersion, visible]);
+  }, [cornerRadius, interactive, layoutVersion, visible, zIndex]);
 
   return <div ref={elementRef} className={className} data-browser-surface-slot={tabId} />;
 }
