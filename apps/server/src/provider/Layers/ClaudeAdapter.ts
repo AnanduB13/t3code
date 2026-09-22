@@ -150,6 +150,7 @@ interface ClaudeTurnState {
   readonly items: Array<unknown>;
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
+  assistantSnapshotBlockOffset: number;
   readonly capturedProposedPlanKeys: Set<string>;
   latestAssistantUsage: unknown | undefined;
   compactedSinceLatestAssistantUsage: boolean;
@@ -297,7 +298,7 @@ interface ClaudeSessionContext {
     id: TurnId;
     items: Array<unknown>;
   }>;
-  readonly inFlightTools: Map<number, ToolInFlight>;
+  readonly inFlightTools: Map<string, ToolInFlight>;
   readonly claudeTasks: Map<string, ClaudeTaskState>;
   readonly taskAgents: Map<string, ClaudeTaskAgentState>;
   /**
@@ -1999,10 +2000,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
-    const orderedBlocks = turnState.assistantTextBlockOrder.map((block) => ({
-      blockIndex: block.blockIndex,
-      block,
-    }));
+    const orderedBlocks = turnState.assistantTextBlockOrder
+      .slice(turnState.assistantSnapshotBlockOffset)
+      .map((block) => ({
+        blockIndex: block.blockIndex,
+        block,
+      }));
 
     for (const [position, text] of snapshotTextBlocks.entries()) {
       const existingEntry = orderedBlocks[position];
@@ -2032,6 +2035,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
       }
     }
+    // Each SDK assistant snapshot describes one API message, not the whole turn.
+    turnState.assistantSnapshotBlockOffset = turnState.assistantTextBlockOrder.length;
   });
 
   const ensureThreadId = Effect.fn("ensureThreadId")(function* (
@@ -2325,6 +2330,22 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         : undefined);
 
     const turnState = context.turnState;
+    // SDK results end an individual agent-loop response. A parent awaiting
+    // subagents continues on their notifications, within the same user turn.
+    // Background shells and detached workflows may intentionally outlive it.
+    if (result && turnState && status === "completed") {
+      const awaitingSubagents = Array.from(context.liveTaskIds).some((taskId) => {
+        const task = context.taskAgents.get(taskId);
+        return task?.taskType === "local_agent" && !task.owningAgentId && !task.skipTranscript;
+      });
+      if (awaitingSubagents) {
+        yield* emitThreadTokenUsage(context, usageSnapshot, {
+          rawMethod: "claude/result",
+          rawPayload: result,
+        });
+        return;
+      }
+    }
     if (!turnState) {
       yield* emitThreadTokenUsage(context, usageSnapshot, {
         rawMethod: "claude/result",
@@ -2474,6 +2495,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
     }
 
+    const toolBlockKey = (index: number) =>
+      `${streamParentToolUseId == null ? "root" : `agent:${streamParentToolUseId}`}:${index}`;
+
+    if (event.type === "message_start" && streamParentToolUseId == null && context.turnState) {
+      context.turnState.assistantSnapshotBlockOffset =
+        context.turnState.assistantTextBlockOrder.length;
+    }
+
     if (event.type === "message_delta") {
       if (message.parent_tool_use_id !== null && message.parent_tool_use_id !== undefined) {
         return;
@@ -2548,7 +2577,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
 
       if (event.delta.type === "input_json_delta") {
-        const tool = context.inFlightTools.get(event.index);
+        const tool = context.inFlightTools.get(toolBlockKey(event.index));
         if (!tool || typeof event.delta.partial_json !== "string") {
           return;
         }
@@ -2572,7 +2601,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           parsedInput && Object.keys(parsedInput).length > 0
             ? toolInputFingerprint(parsedInput)
             : undefined;
-        context.inFlightTools.set(event.index, nextTool);
+        context.inFlightTools.set(toolBlockKey(event.index), nextTool);
 
         if (
           !parsedInput ||
@@ -2586,7 +2615,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ...nextTool,
           lastEmittedInputFingerprint: nextFingerprint,
         };
-        context.inFlightTools.set(event.index, nextTool);
+        context.inFlightTools.set(toolBlockKey(event.index), nextTool);
 
         const stamp = yield* makeEventStamp();
         yield* offerRuntimeEvent({
@@ -2697,7 +2726,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(owningAgentId ? { agentId: owningAgentId } : {}),
         ...(parentToolUseId ? { parentToolUseId } : {}),
       };
-      context.inFlightTools.set(index, tool);
+      context.inFlightTools.set(toolBlockKey(index), tool);
 
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -2734,7 +2763,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     if (event.type === "content_block_stop") {
       const { index } = event;
-      const assistantBlock = context.turnState?.assistantTextBlocks.get(index);
+      const assistantBlock =
+        streamParentToolUseId == null
+          ? context.turnState?.assistantTextBlocks.get(index)
+          : undefined;
       if (assistantBlock) {
         assistantBlock.streamClosed = true;
         yield* completeAssistantTextBlock(context, assistantBlock, {
@@ -2743,7 +2775,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
         return;
       }
-      const tool = context.inFlightTools.get(index);
+      const tool = context.inFlightTools.get(toolBlockKey(index));
       if (!tool) {
         return;
       }
@@ -2963,6 +2995,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         items: [],
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
+        assistantSnapshotBlockOffset: 0,
         capturedProposedPlanKeys: new Set(),
         latestAssistantUsage: undefined,
         compactedSinceLatestAssistantUsage: false,
@@ -3897,7 +3930,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
       const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
-      const inFlightTools = new Map<number, ToolInFlight>();
+      const inFlightTools = new Map<string, ToolInFlight>();
       const claudeTasks = new Map<string, ClaudeTaskState>();
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
       const pendingTaskModels = new Map<string, string>();
@@ -4633,6 +4666,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         items: [],
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
+        assistantSnapshotBlockOffset: 0,
         capturedProposedPlanKeys: new Set(),
         latestAssistantUsage: undefined,
         compactedSinceLatestAssistantUsage: false,

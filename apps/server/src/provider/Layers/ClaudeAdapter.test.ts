@@ -3426,6 +3426,259 @@ describe("ClaudeAdapterLive", () => {
     },
   );
 
+  it.effect("keeps subagent continuations in one turn until the parent finishes", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil(
+          (event) => event.type === "task.progress" && event.payload.description === "barrier",
+        ),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      const turn = yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "Delegate and report",
+        attachments: [],
+      });
+      const emit = (message: Record<string, unknown>) =>
+        harness.query.emit({
+          session_id: "sdk-lifecycle",
+          uuid: "event",
+          ...message,
+        } as unknown as SDKMessage);
+      const reply = (text: string) => {
+        emit({
+          type: "assistant",
+          parent_tool_use_id: null,
+          message: { id: text, content: [{ type: "text", text }] },
+        });
+        emit({ type: "result", subtype: "success", is_error: false, errors: [] });
+      };
+      for (const taskId of ["agent-a", "agent-b"]) {
+        emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: taskId,
+          task_type: "local_agent",
+          description: taskId,
+        });
+      }
+      reply("Working on it");
+      emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "agent-a",
+        status: "completed",
+        summary: "done",
+      });
+      reply("One agent finished");
+      emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "agent-b",
+        status: "completed",
+        summary: "done",
+      });
+      reply("Final answer");
+      emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "barrier",
+        description: "barrier",
+      });
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      assert.equal(events.filter((event) => event.type === "turn.started").length, 1);
+      assert.equal(events.filter((event) => event.type === "turn.completed").length, 1);
+      const deltas = events.filter((event) => event.type === "content.delta");
+      assert.deepEqual(
+        deltas.map((event) => event.payload.delta),
+        ["Working on it", "One agent finished", "Final answer"],
+      );
+      assert.ok(deltas.every((event) => event.turnId === turn.turnId));
+      assert.equal(new Set(deltas.map((event) => event.itemId)).size, 3);
+      assert.ok(
+        events.findIndex((event) => event.type === "turn.completed") >
+          events.findLastIndex((event) => event.type === "content.delta"),
+      );
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  for (const scenario of [
+    { taskType: "local_bash", subtype: "success", errors: [], expected: "completed" },
+    {
+      taskType: "local_agent",
+      subtype: "error_during_execution",
+      errors: ["Request was aborted."],
+      expected: "interrupted",
+    },
+    {
+      taskType: "local_agent",
+      subtype: "error_during_execution",
+      errors: ["Provider failed"],
+      expected: "failed",
+    },
+  ]) {
+    it.effect(`settles ${scenario.expected} results with a live ${scenario.taskType}`, () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const eventsFiber = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil(
+            (event) => event.type === "task.progress" && event.payload.description === "barrier",
+          ),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({ threadId: THREAD_ID, input: "hello", attachments: [] });
+        const emit = (message: Record<string, unknown>) =>
+          harness.query.emit({
+            session_id: "sdk-settle",
+            uuid: "event",
+            ...message,
+          } as unknown as SDKMessage);
+        emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "live",
+          task_type: scenario.taskType,
+          description: "Task",
+        });
+        emit({
+          type: "result",
+          subtype: scenario.subtype,
+          is_error: scenario.expected === "failed",
+          errors: scenario.errors,
+        });
+        emit({
+          type: "system",
+          subtype: "task_progress",
+          task_id: "barrier",
+          description: "barrier",
+        });
+        const events = Array.from(yield* Fiber.join(eventsFiber));
+        const completed = events.filter((event) => event.type === "turn.completed");
+        assert.equal(completed.length, 1);
+        assert.equal(completed[0]?.payload.state, scenario.expected);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+  }
+
+  it.effect("isolates parent text and tool blocks from subagent block indexes", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "hello", attachments: [] });
+      const stream = (parent: string | null, event: Record<string, unknown>) =>
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-isolation",
+          uuid: "stream",
+          parent_tool_use_id: parent,
+          event,
+        } as unknown as SDKMessage);
+      stream(null, {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text", text: "" },
+      });
+      stream(null, {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Hello " },
+      });
+      stream("child", { type: "content_block_stop", index: 0 });
+      stream(null, {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "world" },
+      });
+      stream(null, { type: "content_block_stop", index: 0 });
+      for (const parent of [null, "child"]) {
+        stream(parent, {
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "tool_use", id: parent ?? "parent", name: "Bash", input: {} },
+        });
+      }
+      for (const parent of [null, "child"]) {
+        stream(parent, {
+          type: "content_block_delta",
+          index: 1,
+          delta: {
+            type: "input_json_delta",
+            partial_json: parent === null ? '{"command":"parent"}' : '{"command":"child"}',
+          },
+        });
+        stream(parent, { type: "content_block_stop", index: 1 });
+      }
+      for (const text of ["Hello world", "Final answer"]) {
+        harness.query.emit({
+          type: "assistant",
+          session_id: "sdk-isolation",
+          uuid: text,
+          parent_tool_use_id: null,
+          message: { id: text, content: [{ type: "text", text }] },
+        } as unknown as SDKMessage);
+      }
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        session_id: "sdk-isolation",
+        uuid: "result",
+        is_error: false,
+        errors: [],
+      } as unknown as SDKMessage);
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      const deltas = events.filter((event) => event.type === "content.delta");
+      assert.deepEqual(
+        deltas.map((event) => event.payload.delta),
+        ["Hello ", "world", "Final answer"],
+      );
+      assert.notEqual(deltas[0]?.itemId, deltas[2]?.itemId);
+      assert.equal(deltas[0]?.itemId, deltas[1]?.itemId);
+      const tools = events.filter(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "command_execution",
+      );
+      assert.equal(tools.length, 2);
+      assert.deepEqual(
+        new Set(tools.map((event) => String(event.itemId))),
+        new Set(["parent", "child"]),
+      );
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("creates a fresh assistant message when Claude reuses a text block index", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

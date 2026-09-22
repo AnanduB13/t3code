@@ -46,6 +46,13 @@ offers to compact the conversation before you continue. You can also select **Co
 from the context meter. On every client, you can enter `/compact` in the message composer, and
 Claude can show its own resume prompt when you continue an old session.
 
+## Responses With Subagents
+
+When Claude delegates work to subagents, their progress and intermediate replies remain part of
+one response. The working timer continues from the original turn, and the completion notification
+arrives after the subagents finish and Claude finishes its response. Background shell commands
+can continue running after a response completes.
+
 ## Where Claude Skills Are Loaded
 
 T3 Code looks for Claude skills in the Claude config directory's `skills` folder and
