@@ -8,6 +8,8 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { resolveWorkEntryToolPresentation } from "@t3tools/client-runtime/work-log/presentation";
+import type { ChatMessage } from "./types";
+import { deriveMessagesTimelineRows } from "./components/chat/MessagesTimeline.logic";
 
 import {
   deriveActiveWorkStartedAt,
@@ -1979,6 +1981,41 @@ describe("deriveWorkLogEntries", () => {
 });
 
 describe("deriveTimelineEntries", () => {
+  it.each([false, true])(
+    "omits invisible provider messages from the timeline while streaming=%s",
+    (streaming) => {
+      const message = (id: string, role: string): ChatMessage => ({
+        id: MessageId.make(id),
+        // Model roles received from a newer server, outside this client's schema.
+        role: role as ChatMessage["role"],
+        text: id,
+        turnId: TurnId.make("turn-1"),
+        createdAt: "2026-09-22T10:00:00.000Z",
+        updatedAt: "2026-09-22T10:00:00.000Z",
+        streaming,
+      });
+      const messages = [
+        message("prompt", "user"),
+        ...Array.from({ length: 90 }, (_, index) => message(`reasoning-${index}`, "reasoning")),
+        message("internal", "system"),
+        message("future", "future-provider-role"),
+        message("answer", "assistant"),
+      ];
+      const entries = deriveTimelineEntries(messages, [], []);
+      const rows = deriveMessagesTimelineRows({
+        timelineEntries: entries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaryByAssistantMessageId: new Map(),
+        revertTurnCountByUserMessageId: new Map(),
+      });
+
+      expect(entries.map((entry) => entry.id)).toEqual(["prompt", "answer"]);
+      expect(rows.map((row) => row.id)).toEqual(["prompt", "answer"]);
+      expect(messages).toHaveLength(94);
+    },
+  );
+
   it("includes proposed plans alongside messages and work entries in chronological order", () => {
     const entries = deriveTimelineEntries(
       [
