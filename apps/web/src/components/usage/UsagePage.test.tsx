@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const testState = vi.hoisted(() => ({
   useUsage: vi.fn(),
-  metric: "cost" as "cost" | "tokens",
+  metric: "cost" as "cost" | "tokens" | "limits",
   breakdown: "model" as "model" | "day",
   windowSelection: 30 as number | "all",
 }));
@@ -35,6 +35,7 @@ vi.mock("../WorkspaceBreadcrumb", () => ({
   WorkspaceBreadcrumbItem: "div",
 }));
 vi.mock("./UsageProviderChart", () => ({ UsageProviderChart: "div" }));
+vi.mock("./UsageLimits", () => ({ UsageLimitsSection: () => <div>Account usage limits</div> }));
 
 import { UsagePage } from "./UsagePage";
 
@@ -141,6 +142,16 @@ describe("UsagePage restored dashboard", () => {
     expect(markup).toContain("90 days");
     expect(markup).toContain("All time");
     expect(markup).not.toContain("Past 24h");
+  });
+
+  it("restores account limits as a third usage view", () => {
+    testState.metric = "limits";
+
+    const markup = renderToStaticMarkup(<UsagePage />);
+
+    expect(markup).toContain("Account usage limits");
+    expect(markup).toContain(">limits</button>");
+    expect(markup).not.toContain("Token cost");
   });
 
   it("requests the complete history when all time is selected", () => {

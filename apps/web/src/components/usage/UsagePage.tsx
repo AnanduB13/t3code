@@ -20,6 +20,7 @@ import { SidebarInset } from "../ui/sidebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
+import { UsageLimitsSection } from "./UsageLimits";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
 import { describeUsageSources } from "./usageDeviceCoverage";
 
@@ -31,10 +32,12 @@ const WINDOW_OPTIONS = [
 ] as const;
 
 type UsageWindowSelection = (typeof WINDOW_OPTIONS)[number]["days"];
+type UsageMetric = UsageChartMetric | "limits";
 
 export function UsagePage() {
   const [windowSelection, setWindowSelection] = useState<UsageWindowSelection>(30);
-  const [metric, setMetric] = useState<UsageChartMetric>("cost");
+  const [metric, setMetric] = useState<UsageMetric>("cost");
+  const [limitsRefreshSignal, setLimitsRefreshSignal] = useState(0);
   const [breakdown, setBreakdown] = useState<"model" | "day">("model");
 
   // Recomputed only when the window length changes, so a re-render does not
@@ -44,6 +47,7 @@ export function UsagePage() {
     [windowSelection],
   );
   const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
+  const chartMetric: UsageChartMetric = metric === "limits" ? "cost" : metric;
 
   // Hold the content until every environment is terminal. Rendering merged
   // totals while devices are still answering makes every number on the page
@@ -62,9 +66,9 @@ export function UsagePage() {
   const orderedProviders = useMemo(
     () =>
       merged.providers.toSorted((a, b) =>
-        metric === "cost" ? b.costUsd - a.costUsd : b.totalTokens - a.totalTokens,
+        chartMetric === "cost" ? b.costUsd - a.costUsd : b.totalTokens - a.totalTokens,
       ),
-    [merged.providers, metric],
+    [chartMetric, merged.providers],
   );
 
   const activeDays = merged.daily.filter((day) => day.totalTokens > 0).length;
@@ -119,8 +123,9 @@ export function UsagePage() {
                       key={option.days}
                       type="button"
                       onClick={() => setWindowSelection(option.days)}
+                      disabled={metric === "limits"}
                       className={cn(
-                        "cursor-pointer px-3 py-1.5 text-xs",
+                        "cursor-pointer px-3 py-1.5 text-xs disabled:cursor-default disabled:opacity-40",
                         option.days === windowSelection
                           ? "bg-muted text-foreground"
                           : "text-muted-foreground hover:text-foreground",
@@ -132,8 +137,10 @@ export function UsagePage() {
                 </div>
                 <button
                   type="button"
-                  onClick={refresh}
-                  aria-label="Refresh usage"
+                  onClick={() =>
+                    metric === "limits" ? setLimitsRefreshSignal((signal) => signal + 1) : refresh()
+                  }
+                  aria-label={metric === "limits" ? "Refresh limits" : "Refresh usage"}
                   className="cursor-pointer rounded-md border border-border p-2 text-muted-foreground hover:text-foreground"
                 >
                   <RefreshCwIcon className="size-3.5" />
@@ -141,9 +148,9 @@ export function UsagePage() {
               </div>
             </div>
 
-            <UsageDeviceStrip environments={environments} />
+            {metric === "limits" ? null : <UsageDeviceStrip environments={environments} />}
 
-            {!settling ? (
+            {metric !== "limits" && !settling ? (
               <section className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-3">
                 <UsageOriginMetric
                   label="All device usage"
@@ -170,7 +177,17 @@ export function UsagePage() {
               </section>
             ) : null}
 
-            {settling ? (
+            {metric === "limits" ? (
+              <>
+                <div className="flex justify-end">
+                  <UsageMetricToggle metric={metric} onChange={setMetric} />
+                </div>
+                <UsageLimitsSection
+                  environments={environments}
+                  refreshSignal={limitsRefreshSignal}
+                />
+              </>
+            ) : settling ? (
               <UsageSkeleton />
             ) : (
               <>
@@ -187,14 +204,14 @@ export function UsagePage() {
                   <div className="flex flex-col gap-5">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs tracking-wide text-muted-foreground uppercase">
-                        {metric === "cost" ? "Token cost" : "Processed tokens"}
+                        {chartMetric === "cost" ? "Token cost" : "Processed tokens"}
                       </span>
                       <span className="text-4xl font-semibold text-foreground tabular-nums">
-                        {metric === "cost"
+                        {chartMetric === "cost"
                           ? formatUsd(merged.costUsd)
                           : formatTokens(merged.totalTokens)}
                       </span>
-                      {metric === "tokens" ? (
+                      {chartMetric === "tokens" ? (
                         <span className="text-xs text-muted-foreground">
                           {`Input, cache reads and output across ${formatCount(merged.sessions)} sessions.`}
                         </span>
@@ -202,7 +219,8 @@ export function UsagePage() {
                     </div>
 
                     {orderedProviders.map((provider) => {
-                      const share = metric === "cost" ? provider.costShare : provider.tokenShare;
+                      const share =
+                        chartMetric === "cost" ? provider.costShare : provider.tokenShare;
                       return (
                         <div key={provider.provider} className="flex flex-col gap-1.5">
                           <div className="flex items-baseline justify-between">
@@ -211,7 +229,7 @@ export function UsagePage() {
                               {PROVIDER_PRESENTATION[provider.provider].label}
                             </span>
                             <span className="text-sm text-foreground tabular-nums">
-                              {metric === "cost"
+                              {chartMetric === "cost"
                                 ? formatUsd(provider.costUsd)
                                 : formatTokens(provider.totalTokens)}
                             </span>
@@ -226,7 +244,7 @@ export function UsagePage() {
                             />
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            {metric === "cost"
+                            {chartMetric === "cost"
                               ? `${formatPercent(share)} of cost · ${formatTokens(provider.totalTokens)} tokens`
                               : `${formatPercent(share)} of tokens · ${formatUsd(provider.costUsd)}`}
                           </span>
@@ -238,26 +256,10 @@ export function UsagePage() {
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h2 className="text-sm font-medium text-foreground">
-                        Daily {metric === "tokens" ? "processed tokens" : "cost"}
+                        Daily {chartMetric === "tokens" ? "processed tokens" : "cost"}
                       </h2>
                       <div className="flex items-center gap-4">
-                        <div className="flex overflow-hidden rounded-md border border-border">
-                          {(["cost", "tokens"] as const).map((option) => (
-                            <button
-                              key={option}
-                              type="button"
-                              onClick={() => setMetric(option)}
-                              className={cn(
-                                "cursor-pointer px-2.5 py-1 text-[10px] tracking-wide uppercase",
-                                option === metric
-                                  ? "bg-muted text-foreground"
-                                  : "text-muted-foreground hover:text-foreground",
-                              )}
-                            >
-                              {option}
-                            </button>
-                          ))}
-                        </div>
+                        <UsageMetricToggle metric={metric} onChange={setMetric} />
                         <UsageChartLegend />
                       </div>
                     </div>
@@ -267,7 +269,7 @@ export function UsagePage() {
                       daily={merged.daily}
                       hours={[]}
                       hourly={[]}
-                      metric={metric}
+                      metric={chartMetric}
                       referenceTime={undefined}
                       resolution="day"
                       timeZone={window.timeZone}
@@ -450,6 +452,34 @@ function UsageChartLegend() {
           <ProviderMark provider={provider} className="size-3.5" />
           {PROVIDER_PRESENTATION[provider].label}
         </span>
+      ))}
+    </div>
+  );
+}
+
+function UsageMetricToggle({
+  metric,
+  onChange,
+}: {
+  readonly metric: UsageMetric;
+  readonly onChange: (metric: UsageMetric) => void;
+}) {
+  return (
+    <div className="flex overflow-hidden rounded-md border border-border">
+      {(["cost", "tokens", "limits"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={cn(
+            "cursor-pointer px-2.5 py-1 text-[10px] tracking-wide uppercase",
+            option === metric
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {option}
+        </button>
       ))}
     </div>
   );
