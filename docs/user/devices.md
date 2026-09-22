@@ -33,6 +33,11 @@ Studio's Device Manager. T3 Code detects standard SDK locations; set
 `ANDROID_HOME` for a custom location. The panel explains missing dependencies.
 After installing them, restart the environment server and refresh devices.
 
+On Linux and Windows, device discovery checks Android only. Linux emulators
+need access to `/dev/kvm` for hardware acceleration. If your account already
+belongs to the `kvm` group but the server started before that membership took
+effect, T3 Code activates it for the device helper when possible.
+
 The screen is interactive: click and drag to touch, type while the screen is
 focused, and use the toolbar for Home, Back, and Recents on Android, rotate on
 iOS, and power off. Close the tab to stop watching; the device keeps running

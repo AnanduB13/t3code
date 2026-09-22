@@ -2187,6 +2187,28 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          {...searchableSetting("cite-selected-text")}
+          description="Show the Cite button when you select text in an assistant response."
+          resetAction={
+            settings.citeSelectedText !== DEFAULT_UNIFIED_SETTINGS.citeSelectedText ? (
+              <SettingResetButton
+                label="cite selected text"
+                onClick={() =>
+                  updateSettings({ citeSelectedText: DEFAULT_UNIFIED_SETTINGS.citeSelectedText })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.citeSelectedText}
+              onCheckedChange={(checked) => updateSettings({ citeSelectedText: Boolean(checked) })}
+              aria-label="Cite selected text"
+            />
+          }
+        />
+
+        <SettingsRow
           {...searchableSetting("skills-in-slash-menu")}
           description="Also include skills in the / command menu. Skills always appear when you type $."
           resetAction={

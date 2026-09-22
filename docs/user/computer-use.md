@@ -9,6 +9,11 @@ shopping comparisons, inspecting websites, and other tasks that should stay visi
 The agent can navigate, inspect page structure, click, type, scroll, and capture screenshots in the
 same tab the user sees.
 
+For research and shopping requests, agents are instructed to inspect search results and product
+pages, then return concrete findings and direct links rather than just a search URL. Prices and
+availability should reflect the pages they could access; blocked or unverified details should be
+identified in the answer.
+
 The browser uses its own T3 Code session rather than controlling the user's normal browser. Browser
 data is separated by environment, but remains available to later tabs in that environment until its
 browser data is cleared.

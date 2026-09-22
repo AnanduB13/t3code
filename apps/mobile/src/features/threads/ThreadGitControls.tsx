@@ -10,11 +10,10 @@ import {
   requiresDefaultBranchConfirmation,
   resolveQuickAction,
 } from "@t3tools/client-runtime/state/vcs";
+import { useThreadShell } from "../../state/entities";
 import { useNavigation } from "@react-navigation/native";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useCallback, useMemo } from "react";
-import { Alert } from "react-native";
-import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import {
   basename,
   getTerminalStatusLabel,
@@ -111,6 +110,15 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const environmentId = props.environmentId;
   const threadId = props.threadId;
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
+  const threadRef = useMemo(
+    () => ({
+      environmentId: EnvironmentId.make(String(environmentId)),
+      threadId: ThreadId.make(String(threadId)),
+    }),
+    [environmentId, threadId],
+  );
+  const thread = useThreadShell(threadRef);
+  const hasPullRequest = thread?.linkedPullRequest != null || gitStatus?.pr != null;
 
   const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? "Detached HEAD";
   const busy = gitOperationLabel !== null;
@@ -146,16 +154,12 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
     return "arrow.up.right.circle";
   })();
 
-  const openExistingPr = useCallback(async () => {
-    const prUrl = gitStatus?.pr?.state === "open" ? gitStatus.pr.url : null;
-    if (!prUrl) {
-      Alert.alert("No open PR", "This branch does not have an open pull request.");
-      return;
-    }
-    if (!(await tryOpenExternalUrl(prUrl, "pull-request"))) {
-      Alert.alert("Unable to open PR", "The pull request could not be opened.");
-    }
-  }, [gitStatus]);
+  const openExistingPr = useCallback(() => {
+    navigation.navigate("ThreadPullRequest", {
+      environmentId: String(environmentId),
+      threadId: String(threadId),
+    });
+  }, [environmentId, navigation, threadId]);
 
   const runActionWithPrompt = useCallback(
     async (input: GitActionRequestInput) => {
@@ -235,6 +239,8 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
 
   return {
     currentBranchLabel,
+    hasPullRequest,
+    openExistingPr,
     isRepo,
     openFiles,
     openGitInspector,
@@ -345,6 +351,14 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
               type: "action",
             },
             {
+              description: "Files, comments, and reviews",
+              disabled: !model.hasPullRequest,
+              icon: { name: "arrow.triangle.pull", type: "sfSymbol" },
+              label: "Review pull request",
+              onPress: model.openExistingPr,
+              type: "action",
+            },
+            {
               description: "Turn diffs and worktree changes",
               disabled: !model.isRepo,
               icon: { name: "text.bubble", type: "sfSymbol" },
@@ -369,6 +383,8 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
     }),
     [
       model.currentBranchLabel,
+      model.hasPullRequest,
+      model.openExistingPr,
       model.isRepo,
       model.openFiles,
       model.openGitInspector,
@@ -521,6 +537,14 @@ export function ThreadGitMenu(props: ThreadGitMenuProps) {
         subtitle={model.quickActionHint ?? undefined}
       >
         <NativeHeaderToolbar.Label>{model.quickAction.label}</NativeHeaderToolbar.Label>
+      </NativeHeaderToolbar.MenuAction>
+      <NativeHeaderToolbar.MenuAction
+        icon="arrow.triangle.pull"
+        disabled={!model.hasPullRequest}
+        onPress={model.openExistingPr}
+        subtitle="Files, comments, and reviews"
+      >
+        <NativeHeaderToolbar.Label>Review pull request</NativeHeaderToolbar.Label>
       </NativeHeaderToolbar.MenuAction>
       <NativeHeaderToolbar.MenuAction
         icon="text.bubble"

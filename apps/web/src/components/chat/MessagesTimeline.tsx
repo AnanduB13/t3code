@@ -1,4 +1,5 @@
 import { SmartphoneIcon } from "lucide-react";
+import { useClientSettings } from "~/hooks/useSettings";
 import {
   type AssistantCitation,
   type ChatFileAttachment,
@@ -358,6 +359,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   topFadeEnabled = false,
   loadEarlier = null,
 }: MessagesTimelineProps) {
+  const citeSelectedText = useClientSettings((settings) => settings.citeSelectedText);
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const citationThreadRef = useMemo(() => parseScopedThreadKey(routeThreadKey), [routeThreadKey]);
   const expandCitedTurn = useCallback((turnId: TurnId) => {
@@ -713,7 +715,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           className="relative h-full min-h-0"
           data-assistant-citation-viewport="true"
         >
-          {onCiteAssistantText && citationThreadRef ? (
+          {citeSelectedText && onCiteAssistantText && citationThreadRef ? (
             <AssistantSelectionToolbar
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}

@@ -4,6 +4,7 @@ import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./thread
 
 const baseState: ThreadActionMenuState = {
   branch: null,
+  hasLinkedPullRequest: false,
   isPinned: false,
   isSettled: false,
   isSnoozed: false,
@@ -27,6 +28,11 @@ function allIds(state: ThreadActionMenuState): string[] {
 }
 
 describe("buildThreadActionMenuItems", () => {
+  it("offers unlink only while a pull request is linked", () => {
+    expect(ids(baseState)).not.toContain("unlink-pull-request");
+    expect(ids({ ...baseState, hasLinkedPullRequest: true })).toContain("unlink-pull-request");
+  });
+
   it("hides lifecycle items when the environment lacks the capabilities", () => {
     expect(
       ids({

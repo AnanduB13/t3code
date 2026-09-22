@@ -1,8 +1,8 @@
 /**
  * Detects markdown that the JS renderer draws as a block requiring a definite
- * user-bubble width — fenced code blocks, GFM tables, and ordered lists.
+ * user-bubble width — fenced or indented code blocks, GFM tables, and ordered lists.
  *
- * Fenced code blocks and tables report an intrinsic width equal to their
+ * Code blocks and tables report an intrinsic width equal to their
  * widest line, which is effectively unbounded. A user bubble sizes itself
  * from its content
  * (`maxWidth` with no `width`), so Android lays the bubble's children out
@@ -22,6 +22,9 @@
  */
 
 const FENCED_CODE_BLOCK = /^ {0,3}(?:```|~~~)/m;
+// Pasted stack traces commonly use indented code instead of fences. Favor a
+// wider bubble for indented prose too, rather than missing a rendered block.
+const INDENTED_CODE_BLOCK = /^(?: {4}| {0,3}\t)\s*\S/;
 // Trades some precision for a simple check, favoring false positives over false
 // negatives: list-shaped paragraph may get a wider bubble
 const ORDERED_LIST_ITEM = /^ {0,3}\d{1,9}[.)](?:[ \t]+|$)/;
@@ -77,7 +80,12 @@ export function hasWideMarkdownBlock(
   text: string,
   options: WideMarkdownBlockOptions = {},
 ): boolean {
-  if (FENCED_CODE_BLOCK.test(text)) {
+  if (
+    text.split("\n").some((line) => {
+      const content = stripBlockquotePrefixes(line);
+      return FENCED_CODE_BLOCK.test(content) || INDENTED_CODE_BLOCK.test(content);
+    })
+  ) {
     return true;
   }
   if (options.includeOrderedLists !== false && hasOrderedListItem(text)) {

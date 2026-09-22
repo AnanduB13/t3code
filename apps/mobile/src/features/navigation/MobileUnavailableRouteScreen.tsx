@@ -43,7 +43,3 @@ export function MobileAgentsRouteScreen() {
 export function MobileScheduledRouteScreen() {
   return <MobileUnavailableRouteScreen icon="clock" title="Scheduled" />;
 }
-
-export function MobilePullRequestsRouteScreen() {
-  return <MobileUnavailableRouteScreen icon="arrow.triangle.pull" title="Pull Requests" />;
-}

@@ -194,6 +194,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["diff ignore spaces edits default"],
   },
   {
+    id: "cite-selected-text",
+    title: "Cite selected text",
+    to: "/settings/general",
+    searchTerms: ["citation quote highlight selection assistant response toolbar"],
+  },
+  {
     id: "skills-in-slash-menu",
     title: "Show skills in slash menu",
     to: "/settings/general",

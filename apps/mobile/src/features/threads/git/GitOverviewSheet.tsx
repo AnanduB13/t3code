@@ -13,7 +13,7 @@ import {
 } from "@react-navigation/native";
 import { SymbolView } from "../../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
 
 import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,7 +22,6 @@ import { useUniwindTheme } from "../../../lib/useUniwindTheme";
 import { AndroidSheetHeader } from "../../../components/AndroidScreenHeader";
 import { AppText as Text } from "../../../components/AppText";
 import { nativeHeaderScrollEdgeEffects } from "../../../native/StackHeader";
-import { tryOpenExternalUrl } from "../../../lib/openExternalUrl";
 import { useEnvironmentQuery } from "../../../state/query";
 import { useThreadSelection } from "../../../state/use-thread-selection";
 import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
@@ -98,16 +97,11 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
     void gitActions.refreshSelectedThreadGitStatus({ quiet: true });
   }, [gitActions]);
 
-  const openExistingPr = useCallback(async () => {
-    const prUrl = gitStatus.data?.pr?.state === "open" ? gitStatus.data.pr.url : null;
-    if (!prUrl) {
-      Alert.alert("No open PR", "This branch does not have an open pull request.");
-      return;
-    }
-    if (!(await tryOpenExternalUrl(prUrl, "pull-request"))) {
-      Alert.alert("Unable to open PR", "The pull request could not be opened.");
-    }
-  }, [gitStatus.data]);
+  const openExistingPr = useCallback(() => {
+    const params = { environmentId: String(environmentId), threadId: String(threadId) };
+    if (isInspector) navigation.navigate("ThreadPullRequest", params);
+    else navigation.dispatch(StackActions.replace("ThreadPullRequest", params));
+  }, [environmentId, isInspector, navigation, threadId]);
 
   const runActionWithPrompt = useCallback(
     async (input: GitActionRequestInput) => {
@@ -256,6 +250,17 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
           </>
         ) : null}
         <View className="ml-12 h-px bg-border" />
+        {selectedThread?.linkedPullRequest || gitStatus.data?.pr ? (
+          <>
+            <SheetListRow
+              icon="arrow.triangle.pull"
+              title="Review pull request"
+              subtitle="Files, comments, and reviews"
+              onPress={openExistingPr}
+            />
+            <View className="ml-12 h-px bg-border" />
+          </>
+        ) : null}
         <SheetListRow
           icon="text.bubble"
           title="Review changes"

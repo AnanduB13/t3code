@@ -65,6 +65,26 @@ the full turn diff.
 - Works on GitHub, GitLab, and Bitbucket. Azure DevOps takes a new title and description; its
   comments stay read-only here, as they already were
 
+### Review Pull Requests on Mobile
+
+Open **PR** in the bottom dock, choose an environment, and select a pull request.
+Search or filter by open, closed, or merged state. From a thread, choose
+**Git → Review pull request** to open its linked or detected pull request.
+
+- **Overview** shows the description, branches, change counts, and checks. Authors and
+  maintainers can edit the title and description where the host supports it.
+- **Files** shows the diff. Select a file, then tap a code line to draft a review comment.
+  Use **More files** when the changes span multiple pages.
+- **Discussion** lets you read and post comments, reply to review threads, and resolve or
+  unresolve conversations.
+- **Review** lets you edit or remove draft line comments, add a summary, and submit a comment,
+  approval, or request for changes. Line comments are published only when you submit the review.
+
+Available actions depend on the host and your account’s permissions. Unsent drafts remain
+when switching tabs or when a submission fails; leaving the review asks before discarding them.
+Use **Refresh** to fetch updates or **Open on host** for changes and activity the host cannot
+show in the app. Create and push new pull requests through the thread’s Git actions.
+
 ### Know Your Setup at a Glance
 
 The **Source Control settings** page shows you exactly what's connected:

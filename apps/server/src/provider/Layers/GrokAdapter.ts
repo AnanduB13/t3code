@@ -129,6 +129,7 @@ interface GrokTurnLivenessSignal {
 }
 
 interface GrokSessionContext {
+  readonly browserToolsAvailable: boolean;
   readonly threadId: ThreadId;
   readonly acpSessionId: string;
   session: ProviderSession;
@@ -1278,6 +1279,8 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           };
 
           const ctx: GrokSessionContext = {
+            browserToolsAvailable:
+              mcpSession !== undefined && (mcpSession.capabilities?.has("preview") ?? true),
             threadId: input.threadId,
             acpSessionId: started.sessionId,
             session,
@@ -1593,6 +1596,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 : undefined;
               const runtimeInstructions = buildRuntimeInstructions({
                 harness: "Grok",
+                browserToolsAvailable: ctx.browserToolsAvailable,
                 model: displayModel,
                 reasoningEffort: normalizeGrokReasoningEffort(requestedTurnReasoningEffort),
               });

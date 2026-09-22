@@ -33,10 +33,12 @@ import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
+import { PullRequestsScreen } from "./features/pull-requests/PullRequestsScreen";
+import { PullRequestScreen } from "./features/pull-requests/PullRequestScreen";
+import { ThreadPullRequestScreen } from "./features/pull-requests/ThreadPullRequestScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
 import {
   MobileAgentsRouteScreen,
-  MobilePullRequestsRouteScreen,
   MobileScheduledRouteScreen,
 } from "./features/navigation/MobileUnavailableRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
@@ -495,9 +497,19 @@ export const RootStack = createNativeStackNavigator({
       options: { headerShown: false },
     }),
     PullRequests: createNativeStackScreen({
-      screen: MobilePullRequestsRouteScreen,
+      screen: PullRequestsScreen,
       linking: "pull-requests",
       options: { headerShown: false },
+    }),
+    PullRequest: createNativeStackScreen({
+      screen: PullRequestScreen,
+      linking: "pull-requests/:environmentId/:projectId/:repository/:number",
+      options: { ...SOLID_HEADER_OPTIONS, title: "Pull request" },
+    }),
+    ThreadPullRequest: createNativeStackScreen({
+      screen: ThreadPullRequestScreen,
+      linking: `${THREAD_LINKING_PREFIX}/pull-request`,
+      options: { ...SOLID_HEADER_OPTIONS, title: "Pull request" },
     }),
     Thread: createNativeStackScreen({
       screen: ThreadRouteScreen,

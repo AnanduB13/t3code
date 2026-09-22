@@ -322,6 +322,7 @@ function isOpenCodeDefaultTitle(title: string): boolean {
 }
 
 interface OpenCodeSessionContext {
+  readonly browserToolsAvailable: boolean;
   session: ProviderSession;
   readonly client: OpencodeClient;
   readonly server: OpenCodeServerConnection;
@@ -2518,6 +2519,10 @@ export function makeOpenCodeAdapter(
                 sessionScope,
                 server,
                 client,
+                browserToolsAvailable:
+                  mcpSession !== undefined &&
+                  !server.external &&
+                  (mcpSession.capabilities?.has("preview") ?? true),
                 openCodeSession: resolved.openCodeSession,
                 created: resolved.created,
               };
@@ -2551,6 +2556,7 @@ export function makeOpenCodeAdapter(
         };
 
         const context: OpenCodeSessionContext = {
+          browserToolsAvailable: started.browserToolsAvailable,
           session,
           client: started.client,
           server: started.server,
@@ -2791,6 +2797,7 @@ export function makeOpenCodeAdapter(
                 // OpenCode appends this after its own agent/provider prompts.
                 system: buildRuntimeInstructions({
                   harness: "OpenCode",
+                  browserToolsAvailable: context.browserToolsAvailable,
                   model: `${parsedModel.providerID}/${parsedModel.modelID}`,
                 }),
                 parts: [...(text ? [{ type: "text" as const, text }] : []), ...fileParts],

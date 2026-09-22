@@ -139,6 +139,7 @@ export function useThreadActionMenu(input: {
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
         const items = buildThreadActionMenuItems({
           branch: thread.branch ?? null,
+          hasLinkedPullRequest: thread.linkedPullRequest != null,
           isPinned: thread.pinnedAt != null,
           isSettled: supports.settlement && thread.settledOverride === "settled",
           isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
@@ -190,6 +191,14 @@ export function useThreadActionMenu(input: {
           }
         };
         switch (action) {
+          case "unlink-pull-request":
+            await reportFailure("Failed to unlink pull request", () =>
+              updateThreadMetadata({
+                environmentId: threadRef.environmentId,
+                input: { threadId: threadRef.threadId, linkedPullRequest: null },
+              }),
+            );
+            return;
           case "project-settings": {
             const project = projects.find(
               (candidate) =>
