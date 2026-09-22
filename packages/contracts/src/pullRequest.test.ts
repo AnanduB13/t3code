@@ -7,12 +7,14 @@ import {
   PullRequestListInput,
   PullRequestListResult,
   PullRequestReviewerRequestInput,
+  PullRequestViewerPermissions,
   resolvePullRequestAuthorFilter,
 } from "./pullRequest.ts";
 
 const decodeListResult = Schema.decodeUnknownSync(PullRequestListResult);
 const decodeListInput = Schema.decodeUnknownSync(PullRequestListInput);
 const decodeReviewerRequest = Schema.decodeUnknownSync(PullRequestReviewerRequestInput);
+const decodeActionInput = Schema.decodeUnknownSync(PullRequestActionInput);
 
 const LIST_RESULT: PullRequestListResult = {
   viewers: { "github.com": "bilal", "gitlab.com": "bilal.hassan" },
@@ -210,6 +212,60 @@ describe("PullRequestCapabilities", () => {
 
   it("decodes a server that says nothing about reactions as a server with none", () => {
     expect(decodeCapabilities(base).reactions).toBeUndefined();
+  });
+
+  it("ignores new server actions through the RPC JSON codec", () => {
+    const codec = Schema.toCodecJson(PullRequestCapabilities);
+    const actions = [
+      "merge",
+      "ready",
+      "draft",
+      "close",
+      "reopen",
+      "update-branch",
+      "enable-auto-merge",
+      "disable-auto-merge",
+    ];
+    const decoded = Schema.decodeUnknownSync(codec)({
+      ...base,
+      actions: [...actions, "future-action"],
+    });
+
+    expect(decoded.actions).toEqual(actions);
+    expect(Schema.decodeUnknownSync(codec)(Schema.encodeUnknownSync(codec)(decoded))).toEqual(
+      decoded,
+    );
+  });
+
+  it("still rejects malformed advertised actions", () => {
+    expect(() => decodeCapabilities({ ...base, actions: [42] })).toThrow();
+  });
+});
+
+describe("PullRequestViewerPermissions", () => {
+  it("ignores actions the client cannot offer without losing known permissions", () => {
+    const codec = Schema.toCodecJson(PullRequestViewerPermissions);
+    const decoded = Schema.decodeUnknownSync(codec)({
+      actions: ["future-action", "close"],
+      comment: true,
+      resolve: false,
+      verdicts: ["comment"],
+      requestReviewers: false,
+    });
+
+    expect(decoded.actions).toEqual(["close"]);
+    expect(decoded.comment).toBe(true);
+  });
+
+  it("still rejects unknown actions submitted to the server", () => {
+    expect(() =>
+      decodeActionInput({
+        projectId: "project-1",
+        repository: "acme/web",
+        number: 7,
+        action: "future-action",
+      }),
+    ).toThrow();
   });
 });
 

@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
@@ -95,6 +96,18 @@ export const PullRequestAction = Schema.Literals([
   "disable-auto-merge",
 ]);
 export type PullRequestAction = typeof PullRequestAction.Type;
+
+/** Ignore actions advertised by newer servers that this client cannot offer yet. */
+const PullRequestAdvertisedActions = Schema.Array(Schema.String).pipe(
+  Schema.decodeTo(
+    Schema.Array(PullRequestAction),
+    SchemaTransformation.transform({
+      decode: (actions): ReadonlyArray<PullRequestAction> =>
+        actions.filter(Schema.is(PullRequestAction)),
+      encode: (actions) => actions,
+    }),
+  ),
+);
 
 /**
  * How a stale branch catches up with its base: a merge commit, or a rebase onto it. The two are
@@ -362,7 +375,7 @@ export const PullRequestCapabilities = Schema.Struct({
   /** A comment can be posted, and the conversation read back. */
   comment: Schema.Boolean,
   /** The actions this host can carry out; anything absent is never offered. */
-  actions: Schema.Array(PullRequestAction),
+  actions: PullRequestAdvertisedActions,
   /** Merge strategies the provider itself offers, before repository settings narrow them. */
   mergeMethods: Schema.Array(PullRequestMergeMethod),
   /**
@@ -407,7 +420,7 @@ export type PullRequestCapabilities = typeof PullRequestCapabilities.Type;
  */
 export const PullRequestViewerPermissions = Schema.Struct({
   /** Which of the actions this viewer may take; anything absent is theirs to look at only. */
-  actions: Schema.Array(PullRequestAction),
+  actions: PullRequestAdvertisedActions,
   /** This viewer may write a remark: a comment, a reply, or a note against a line. */
   comment: Schema.Boolean,
   /** This viewer may mark a review conversation resolved, and unresolved again. */
