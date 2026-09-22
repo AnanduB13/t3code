@@ -151,6 +151,7 @@ interface ClaudeTurnState {
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
   assistantSnapshotBlockOffset: number;
+  readonly seenAssistantSnapshotIds: Set<string>;
   readonly capturedProposedPlanKeys: Set<string>;
   latestAssistantUsage: unknown | undefined;
   compactedSinceLatestAssistantUsage: boolean;
@@ -1995,6 +1996,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
+    if (message.type !== "assistant" || turnState.seenAssistantSnapshotIds.has(message.uuid)) {
+      return;
+    }
+    turnState.seenAssistantSnapshotIds.add(message.uuid);
+
     const snapshotTextBlocks = extractAssistantTextBlocks(message);
     if (snapshotTextBlocks.length === 0) {
       return;
@@ -2996,6 +3002,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
         assistantSnapshotBlockOffset: 0,
+        seenAssistantSnapshotIds: new Set(),
         capturedProposedPlanKeys: new Set(),
         latestAssistantUsage: undefined,
         compactedSinceLatestAssistantUsage: false,
@@ -4667,6 +4674,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
         assistantSnapshotBlockOffset: 0,
+        seenAssistantSnapshotIds: new Set(),
         capturedProposedPlanKeys: new Set(),
         latestAssistantUsage: undefined,
         compactedSinceLatestAssistantUsage: false,

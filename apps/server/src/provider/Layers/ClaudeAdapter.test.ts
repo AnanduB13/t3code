@@ -3456,6 +3456,13 @@ describe("ClaudeAdapterLive", () => {
       const reply = (text: string) => {
         emit({
           type: "assistant",
+          uuid: text,
+          parent_tool_use_id: null,
+          message: { id: text, content: [{ type: "text", text }] },
+        });
+        emit({
+          type: "assistant",
+          uuid: text,
           parent_tool_use_id: null,
           message: { id: text, content: [{ type: "text", text }] },
         });
