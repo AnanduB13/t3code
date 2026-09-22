@@ -42,6 +42,7 @@ export function DeviceStreamView(props: {
   readonly onScreen?: (screen: DeviceScreenSize | null) => void;
 }) {
   const access = useDeviceHubAccess(props.environmentId, props.hostId);
+  const keyboardRef = useRef<HTMLTextAreaElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const clientRef = useRef<DeviceStreamClient | null>(null);
   const [status, setStatus] = useState<DeviceStreamStatus>("connecting");
@@ -235,20 +236,52 @@ export function DeviceStreamView(props: {
       role="application"
       aria-label={`${props.platform === "ios" ? "iOS Simulator" : "Android Emulator"} screen`}
       onKeyDown={(event) => {
-        if (event.metaKey && !["r", "R"].includes(event.key)) return;
+        event.stopPropagation();
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (
+          props.platform === "android" &&
+          (((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") ||
+            (event.shiftKey && event.key === "Insert"))
+        )
+          return;
+        if (event.metaKey && props.platform !== "android" && !["r", "R"].includes(event.key))
+          return;
         event.preventDefault();
         clientRef.current?.sendKey(event.nativeEvent, "down");
       }}
       onKeyUp={(event) => {
+        event.stopPropagation();
         clientRef.current?.sendKey(event.nativeEvent, "up");
       }}
     >
+      {props.platform === "android" ? (
+        <textarea
+          ref={keyboardRef}
+          aria-label="Android Emulator keyboard input"
+          className="pointer-events-none absolute size-px opacity-0"
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onPaste={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            clientRef.current?.sendText(event.clipboardData.getData("text/plain"));
+          }}
+          onCompositionEnd={(event) => {
+            clientRef.current?.sendText(event.data);
+            event.currentTarget.value = "";
+          }}
+        />
+      ) : null}
       <div
-        className="relative select-none"
+        className="relative select-none touch-none"
         style={{ width: frame.width, height: frame.height }}
         onPointerDown={(event) => {
+          // Keep the browser's default mouse focus from undoing our keyboard focus.
+          event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
-          (event.currentTarget.parentElement as HTMLElement | null)?.focus();
+          (keyboardRef.current ?? hostRef.current)?.focus({ preventScroll: true });
           pointerActive.current = true;
           const { x, y } = normalizedPoint(event);
           clientRef.current?.sendTouch("begin", x, y);

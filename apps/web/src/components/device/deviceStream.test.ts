@@ -178,3 +178,59 @@ describe("iOS input startup", () => {
     client.stop();
   });
 });
+
+describe("Android keyboard input", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends typed and pasted text, editing keys, and selection shortcuts over the device socket", () => {
+    const send = vi.fn();
+    class FakeSocket {
+      static OPEN = 1;
+      readyState = 1;
+      send = send;
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.stubGlobal("VideoDecoder", vi.fn());
+    vi.stubGlobal("EncodedVideoChunk", vi.fn());
+    const client = createDeviceStreamClient(
+      {
+        platform: "android",
+        deviceId: "emulator-5554",
+        access: { httpBase: "http://test", wsBase: "ws://test", query: {}, credentials: true },
+      },
+      {} as HTMLCanvasElement,
+      {
+        onStatus: vi.fn(),
+        onScreen: vi.fn(),
+        onUnauthorized: vi.fn(),
+        onMjpegFallback: vi.fn(),
+        onInputConnected: vi.fn(),
+      },
+    );
+    const key = (key: string, modifiers: Partial<KeyboardEvent> = {}) =>
+      ({ key, code: `Key${key.toUpperCase()}`, ...modifiers }) as KeyboardEvent;
+    client.start();
+    client.sendKey(key("@"), "down");
+    client.sendKey(key("@"), "up");
+    client.sendText("person+test@example.com\nsecond line");
+    client.sendText("");
+    client.sendKey(key("Backspace"), "down");
+    client.sendKey(key("a", { ctrlKey: true }), "down");
+    client.sendKey(key("a", { metaKey: true }), "down");
+    client.sendKey(key("ArrowLeft", { shiftKey: true }), "down");
+    client.sendKey(key("v", { ctrlKey: true }), "down");
+    client.sendKey(key("a", { isComposing: true }), "down");
+    expect(send.mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([
+      { type: "text", text: "@" },
+      { type: "text", text: "person+test@example.com\nsecond line" },
+      { type: "key", keycode: 67, metaState: 0 },
+      { type: "key", keycode: 29, metaState: 4096 },
+      { type: "key", keycode: 29, metaState: 4096 },
+      { type: "key", keycode: 21, metaState: 1 },
+    ]);
+    client.stop();
+    client.sendText("disconnected");
+    expect(send).toHaveBeenCalledTimes(6);
+  });
+});

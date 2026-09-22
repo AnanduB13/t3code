@@ -41,7 +41,11 @@ effect, T3 Code activates it for the device helper when possible.
 The screen is interactive: click and drag to touch, type while the screen is
 focused, and use the toolbar for Home, Back, and Recents on Android, rotate on
 iOS, and power off. Close the tab to stop watching; the device keeps running
-unless you power it off. Closed tabs stay closed after a reload. To watch the
+unless you power it off. On Android, click a text field and type with your
+computer keyboard, or paste copied text with Ctrl+V (Cmd+V on macOS).
+Ctrl+A (Cmd+A on macOS) selects the field's text for replacement.
+Text support depends on the emulator input backend; some accept only ASCII.
+Closed tabs stay closed after a reload. To watch the
 device again, choose it from **+ → Device**.
 
 ## Tools

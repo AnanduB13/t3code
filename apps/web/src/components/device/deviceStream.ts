@@ -204,6 +204,8 @@ export interface DeviceStreamClient {
   /** Normalized 0..1 coordinates in the displayed frame. */
   readonly sendTouch: (phase: "begin" | "move" | "end", x: number, y: number) => void;
   readonly sendKey: (event: KeyboardEvent, phase: "down" | "up") => void;
+  /** Insert host text into the focused Android field. */
+  readonly sendText: (text: string) => void;
   readonly pressButton: (button: DeviceHardwareButton) => void;
   readonly rotate: () => void;
 }
@@ -246,6 +248,14 @@ function hidUsageForCode(code: string): number | null {
   if (code === "Digit0") return 0x27;
   return HID_USAGE_BY_CODE[code] ?? null;
 }
+
+const ANDROID_SHORTCUT_KEYCODE_BY_KEY: Readonly<Record<string, number>> = {
+  a: 29,
+  c: 31,
+  x: 52,
+  z: 54,
+  y: 53,
+};
 
 const ANDROID_KEYCODE_BY_KEY: Readonly<Record<string, number>> = {
   ArrowUp: 19,
@@ -660,13 +670,24 @@ export function createDeviceStreamClient(
         if (usage !== null) send(taggedJson(IOS_MSG_KEY, { type: phase, usage }));
         return;
       }
-      if (phase !== "down") return;
+      if (phase !== "down" || event.isComposing) return;
       if (event.key === "Escape") return send(JSON.stringify({ type: "back" }));
-      const keycode = ANDROID_KEYCODE_BY_KEY[event.key];
-      if (keycode !== undefined) return send(JSON.stringify({ type: "key", keycode }));
+      const shortcutKeycode =
+        event.ctrlKey || event.metaKey
+          ? ANDROID_SHORTCUT_KEYCODE_BY_KEY[event.key.toLowerCase()]
+          : undefined;
+      const keycode = shortcutKeycode ?? ANDROID_KEYCODE_BY_KEY[event.key];
+      const metaState =
+        (event.shiftKey ? 1 : 0) |
+        (event.altKey ? 2 : 0) |
+        (event.ctrlKey || event.metaKey ? 4096 : 0);
+      if (keycode !== undefined) return send(JSON.stringify({ type: "key", keycode, metaState }));
       if (event.key.length === 1 && !event.metaKey && !event.ctrlKey) {
         send(JSON.stringify({ type: "text", text: event.key }));
       }
+    },
+    sendText: (text) => {
+      if (platform === "android" && text) send(JSON.stringify({ type: "text", text }));
     },
     pressButton: (button) => {
       if (platform === "ios") {
