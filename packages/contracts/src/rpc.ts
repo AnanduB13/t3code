@@ -1,4 +1,9 @@
 import {
+  ProviderConsumeResetCreditInput,
+  ProviderConsumeResetCreditResult,
+  UsageLimitSourceError,
+} from "./providerUsageLimits.ts";
+import {
   DeviceActionInput,
   DeviceCloseInput,
   DeviceConfigureInput,
@@ -381,6 +386,7 @@ export const WS_METHODS = {
   // Server meta
   serverProbe: "server.probe",
   serverGetConfig: "server.getConfig",
+  providerConsumeResetCredit: "provider.consumeResetCredit",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
@@ -1405,6 +1411,8 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
      * dropped by old servers.
      */
     environmentThemes: Schema.optional(Schema.Boolean),
+    /** Opt in to quota snapshots from configured account sources. */
+    usageLimitSources: Schema.optional(Schema.Boolean),
   }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
@@ -1591,3 +1599,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
 );
+
+/** Client compatibility with servers that publish banked reset credits. */
+export const WsProviderConsumeResetCreditRpc = Rpc.make(WS_METHODS.providerConsumeResetCredit, {
+  payload: ProviderConsumeResetCreditInput,
+  success: ProviderConsumeResetCreditResult,
+  error: Schema.Union([ProviderSetupError, UsageLimitSourceError, EnvironmentAuthorizationError]),
+});

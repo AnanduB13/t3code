@@ -15,17 +15,18 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useState: vi.fn((initial: unknown) => [
-      initial === 30
-        ? testState.windowSelection
-        : initial === "cost"
-          ? testState.metric
-          : initial === "model"
-            ? testState.breakdown
-            : initial,
+      typeof initial === "function"
+        ? { metric: testState.metric, windowDays: testState.windowSelection }
+        : initial === "model"
+          ? testState.breakdown
+          : initial,
       vi.fn(),
     ]),
   };
 });
+vi.mock("../../state/usageLimits", () => ({
+  useUsageLimitsRefresh: () => ({ now: 0, refresh: vi.fn(), refreshing: false }),
+}));
 vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../state/usage", () => ({ useUsage: testState.useUsage }));
 vi.mock("../ui/scroll-area", () => ({ ScrollArea: "div" }));

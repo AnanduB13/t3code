@@ -4,6 +4,7 @@ import {
   type ServerConfigStreamEvent,
   type ServerLifecycleWelcomePayload,
   WS_METHODS,
+  UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -46,7 +47,7 @@ import {
   waitForDesktopUpdateTarget,
   runDesktopCommitWithReconnectObserver,
 } from "./server.ts";
-import { applyServerConfigProjection } from "./serverConfigProjection.ts";
+import { applyServerConfigProjection, withoutEnvironmentThemes } from "./serverConfigProjection.ts";
 
 const CONFIG = {
   availableEditors: [],
@@ -659,4 +660,42 @@ describe("server state projection", () => {
       expect(yield* Queue.poll(savedConfigs)).toEqual(Option.none());
     }),
   );
+});
+
+describe("usage limit source projection", () => {
+  it("keeps live sources across reconnects, removes them on unconfigure or downgrade, and excludes them from cache", () => {
+    const config = {
+      ...CONFIG,
+      environment: {
+        ...CONFIG.environment,
+        capabilities: { ...CONFIG.environment.capabilities, usageLimitSources: true },
+      },
+    };
+    const sources = [
+      {
+        id: UsageLimitSourceId.make("proxy"),
+        kind: "cliproxy" as const,
+        label: "Accounts",
+        checkedAt: "2026-09-22T12:00:00.000Z",
+        accounts: [],
+      },
+    ];
+    const withSources = applyServerConfigProjection(
+      applyServerConfigProjection(Option.none(), snapshotEvent(config)),
+      { version: 1, type: "usageLimitSourcesUpdated", payload: { sources } },
+    );
+    const reconnected = applyServerConfigProjection(withSources, snapshotEvent(config));
+    expect(Option.getOrThrow(reconnected).config.usageLimitSources).toEqual(sources);
+    expect(
+      withoutEnvironmentThemes(Option.getOrThrow(reconnected).config).usageLimitSources,
+    ).toBeUndefined();
+    const removed = applyServerConfigProjection(reconnected, {
+      version: 1,
+      type: "usageLimitSourcesUpdated",
+      payload: { sources: [] },
+    });
+    expect(Option.getOrThrow(removed).config.usageLimitSources).toBeUndefined();
+    const downgraded = applyServerConfigProjection(withSources, snapshotEvent(CONFIG));
+    expect(Option.getOrThrow(downgraded).config.usageLimitSources).toBeUndefined();
+  });
 });

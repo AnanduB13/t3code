@@ -1,3 +1,4 @@
+import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ExecutionEnvironmentDescriptor, ServerSelfUpdateMethod } from "./environment.ts";
@@ -225,6 +226,7 @@ export const ServerProvider = Schema.Struct({
   workspaceSnapshots: Schema.optionalKey(Schema.Array(ServerProviderWorkspaceSnapshot)),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
+  usageLimits: Schema.optional(ServerProviderUsageLimits),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 
@@ -577,6 +579,8 @@ export const ServerConfig = Schema.Struct({
    * and it stays absent for subscribers that did not opt in.
    */
   environmentThemes: Schema.optional(Schema.Array(EnvironmentTheme)),
+  /** Published by the opt-in usageLimitSourcesUpdated stream. */
+  usageLimitSources: Schema.optional(UsageLimitSourceSnapshots),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
@@ -676,12 +680,28 @@ export const ServerConfigStreamEnvironmentThemesUpdatedEvent = Schema.Struct({
 export type ServerConfigStreamEnvironmentThemesUpdatedEvent =
   typeof ServerConfigStreamEnvironmentThemesUpdatedEvent.Type;
 
+export const ServerConfigUsageLimitSourcesUpdatedPayload = Schema.Struct({
+  /** The full set; empty once no source is configured. */
+  sources: UsageLimitSourceSnapshots,
+});
+export type ServerConfigUsageLimitSourcesUpdatedPayload =
+  typeof ServerConfigUsageLimitSourcesUpdatedPayload.Type;
+
+export const ServerConfigStreamUsageLimitSourcesUpdatedEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("usageLimitSourcesUpdated"),
+  payload: ServerConfigUsageLimitSourcesUpdatedPayload,
+});
+export type ServerConfigStreamUsageLimitSourcesUpdatedEvent =
+  typeof ServerConfigStreamUsageLimitSourcesUpdatedEvent.Type;
+
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
   ServerConfigStreamEnvironmentThemesUpdatedEvent,
+  ServerConfigStreamUsageLimitSourcesUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 

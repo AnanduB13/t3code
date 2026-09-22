@@ -32,6 +32,8 @@ export * from "./assets.ts";
 export * from "./agents.ts";
 export * from "./computerUse.ts";
 export * from "./providerUsage.ts";
+export * from "./providerUsageLimits.ts";
+export * from "./usageLimitSourceId.ts";
 export * from "./threadGoal.ts";
 export * from "./review.ts";
 export * from "./preview.ts";

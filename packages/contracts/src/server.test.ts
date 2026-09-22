@@ -26,6 +26,31 @@ const baseProviderSnapshot = {
 };
 
 describe("ServerProvider", () => {
+  it("preserves account windows and banked credits from newer servers", () => {
+    const usageLimits = {
+      checkedAt: "2026-09-22T12:00:00.000Z",
+      windows: [
+        {
+          id: "primary",
+          kind: "session",
+          label: "Session",
+          usedPercent: 80,
+          resetsAt: "2026-09-22T15:00:00.000Z",
+          windowDurationMins: 300,
+        },
+      ],
+      resetCredits: {
+        availableCount: 2,
+        nextExpiresAt: "2026-10-01T00:00:00.000Z",
+        nextCreditId: "credit-1",
+      },
+    };
+    expect(decodeServerProvider({ ...baseProviderSnapshot, usageLimits }).usageLimits).toEqual(
+      usageLimits,
+    );
+    expect(decodeServerProvider(baseProviderSnapshot).usageLimits).toBeUndefined();
+  });
+
   it("defaults capability arrays when decoding provider snapshots", () => {
     const parsed = decodeServerProvider({
       instanceId: "codex",

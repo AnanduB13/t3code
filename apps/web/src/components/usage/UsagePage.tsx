@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
+import { useUsageLimitsRefresh } from "../../state/usageLimits";
 import {
   enumerateDays,
   formatCount,
@@ -23,6 +24,7 @@ import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart"
 import { UsageLimitsSection } from "./UsageLimits";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
 import { describeUsageSources } from "./usageDeviceCoverage";
+import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
 
 const WINDOW_OPTIONS = [
   { days: 7, label: "7 days" },
@@ -35,9 +37,23 @@ type UsageWindowSelection = (typeof WINDOW_OPTIONS)[number]["days"];
 type UsageMetric = UsageChartMetric | "limits";
 
 export function UsagePage() {
-  const [windowSelection, setWindowSelection] = useState<UsageWindowSelection>(30);
-  const [metric, setMetric] = useState<UsageMetric>("cost");
-  const [limitsRefreshSignal, setLimitsRefreshSignal] = useState(0);
+  const [preferences, setPreferences] = useState(readUsagePagePreferences);
+  const { metric, windowDays: windowSelection } = preferences;
+  const setMetric = (metric: UsageMetric) => {
+    const next = { ...preferences, metric };
+    setPreferences(next);
+    saveUsagePagePreferences(next);
+  };
+  const setWindowSelection = (windowDays: UsageWindowSelection) => {
+    const next = { ...preferences, windowDays };
+    setPreferences(next);
+    saveUsagePagePreferences(next);
+  };
+  const {
+    now: limitsNow,
+    refresh: refreshLimits,
+    refreshing: limitsRefreshing,
+  } = useUsageLimitsRefresh(metric === "limits");
   const [breakdown, setBreakdown] = useState<"model" | "day">("model");
 
   // Recomputed only when the window length changes, so a re-render does not
@@ -111,12 +127,17 @@ export function UsagePage() {
         <ScrollArea className="min-h-0 flex-1">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <p className="text-sm text-muted-foreground">
-                {windowSelection === "all"
-                  ? "All time"
-                  : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`}
-              </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-4">
+                <UsageMetricToggle metric={metric} onChange={setMetric} />
+                {metric !== "limits" ? (
+                  <p className="text-sm text-muted-foreground">
+                    {windowSelection === "all"
+                      ? "All time"
+                      : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex overflow-hidden rounded-md border border-border">
                   {WINDOW_OPTIONS.map((option) => (
                     <button
@@ -137,10 +158,10 @@ export function UsagePage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    metric === "limits" ? setLimitsRefreshSignal((signal) => signal + 1) : refresh()
-                  }
+                  onClick={() => (metric === "limits" ? void refreshLimits() : refresh())}
                   aria-label={metric === "limits" ? "Refresh limits" : "Refresh usage"}
+                  disabled={metric === "limits" && limitsRefreshing}
+                  aria-busy={metric === "limits" && limitsRefreshing}
                   className="cursor-pointer rounded-md border border-border p-2 text-muted-foreground hover:text-foreground"
                 >
                   <RefreshCwIcon className="size-3.5" />
@@ -178,15 +199,7 @@ export function UsagePage() {
             ) : null}
 
             {metric === "limits" ? (
-              <>
-                <div className="flex justify-end">
-                  <UsageMetricToggle metric={metric} onChange={setMetric} />
-                </div>
-                <UsageLimitsSection
-                  environments={environments}
-                  refreshSignal={limitsRefreshSignal}
-                />
-              </>
+              <UsageLimitsSection selectedEnvironmentIds={null} now={limitsNow} />
             ) : settling ? (
               <UsageSkeleton />
             ) : (
@@ -258,10 +271,7 @@ export function UsagePage() {
                       <h2 className="text-sm font-medium text-foreground">
                         Daily {chartMetric === "tokens" ? "processed tokens" : "cost"}
                       </h2>
-                      <div className="flex items-center gap-4">
-                        <UsageMetricToggle metric={metric} onChange={setMetric} />
-                        <UsageChartLegend />
-                      </div>
+                      <UsageChartLegend />
                     </div>
                     <UsageProviderChart
                       providers={PROVIDER_ORDER}
@@ -465,14 +475,19 @@ function UsageMetricToggle({
   readonly onChange: (metric: UsageMetric) => void;
 }) {
   return (
-    <div className="flex overflow-hidden rounded-md border border-border">
+    <div
+      role="group"
+      aria-label="Usage view"
+      className="flex overflow-hidden rounded-md border border-border"
+    >
       {(["cost", "tokens", "limits"] as const).map((option) => (
         <button
           key={option}
           type="button"
           onClick={() => onChange(option)}
+          aria-pressed={option === metric}
           className={cn(
-            "cursor-pointer px-2.5 py-1 text-[10px] tracking-wide uppercase",
+            "cursor-pointer px-4 py-2 text-sm capitalize",
             option === metric
               ? "bg-muted text-foreground"
               : "text-muted-foreground hover:text-foreground",
