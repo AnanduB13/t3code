@@ -2635,6 +2635,24 @@ const make = Effect.gen(function* () {
           ),
         ),
       ).pipe(Effect.asVoid);
+
+      // Async questions do not block the provider, so the agent would keep
+      // working on a guess. Stop the turn instead; the answer starts the next one.
+      if (
+        event.type === "user-input.requested" &&
+        event.payload.responseMode === "message" &&
+        thread.session?.status === "running" &&
+        activeTurnId !== null &&
+        (eventTurnId === undefined || sameId(activeTurnId, eventTurnId))
+      ) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.interrupt",
+          commandId: yield* providerCommandId(event, "async-question-interrupt"),
+          threadId: thread.id,
+          turnId: activeTurnId,
+          createdAt: now,
+        });
+      }
     });
 
   const processDomainEvent = Effect.fn("processQueueDomainEvent")(function* (

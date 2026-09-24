@@ -1,6 +1,7 @@
 import {
   CommandId,
   EventId,
+  MessageId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -106,6 +107,46 @@ it.layer(NodeServices.layer)("user input dismiss decider", (it) => {
       const projected = yield* projectEvent(readModel, { ...events[0]!, sequence: 1 });
       expect(projected.threads[0]?.messages).toEqual([]);
       expect(projected.threads[0]?.latestTurn).toBeNull();
+    }),
+  );
+
+  it.effect("dismisses open async questions when the user sends a new message", () =>
+    Effect.gen(function* () {
+      const nativeRequest: OrchestrationThreadActivity = {
+        ...makeRequest(undefined),
+        id: EventId.make("native"),
+        payload: { requestId: "native-question", questions: [] },
+      };
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.make("send-1"),
+          threadId,
+          message: {
+            messageId: MessageId.make("message-1"),
+            role: "user",
+            text: "Use the other folder",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: NOW,
+        },
+        readModel: makeReadModel([makeRequest("message"), nativeRequest]),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.activity-appended",
+        "thread.message-sent",
+        "thread.turn-start-requested",
+      ]);
+      expect(events[0]?.payload).toMatchObject({
+        activity: {
+          kind: "user-input.resolved",
+          summary: "User input dismissed",
+          payload: { requestId, responseMode: "message" },
+        },
+      });
     }),
   );
 

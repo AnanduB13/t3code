@@ -49,14 +49,14 @@ reported accounts, refresh provider status, and confirm the second instance has
 its own shadow path and login. A shadow-home conflict usually means the directory
 contains a copied Codex setup. Use a fresh shadow directory and sign in again.
 
-## Answer questions while Codex works
+## Answer Codex questions
 
-Codex can ask a question and keep working. Answer it in the thread's question
-panel. The answer becomes a new message: it reaches the active turn, or starts
-another turn if Codex has finished. Unanswered questions survive reconnects.
-If you do not want to answer, dismiss the question from its panel. Dismissing
-closes it without sending anything to Codex. This requires a Codex version that
-supports async questions.
+When Codex asks a question, T3 Code stops the turn so Codex does not keep
+working on a guess. Answer it in the thread's question panel. The answer
+becomes a new message and Codex continues from it. Unanswered questions survive
+reconnects. If you do not want to answer, dismiss the question from its panel,
+or send a normal message instead. Either one closes the question without
+sending an answer. This requires a Codex version that supports async questions.
 
 ## Approve app access
 

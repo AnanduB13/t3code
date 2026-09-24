@@ -308,7 +308,63 @@ const planQueuedMessageDispatch = Effect.fn("planQueuedMessageDispatch")(functio
       createdAt: input.occurredAt,
     },
   };
-  return [...removedEvents, userMessageEvent, turnStartEvent];
+  const dismissedQuestionEvents = yield* dismissAsyncQuestions({
+    thread: input.thread,
+    commandId: input.commandId,
+    occurredAt: input.occurredAt,
+    idPrefix: "superseded",
+  });
+  return [...removedEvents, ...dismissedQuestionEvents, userMessageEvent, turnStartEvent];
+});
+
+function isAsyncQuestion(activity: OrchestrationThreadActivity): boolean {
+  return (
+    activity.kind === "user-input.requested" &&
+    Predicate.isObject(activity.payload) &&
+    activity.payload.responseMode === "message"
+  );
+}
+
+/**
+ * Dismisses the thread's open async questions. Used when the user settles the
+ * thread or sends a new message, either of which moves past the question.
+ */
+const dismissAsyncQuestions = Effect.fn("dismissAsyncQuestions")(function* (input: {
+  readonly thread: OrchestrationThread;
+  readonly commandId: OrchestrationCommand["commandId"];
+  readonly occurredAt: string;
+  readonly idPrefix: string;
+}): Effect.fn.Return<
+  ReadonlyArray<PlannedOrchestrationEvent>,
+  PlatformError.PlatformError,
+  Crypto.Crypto
+> {
+  const events: PlannedOrchestrationEvent[] = [];
+  for (const [requestId, request] of openRequests(input.thread)) {
+    if (!isAsyncQuestion(request)) continue;
+    events.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.occurredAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.activity-appended",
+      payload: {
+        threadId: input.thread.id,
+        activity: {
+          id: EventId.make(`${input.idPrefix}:${input.commandId}:${requestId}`),
+          kind: "user-input.resolved",
+          summary: "User input dismissed",
+          tone: "info",
+          turnId: request.turnId,
+          createdAt: input.occurredAt,
+          payload: { requestId, responseMode: "message" },
+        },
+      },
+    });
+  }
+  return events;
 });
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
@@ -639,11 +695,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // Native callbacks and approvals still need a response or interruption.
       if (
         Array.from(pendingRequests.values()).some(
-          (activity) =>
-            command.type === "thread.auto-settle" ||
-            activity.kind !== "user-input.requested" ||
-            !Predicate.isObject(activity.payload) ||
-            activity.payload.responseMode !== "message",
+          (activity) => command.type === "thread.auto-settle" || !isAsyncQuestion(activity),
         )
       ) {
         return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
@@ -679,30 +731,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       // Settlement preserves pinning; clear snooze so the settled thread is visible.
-      const companionEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      for (const [requestId, request] of pendingRequests) {
-        companionEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.activity-appended",
-          payload: {
-            threadId: command.threadId,
-            activity: {
-              id: EventId.make(`settle:${command.commandId}:${requestId}`),
-              kind: "user-input.resolved",
-              summary: "User input dismissed",
-              tone: "info",
-              turnId: request.turnId,
-              createdAt: occurredAt,
-              payload: { requestId, responseMode: "message" },
-            },
-          },
-        });
-      }
+      const companionEvents: Array<Omit<OrchestrationEvent, "sequence">> = [
+        ...(yield* dismissAsyncQuestions({
+          thread,
+          commandId: command.commandId,
+          occurredAt,
+          idPrefix: "settle",
+        })),
+      ];
       if (thread.snoozedUntil != null) {
         companionEvents.push({
           ...(yield* withEventBase({
@@ -1664,8 +1700,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         });
       }
+      // A new message moves past any open async question; leaving it open
+      // would keep the thread flagged as waiting on the user.
+      const dismissedQuestionEvents = yield* dismissAsyncQuestions({
+        thread: targetThread,
+        commandId: command.commandId,
+        occurredAt: command.createdAt,
+        idPrefix: "superseded",
+      });
       return [
         ...lifecycleResetEvents,
+        ...dismissedQuestionEvents,
         ...(userMessageEvent ? [userMessageEvent] : []),
         turnStartRequestedEvent,
       ];
@@ -1996,8 +2041,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             [`${question.question}\n${answer.trim()}`, attachmentLabels].filter(Boolean).join("\n"),
           );
         }
-        // Commit the answer and its message together. The normal turn path
-        // steers a running agent or resumes an idle session.
+        // Commit the answer and its message together. The asking turn is
+        // interrupted when the question arrives, so the answer usually starts
+        // the next turn. It steers rather than queues so it can never wait
+        // behind a turn that is still running.
         return yield* decideCommandSequence({
           readModel,
           commands: [
@@ -2028,6 +2075,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
               commandId: command.commandId,
               threadId: command.threadId,
               createdAt: command.createdAt,
+              followUpBehavior: "steer",
               runtimeMode: thread.runtimeMode,
               interactionMode: thread.interactionMode,
               message: {

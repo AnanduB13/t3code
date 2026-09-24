@@ -3222,7 +3222,7 @@ describe("ProviderRuntimeIngestion", () => {
     ]);
   });
 
-  it("keeps streaming while an async question is pending", async () => {
+  it("interrupts the turn when the agent asks an async question", async () => {
     const harness = await createHarness({ serverSettings: { responseStreamingMode: "token" } });
     const base = {
       provider: ProviderDriverKind.make("codex"),
@@ -3270,6 +3270,16 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       thread?.activities.find((activity) => activity.kind === "user-input.requested")?.payload,
     ).toMatchObject({ responseMode: "message", requestId: "codex-async:question-1" });
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    expect(
+      events
+        .filter((event) => event.type === "thread.turn-interrupt-requested")
+        .map((event) => event.payload),
+    ).toMatchObject([{ threadId: "thread-1", turnId: "turn-async" }]);
   });
 
   it("does not create assistant segments for whitespace-only buffered text at approval boundaries", async () => {
