@@ -1002,7 +1002,6 @@ const makeWsRpcLayer = (
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
         Effect.gen(function* () {
           const bootstrap = command.bootstrap;
-          const { bootstrap: _bootstrap, ...finalTurnStartCommand } = command;
           let createdThread = false;
           let targetProjectId = bootstrap?.createThread?.projectId;
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
@@ -1203,7 +1202,9 @@ const makeWsRpcLayer = (
 
             yield* runSetupProgram();
 
-            return yield* dispatchFromClient(finalTurnStartCommand);
+            // The decider needs the bootstrap marker so worktree preparation
+            // cannot queue its own first prompt behind the starting session.
+            return yield* dispatchFromClient(command);
           });
 
           return yield* bootstrapProgram.pipe(

@@ -1,3 +1,5 @@
+import { decideOrchestrationCommand } from "./orchestration/decider.ts";
+import { createEmptyReadModel, projectEvent } from "./orchestration/projector.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
@@ -9064,10 +9066,38 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           setupActivities.map((command) => command.activity.kind),
           ["setup-script.requested", "setup-script.started"],
         );
+        let readModel = createEmptyReadModel(createdAt);
+        const replayCommands: Array<OrchestrationCommand> = [
+          {
+            type: "project.create",
+            commandId: CommandId.make("cmd-bootstrap-project"),
+            projectId: defaultProjectId,
+            title: "Bootstrap project",
+            workspaceRoot: "/tmp/project",
+            createdAt,
+          },
+          ...dispatchedCommands,
+        ];
+        const eventTypes: string[] = [];
+        for (const command of replayCommands) {
+          const planned = yield* decideOrchestrationCommand({ command, readModel });
+          const events = Array.isArray(planned) ? planned : [planned];
+          for (const event of events) {
+            eventTypes.push(event.type);
+            readModel = yield* projectEvent(readModel, {
+              ...event,
+              sequence: readModel.snapshotSequence + 1,
+            });
+          }
+        }
+        assert.equal(eventTypes.filter((type) => type === "thread.turn-start-requested").length, 1);
+        assert.notInclude(eventTypes, "thread.message-queued");
+        assert.equal(readModel.threads[0]?.queuedMessages.length, 0);
+
         const finalCommand = dispatchedCommands[4];
         assertTrue(finalCommand?.type === "thread.turn.start");
         if (finalCommand?.type === "thread.turn.start") {
-          assert.equal(finalCommand.bootstrap, undefined);
+          assert.isDefined(finalCommand.bootstrap);
         }
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

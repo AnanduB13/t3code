@@ -1,3 +1,4 @@
+import { AndroidNotificationWorker } from "./features/agent-awareness/AndroidNotificationWorker";
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
@@ -419,6 +420,7 @@ function RootStackLayout(props: {
   return (
     <HardwareKeyboardCommandProvider pathname={pathname}>
       <ThreadOutboxDrainWorker />
+      <AndroidNotificationWorker />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
         <AdaptiveWorkspaceLayout pathname={workspacePathname} navigationPathname={pathname}>
