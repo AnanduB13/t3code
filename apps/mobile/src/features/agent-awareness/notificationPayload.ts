@@ -31,7 +31,12 @@ function identifierFromNotificationResponse(response: unknown): string | null {
     return null;
   }
   const identifier = (request as { readonly identifier?: unknown }).identifier;
-  return typeof identifier === "string" ? identifier : null;
+  const date = (notification as { readonly date?: unknown }).date;
+  // Local notifications reuse a thread's identifier to replace its previous alert.
+  // Each delivery must still be tappable; only callbacks for that delivery dedupe.
+  return typeof identifier === "string"
+    ? JSON.stringify([identifier, typeof date === "number" ? date : null])
+    : null;
 }
 
 function encodeThreadDeepLink(input: {

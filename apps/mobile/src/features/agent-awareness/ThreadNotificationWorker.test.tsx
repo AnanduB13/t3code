@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   workspace: { environments: [] },
   configs: new Map(),
   live: new Set(["server-a"]),
+  omitTurn: false,
   thread: {
     environmentId: "server-a",
     id: "chat-a",
@@ -51,7 +52,13 @@ vi.mock("@effect/atom-react", () => ({
 }));
 vi.mock("../../state/preferences", () => ({ mobilePreferencesAtom: state.preferencesAtom }));
 vi.mock("../../state/entities", () => ({
-  useThreadShells: () => [{ ...state.thread }],
+  useThreadShells: () => [
+    {
+      ...state.thread,
+      latestTurn: state.omitTurn ? null : state.thread.latestTurn,
+      session: state.omitTurn ? { status: "ready" } : null,
+    },
+  ],
   useServerConfigs: () => state.configs,
 }));
 vi.mock("../../state/workspace", () => ({ useWorkspaceState: () => state.workspace }));
@@ -80,6 +87,8 @@ async function complete() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  state.schedule.mockReset().mockResolvedValue("notification");
+  state.dismiss.mockReset().mockResolvedValue(undefined);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.platform.OS = "android";
   state.preferences = {};
@@ -88,7 +97,66 @@ beforeEach(() => {
   state.pushSupported = false;
   state.managed.accountId = null;
   state.thread.latestTurn.state = "running";
+  state.thread.latestTurn.turnId = "turn-a";
+  state.thread.hasPendingApprovals = false;
   state.thread.planProgress.completedSteps = 0;
+  state.omitTurn = false;
+});
+
+it.each(["disabled", "resumed", "cloud", "unmounted"])(
+  "drops queued alerts when %s",
+  async (condition) => {
+    const pending = Promise.withResolvers<string>();
+    state.schedule.mockImplementationOnce(() => pending.promise);
+    await render();
+    await complete();
+    expect(state.schedule).toHaveBeenCalledTimes(1);
+    state.thread.latestTurn = { turnId: "turn-b", state: "running" };
+    await render();
+    await complete();
+    if (condition === "disabled") state.preferences = { directChatNotificationsEnabled: false };
+    if (condition === "resumed") state.thread.latestTurn = { turnId: "turn-c", state: "running" };
+    if (condition === "cloud") {
+      state.pushSupported = true;
+      state.managed.accountId = "account";
+      state.registration = "registered";
+    }
+    if (condition === "unmounted") {
+      await act(async () => renderer?.unmount());
+      renderer = undefined;
+    } else await render();
+    await act(async () => pending.resolve("notification"));
+    expect(state.schedule).toHaveBeenCalledTimes(1);
+    expect(state.dismiss).toHaveBeenCalledWith('t3-chat:["server-a","chat-a"]');
+  },
+);
+it("still delivers an update when removing the previous alert fails", async () => {
+  await render();
+  state.thread.hasPendingApprovals = true;
+  await render();
+  state.dismiss.mockRejectedValueOnce(new Error("Notification already removed"));
+  state.thread.hasPendingApprovals = false;
+  await render();
+  expect(state.dismiss).toHaveBeenCalledWith('t3-chat:["server-a","chat-a"]');
+  await complete();
+  expect(state.schedule).toHaveBeenCalledTimes(2);
+  expect(state.schedule).toHaveBeenLastCalledWith(
+    expect.objectContaining({ content: expect.objectContaining({ body: "Agent finished" }) }),
+  );
+});
+it("keeps one queued completion when its checkpoint arrives before delivery", async () => {
+  const pending = Promise.withResolvers<string>();
+  state.schedule.mockImplementationOnce(() => pending.promise);
+  await render();
+  await complete();
+  state.thread.latestTurn = { turnId: "turn-b", state: "running" };
+  await render();
+  state.omitTurn = true;
+  await render();
+  state.omitTurn = false;
+  await complete();
+  await act(async () => pending.resolve("notification"));
+  expect(state.schedule).toHaveBeenCalledTimes(2);
 });
 afterEach(async () => {
   await act(async () => renderer?.unmount());

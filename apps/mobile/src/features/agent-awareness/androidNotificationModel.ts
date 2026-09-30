@@ -46,7 +46,12 @@ export function shouldAlertAndroidChat(
   next: AndroidChatNotification,
 ): boolean {
   if (!previous || next.ongoing || next.phase === "stale") return false;
-  return previous.phase !== next.phase || previous.turnId !== next.turnId;
+  // A checkpoint can attach or remove a turn ID after the session has already
+  // finished. Only two known, different IDs prove that another run completed.
+  return (
+    previous.phase !== next.phase ||
+    (previous.turnId !== null && next.turnId !== null && previous.turnId !== next.turnId)
+  );
 }
 
 /** Preserve running state across disconnects without treating cached snapshots as new events. */

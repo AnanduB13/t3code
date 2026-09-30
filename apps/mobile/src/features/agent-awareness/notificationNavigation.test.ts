@@ -155,6 +155,20 @@ describe("extractAgentNotificationDeepLink", () => {
 });
 
 describe("routeAgentNotificationResponseOnce", () => {
+  it("opens later deliveries that replace the same thread notification", () => {
+    const handledResponseIds = new Set<string>();
+    const navigate = vi.fn();
+    const response = responseWithData({ deepLink: "/threads/env/thread" });
+    for (const date of [1000, 1000, 2000, 2000]) {
+      routeAgentNotificationResponseOnce({
+        handledResponseIds,
+        navigate,
+        response: { notification: { ...response.notification, date } },
+      });
+    }
+    expect(navigate).toHaveBeenCalledTimes(2);
+    expect(navigate).toHaveBeenLastCalledWith("/threads/env/thread");
+  });
   it("does not navigate twice when the initial and listener responses refer to one notification", () => {
     const handledResponseIds = new Set<string>();
     const navigations: Array<string> = [];

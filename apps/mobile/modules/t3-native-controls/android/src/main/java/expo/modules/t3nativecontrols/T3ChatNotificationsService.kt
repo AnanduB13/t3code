@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import org.json.JSONArray
 import com.facebook.react.HeadlessJsTaskService
 import com.facebook.react.bridge.Arguments
@@ -22,7 +23,8 @@ class T3ChatNotificationsService : HeadlessJsTaskService() {
   companion object {
     @Volatile var running = false
       private set
-    @Volatile var dismissedSession: String? = null
+    internal val sessions = ChatMonitorSessions()
+    internal var backgroundRestricted = false
     val stopWaiters = CopyOnWriteArrayList<Promise>()
     private const val CHANNEL = "t3-running-chats"
     private const val ID = 73001
@@ -35,7 +37,7 @@ class T3ChatNotificationsService : HeadlessJsTaskService() {
 
   override fun onCreate() {
     super.onCreate()
-    getSystemService(NotificationManager::class.java).createNotificationChannel(
+    if (Build.VERSION.SDK_INT >= 26) getSystemService(NotificationManager::class.java).createNotificationChannel(
       NotificationChannel(CHANNEL, "Running chats", NotificationManager.IMPORTANCE_LOW).apply {
         description = "Quiet progress updates while T3 Code monitors running chats"
         setShowBadge(false)
@@ -45,7 +47,7 @@ class T3ChatNotificationsService : HeadlessJsTaskService() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == "stop-monitoring") {
-      dismissedSession = session
+      sessions.dismiss(session)
       expire.run()
       return START_NOT_STICKY
     }
@@ -57,6 +59,33 @@ class T3ChatNotificationsService : HeadlessJsTaskService() {
     lastChats = payload
     val chats = JSONArray(payload)
     if (chats.length() == 0) { stopSelf(); return START_NOT_STICKY }
+    val notification = notification(chats)
+    try {
+      if (Build.VERSION.SDK_INT >= 29) startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+      else startForeground(ID, notification)
+    } catch (error: IllegalStateException) {
+      // Android can revoke background-start eligibility between the JS check and this call.
+      Log.w("T3ChatNotifications", "Android stopped background monitoring", error)
+      backgroundRestricted = true
+      expire.run()
+      return START_NOT_STICKY
+    } catch (error: SecurityException) {
+      Log.w("T3ChatNotifications", "Monitoring permission is unavailable", error)
+      backgroundRestricted = true
+      expire.run()
+      return START_NOT_STICKY
+    }
+    if (!running) {
+      running = true
+      startTask(HeadlessJsTaskConfig("T3ChatMonitor", Arguments.createMap(), 0, true))
+    }
+    // A stalled JS runtime must not leave a permanent, falsely live notification.
+    handler.removeCallbacks(expire)
+    handler.postDelayed(expire, 90_000)
+    return START_NOT_STICKY
+  }
+
+  internal fun notification(chats: JSONArray): Notification {
     val first = chats.getJSONObject(0)
     val uri = Uri.parse(first.getString("deepLink"))
     val tap = Intent(Intent.ACTION_VIEW, uri).setPackage(packageName)
@@ -72,7 +101,8 @@ class T3ChatNotificationsService : HeadlessJsTaskService() {
     val stop = PendingIntent.getService(this, ID,
       Intent(this, T3ChatNotificationsService::class.java).setAction("stop-monitoring"),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    val builder = Notification.Builder(this, CHANNEL)
+    val builder = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
+      else Notification.Builder(this).setPriority(Notification.PRIORITY_LOW))
       .setSmallIcon(icon).setContentTitle(title).setContentText(body)
       .setStyle(Notification.BigTextStyle().bigText(body))
       .setContentIntent(pending).setOngoing(true).setOnlyAlertOnce(true)
@@ -87,19 +117,13 @@ class T3ChatNotificationsService : HeadlessJsTaskService() {
       builder.extras.putBoolean("android.requestPromotedOngoing", true)
       builder.setShortCriticalText(if (total > 0) "${first.optInt("completedSteps")}/$total" else "Working")
     }
-    if (Build.VERSION.SDK_INT >= 29) startForeground(ID, builder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-    else startForeground(ID, builder.build())
-    if (!running) {
-      running = true
-      startTask(HeadlessJsTaskConfig("T3ChatMonitor", Arguments.createMap(), 0, true))
-    }
-    // A stalled JS runtime must not leave a permanent, falsely live notification.
-    handler.removeCallbacks(expire)
-    handler.postDelayed(expire, 90_000)
-    return START_NOT_STICKY
+    return builder.build()
   }
 
-  override fun onTimeout(startId: Int, fgsType: Int) { expire.run() }
+  override fun onTimeout(startId: Int, fgsType: Int) {
+    backgroundRestricted = true
+    expire.run()
+  }
   override fun onTaskRemoved(rootIntent: Intent?) { expire.run() }
   override fun onDestroy() {
     running = false

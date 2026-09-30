@@ -21,6 +21,7 @@ import {
 } from "./remoteRegistration";
 import {
   reconcileAndroidChatNotifications,
+  shouldAlertAndroidChat,
   type AndroidChatNotification,
 } from "./androidNotificationModel";
 
@@ -80,6 +81,7 @@ function NotificationWorker() {
   const [appState, setAppState] = useState(AppState.currentState);
   const [permission, setPermission] = useState(false);
   const queue = useRef(Promise.resolve());
+  const pendingAlerts = useRef(new Map<string, AndroidChatNotification>());
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", setAppState);
@@ -109,8 +111,11 @@ function NotificationWorker() {
       }),
     });
     return () => {
+      pendingAlerts.current.clear();
       Notifications.setNotificationHandler(null);
-      void androidNotifications?.stop();
+      void androidNotifications
+        ?.stop()
+        .catch((error: unknown) => console.warn("Could not stop chat monitoring", error));
     };
   }, []);
 
@@ -123,6 +128,20 @@ function NotificationWorker() {
     );
     previous.current = change.next;
     const alerts = enabled && permission ? change.alerts : [];
+    // Keep queued alerts through checkpoint metadata updates, but drop them
+    // when work resumes, delivery moves to cloud, or notifications are disabled.
+    for (const [key, alert] of pendingAlerts.current) {
+      const current = change.next.get(key);
+      if (
+        !enabled ||
+        !permission ||
+        !current ||
+        current.phase !== alert.phase ||
+        shouldAlertAndroidChat(alert, current)
+      )
+        pendingAlerts.current.delete(key);
+    }
+    for (const alert of alerts) pendingAlerts.current.set(alert.key, alert);
     const running =
       enabled && permission
         ? change.monitored.map((chat) => ({ ...chat, deepLink: Linking.createURL(chat.deepLink) }))
@@ -142,8 +161,12 @@ function NotificationWorker() {
         for (const key of enabled && permission
           ? change.clearAlertKeys
           : new Set([...change.clearAlertKeys, ...change.next.keys()]))
-          await Notifications.dismissNotificationAsync(`t3-chat:${key}`);
-        for (const chat of alerts)
+          await Notifications.dismissNotificationAsync(`t3-chat:${key}`).catch((error: unknown) =>
+            console.warn("Could not dismiss chat alert", error),
+          );
+        for (const chat of alerts) {
+          if (pendingAlerts.current.get(chat.key) !== chat) continue;
+          pendingAlerts.current.delete(chat.key);
           await Notifications.scheduleNotificationAsync({
             identifier: `t3-chat:${chat.key}`,
             content: {
@@ -153,7 +176,8 @@ function NotificationWorker() {
               data: { deepLink: chat.deepLink },
             },
             trigger: Platform.OS === "android" ? { channelId: "t3-chat-alerts" } : null,
-          });
+          }).catch((error: unknown) => console.warn("Could not show chat alert", error));
+        }
       })
       .catch((error: unknown) => console.warn("Could not show chat alert", error));
     update();

@@ -74,6 +74,18 @@ describe("Android chat notifications", () => {
       expect(shouldAlertAndroidChat(waiting, running)).toBe(false);
     }
   });
+  it("does not repeat completion when session cleanup removes the turn ID", () => {
+    const done = project({ latestTurn: { ...thread().latestTurn!, state: "completed" } });
+    expect(shouldAlertAndroidChat(done, { ...done, turnId: null })).toBe(false);
+    expect(shouldAlertAndroidChat(done, { ...done, turnId: "next-turn" })).toBe(true);
+  });
+  it("does not repeat a session completion when its checkpoint arrives later", () => {
+    const done = project({ latestTurn: { ...thread().latestTurn!, state: "completed" } });
+    expect(shouldAlertAndroidChat({ ...done, turnId: null }, done)).toBe(false);
+    expect(
+      shouldAlertAndroidChat({ ...done, turnId: null, phase: "running", ongoing: true }, done),
+    ).toBe(true);
+  });
   it("isolates identical thread IDs across environments and removes archived chats", () => {
     expect(project({ environmentId: EnvironmentId.make("server-b") }).key).not.toBe(project().key);
     expect(
