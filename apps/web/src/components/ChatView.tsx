@@ -9713,11 +9713,9 @@ export default function ChatView(props: ChatViewProps) {
   );
   const panelLayoutControls = (
     <div
-      className={cn(
-        // Keep one viewport anchor inside the header's no-drag region. The
-        // header can shrink behind the right panel without moving the controls.
-        "pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]",
-      )}
+      // Anchor to this chat pane so split chats keep their own controls while
+      // the header shrinks behind the right panel.
+      className="pointer-events-none absolute top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
       data-workspace-titlebar-controls
     >
       {!shouldUseRightPanelSheet ? (
@@ -9956,7 +9954,6 @@ export default function ChatView(props: ChatViewProps) {
               className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
             />
           ) : null}
-          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           <ChatHeader
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}
@@ -9984,7 +9981,7 @@ export default function ChatView(props: ChatViewProps) {
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
           />
-          {!rightPanelOpen ? (
+          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? (
             <div
               className="flex shrink-0 items-center [-webkit-app-region:no-drag]"
               data-workspace-titlebar-controls
