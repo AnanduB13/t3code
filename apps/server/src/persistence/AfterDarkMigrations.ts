@@ -6,6 +6,7 @@ import AfterDarkCompatibility from "./Migrations/044_AfterDarkUpstreamCompatibil
 import ClearAutomaticProjectModelDefaults from "./Migrations/044_ClearAutomaticProjectModelDefaults.ts";
 import ProjectionProjectsAutoPull from "./Migrations/045_ProjectionProjectsAutoPull.ts";
 import ProjectionThreadLastVisitedAt from "./Migrations/045_ProjectionThreadLastVisitedAt.ts";
+import ProjectionThreadsAutoSettleDisabledAt from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
 
 const repairSkippedUpstreamMigrations = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -44,6 +45,16 @@ const addQueuedMessageHold = Effect.gen(function* () {
   }
 });
 
+const repairLegacyMainCompatibility = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const history = yield* sql<{ readonly name: string }>`
+    SELECT name FROM effect_sql_migrations WHERE migration_id = 54
+  `;
+  if (history.some((row) => row.name === "AfterDarkMainCompatibility")) {
+    yield* ProjectionThreadsAutoSettleDisabledAt;
+  }
+});
+
 const run = Migrator.make({});
 
 /** Runs fork additions separately, including repairs for old shared migration IDs. */
@@ -58,6 +69,7 @@ export const runAfterDarkMigrations = (throughUpstreamId?: number) =>
             "3_RepairSkippedUpstreamMigrations": repairSkippedUpstreamMigrations,
             "4_QueuedMessageContext": addQueuedMessageContext,
             "5_QueuedMessageHold": addQueuedMessageHold,
+            "6_RepairLegacyMainCompatibility": repairLegacyMainCompatibility,
           }
         : {}),
     }),

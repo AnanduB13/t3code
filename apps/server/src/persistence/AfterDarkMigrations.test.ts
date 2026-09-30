@@ -70,10 +70,44 @@ it.effect("upgrades the old After Dark ledger without losing queues, read state,
       yield* sql`SELECT migration_id FROM after_dark_migrations ORDER BY migration_id`;
     assert.deepEqual(
       forkLedger,
-      [1, 2, 3, 4, 5].map((migration_id) => ({ migration_id })),
+      [1, 2, 3, 4, 5, 6].map((migration_id) => ({ migration_id })),
     );
     const latest = yield* sql`SELECT MAX(migration_id) AS id FROM effect_sql_migrations`;
     assert.deepEqual(latest, [{ id: 54 }]);
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);
+
+it.effect("repairs the deployed After Dark migration 54 without changing saved threads", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations({ toMigrationInclusive: 53 });
+    yield* sql`DELETE FROM after_dark_migrations WHERE migration_id = 6`;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name)
+      VALUES (54, 'AfterDarkMainCompatibility')`;
+    yield* sql`INSERT INTO projection_threads
+      (thread_id, project_id, title, model_selection_json, created_at, updated_at, pinned_at, last_visited_at)
+      VALUES ('thread-1', 'project-1', 'Keep this chat', '{"instanceId":"codex","model":"gpt-5.4"}', ${now}, ${now}, ${now}, ${now})`;
+
+    yield* runMigrations();
+    assert.deepEqual(
+      yield* sql`SELECT title, pinned_at, last_visited_at, auto_settle_disabled_at FROM projection_threads`,
+      [
+        {
+          title: "Keep this chat",
+          pinned_at: now,
+          last_visited_at: now,
+          auto_settle_disabled_at: null,
+        },
+      ],
+    );
+    yield* sql`UPDATE projection_threads SET auto_settle_disabled_at = ${now} WHERE thread_id = 'thread-1'`;
+    assert.deepEqual(yield* runMigrations(), []);
+    assert.deepEqual(yield* sql`SELECT auto_settle_disabled_at FROM projection_threads`, [
+      { auto_settle_disabled_at: now },
+    ]);
+    assert.deepEqual(yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id = 54`, [
+      { name: "AfterDarkMainCompatibility" },
+    ]);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
