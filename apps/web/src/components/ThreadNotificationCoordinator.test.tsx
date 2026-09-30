@@ -251,6 +251,19 @@ describe("thread notifications", () => {
     expect(state.notification).toHaveBeenCalledTimes(1);
   });
 
+  it("notifies once when an observed run finishes during a disconnect", async () => {
+    state.mode = "notifications";
+    await render();
+    state.live = false;
+    await render();
+    await complete();
+    expect(state.notification).not.toHaveBeenCalled();
+    state.live = true;
+    await render();
+    await render();
+    expect(state.notification).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps system alerts when the app is in the background", async () => {
     state.mode = "notifications";
     state.focused = false;
@@ -349,4 +362,32 @@ describe("thread notifications", () => {
     });
     expect(state.notification).not.toHaveBeenCalled();
   });
+
+  it.each(["running", "archived", "disconnected"])(
+    "drops a pending completion when the thread becomes %s before permission is granted",
+    async (condition) => {
+      Object.assign(window, { desktopBridge: { platform: "darwin" } });
+      let grantPermission!: () => void;
+      const permission = new Promise<void>((resolve) => {
+        grantPermission = resolve;
+      });
+      Object.assign(Notification, {
+        permission: "default",
+        requestPermission: () => permission,
+      });
+      state.mode = "notifications";
+      await render();
+      await complete();
+      if (condition === "running") state.completedAt = null;
+      if (condition === "archived") state.archivedAt = "2026-09-13T10:01:00.000Z";
+      if (condition === "disconnected") state.live = false;
+      await render();
+      await act(async () => {
+        Object.assign(Notification, { permission: "granted" });
+        grantPermission();
+        await permission;
+      });
+      expect(state.notification).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -96,6 +96,7 @@ function EnvironmentNotifications({
   onNotification: (environmentId: EnvironmentId, notification: Notification) => void;
 }) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
+  const latestShell = useRef(shell);
   const mode = useClientSettings((settings) => settings.notificationMode);
   const inAppNotificationsEnabled = useClientSettings(
     (settings) => settings.inAppNotificationsEnabled,
@@ -123,8 +124,19 @@ function EnvironmentNotifications({
   }, []);
 
   useEffect(() => {
+    latestShell.current = shell;
     if (shell.status !== "live" || Option.isNone(shell.snapshot)) {
-      previous.current.clear();
+      // Keep observed work across a reconnect so its completion is not lost.
+      // Settled threads establish a fresh baseline instead of replaying history.
+      for (const [id, state] of previous.current) {
+        if (
+          state.phase !== "running" &&
+          state.phase !== "starting" &&
+          state.phase !== "waiting_for_approval" &&
+          state.phase !== "waiting_for_input"
+        )
+          previous.current.delete(id);
+      }
       return;
     }
     const next: typeof previous.current = new Map();
@@ -218,10 +230,22 @@ function EnvironmentNotifications({
         if (window.desktopBridge && Notification.permission === "default") {
           await Notification.requestPermission();
         }
+        const currentShell = latestShell.current;
+        const currentThread =
+          currentShell.status === "live" && Option.isSome(currentShell.snapshot)
+            ? currentShell.snapshot.value.threads.find(({ id }) => id === thread.id)
+            : undefined;
         if (
           Notification.permission !== "granted" ||
           !mounted.current ||
-          !hasDesktopNotifications(getClientSettings().notificationMode)
+          !hasDesktopNotifications(getClientSettings().notificationMode) ||
+          !currentThread ||
+          currentThread.archivedAt !== null ||
+          resolveThreadAwarenessPhase(currentThread) !== phase ||
+          currentThread.latestTurn?.turnId !== thread.latestTurn?.turnId ||
+          (kind === "completion" &&
+            (currentThread.latestTurn?.completedAt ?? currentThread.session?.updatedAt) !==
+              (thread.latestTurn?.completedAt ?? thread.session?.updatedAt))
         )
           return;
         const notification = new Notification(title, {
