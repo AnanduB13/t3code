@@ -4744,6 +4744,7 @@ export default function Sidebar() {
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
+              showProjectScope={sidebarMode === "projects"}
               projectScope={
                 <Combobox
                   items={projectScopeItems}
