@@ -1,14 +1,58 @@
+import Constants from "expo-constants";
 import { requireOptionalNativeModule } from "expo";
-import { Platform } from "react-native";
-import type { AndroidChatNotification } from "./androidNotificationModel";
+import { Linking, Platform } from "react-native";
 
-interface AndroidNotificationsModule {
-  update(chats: readonly AndroidChatNotification[], allowStart: boolean): Promise<void>;
-  waitUntilStopped(): Promise<void>;
-  stop(): Promise<void>;
+interface AndroidAgentNotifications {
+  isConfigured?(): boolean;
+  configure(deviceId: string, userId: string, scheme: string, ongoingEnabled: boolean): void;
+  clear(): void;
+  openLiveUpdateSettings?(): boolean;
+  showShowcaseActivity?(scheme: string, data: Record<string, string>): void;
 }
 
-export const androidNotifications =
+const native =
   Platform.OS === "android"
-    ? requireOptionalNativeModule<AndroidNotificationsModule>("T3ChatNotifications")
+    ? requireOptionalNativeModule<AndroidAgentNotifications>("T3AgentNotifications")
     : null;
+
+export function supportsAndroidAgentNotifications(): boolean {
+  return (
+    typeof native?.configure === "function" &&
+    typeof native?.clear === "function" &&
+    native.isConfigured?.() !== false
+  );
+}
+
+function appScheme(): string {
+  const scheme = Constants.expoConfig?.scheme;
+  return (Array.isArray(scheme) ? scheme[0] : scheme) ?? "t3code-after-dark";
+}
+
+export function configureAndroidAgentNotifications(
+  deviceId: string,
+  userId: string,
+  ongoingEnabled: boolean,
+): void {
+  native?.configure?.(deviceId, userId, appScheme(), ongoingEnabled);
+}
+
+/** Posts a staged relay payload for the showcase capture; false when unsupported. */
+export function showAndroidShowcaseAgentActivity(data: Record<string, string>): boolean {
+  if (!native?.showShowcaseActivity) return false;
+  native.showShowcaseActivity(appScheme(), data);
+  return true;
+}
+
+export function clearAndroidAgentNotifications(): void {
+  native?.clear?.();
+}
+
+export function supportsAndroidLiveUpdateSettings(): boolean {
+  return Platform.OS === "android" && Number(Platform.Version) >= 36;
+}
+
+export async function openAndroidLiveUpdateSettings(): Promise<void> {
+  if (!native?.openLiveUpdateSettings?.()) {
+    await Linking.openSettings();
+  }
+}

@@ -12,6 +12,7 @@ import * as Path from "effect/Path";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { ServerConfig } from "../../../config.ts";
 import { ensureAgentDeviceShim } from "../../../device/AgentDeviceShim.ts";
+import { nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
 
 import * as DeviceService from "../../../device/DeviceService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -58,30 +59,29 @@ export function agentDeviceQuickStart(
     `  ${executable} screenshot /tmp/shot.png ${target}        # or call device_screenshot`,
     `  ${executable} install <app> <path-to-.app-or-.apk> ${target}`,
     `Prefer snapshot refs over coordinates. Run ${executable} help for workflow guides and ${executable} <command> --help for flags.`,
-    "Do not call simctl, adb, xcrun, or serve-sim directly while these tools are attached; use agent-device.",
+    "Prefer agent-device for driving this device. simctl, adb, and xcrun remain available for anything it does not cover.",
     "For remote hosts, arrange builds, app installation, and any Metro reverse forwarding yourself. T3 provides discovery, streaming, and control only.",
     "Keep the returned --config and --session flags on every command. Other hosts can be used concurrently; opening one does not switch these commands.",
     platformNotes,
   ].join("\n");
 }
 
-const requireDeviceAccess = McpInvocationContext.requireDeviceCapability.pipe(
-  Effect.flatMap((scope) =>
-    Effect.gen(function* () {
-      const devices = yield* DeviceService.DeviceService;
-      const state = yield* devices.state;
-      if (state.hostStatus === "disabled" || !state.agentAccessEnabled)
-        return yield* new DeviceToolUnavailableError({
-          reason: "Agent device access is turned off for this environment.",
-        });
-      return scope;
-    }),
-  ),
+const requireDeviceAccess = McpInvocationContext.requireMcpCapability("device").pipe(
   Effect.mapError(
     () =>
       new DeviceToolUnavailableError({
         reason: "Agent device access is turned off for this environment.",
       }),
+  ),
+  Effect.tap((scope) =>
+    Effect.gen(function* () {
+      const devices = yield* DeviceService.DeviceService;
+      if (!(yield* devices.agentAccessAllowed(scope.threadId))) {
+        return yield* new DeviceToolUnavailableError({
+          reason: "Agent device access is turned off for this environment.",
+        });
+      }
+    }),
   ),
 );
 
@@ -193,9 +193,13 @@ const handlers = {
         stateDir: config.stateDir,
       }).pipe(
         Effect.mapError(
-          () =>
+          (error) =>
             new DeviceToolUnavailableError({
-              reason: "Could not prepare the agent-device launcher.",
+              reason:
+                error._tag === "NodeRuntimeUnavailableError"
+                  ? nodeRuntimeUnavailableMessage("Device automation")
+                  : "Could not prepare the agent-device launcher.",
+              cause: error,
             }),
         ),
       );
@@ -217,9 +221,9 @@ const handlers = {
       const target =
         input.deviceId !== undefined
           ? { hostId: input.hostId ?? LOCAL_DEVICE_HOST_ID, deviceId: input.deviceId }
-          : sessions
-              .filter((session) => input.hostId === undefined || session.hostId === input.hostId)
-              .at(-1);
+          : sessions.findLast(
+              (session) => input.hostId === undefined || session.hostId === input.hostId,
+            );
       if (!target) {
         return yield* new DeviceToolUnavailableError({
           reason: "No device is open in this thread. Call device_open first.",

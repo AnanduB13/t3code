@@ -4,6 +4,9 @@ const SOURCE_LABEL = {
   codex: "Codex",
   claude: "Claude Code",
   grok: "Grok",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  antigravity: "Antigravity",
 } as const;
 
 export function describeUsageSources(sources: readonly UsageSource[]): string {

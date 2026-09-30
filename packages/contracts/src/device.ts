@@ -74,11 +74,26 @@ export const DevicePlatformAvailability = Schema.Struct({
 });
 export type DevicePlatformAvailability = typeof DevicePlatformAvailability.Type;
 
+export const DeviceToolVersion = Schema.Struct({
+  requiredVersion: Schema.String,
+  installedVersions: Schema.Array(Schema.String),
+  runningVersion: Schema.NullOr(Schema.String),
+});
+export type DeviceToolVersion = typeof DeviceToolVersion.Type;
+
+export const DeviceToolVersions = Schema.Struct({
+  hub: DeviceToolVersion,
+  agent: DeviceToolVersion,
+});
+export type DeviceToolVersions = typeof DeviceToolVersions.Type;
+
 export const DeviceHostSummary = Schema.Struct({
   id: DeviceHostId,
   kind: Schema.Literals(["local", "ssh"]),
   label: TrimmedNonEmptyString,
   platforms: Schema.Array(DevicePlatformAvailability),
+  tools: Schema.optional(DeviceToolVersions),
+  toolInspectionError: Schema.optional(Schema.String),
   hubInstalled: Schema.Boolean,
   agentDeviceInstalled: Schema.Boolean,
 });
@@ -113,6 +128,9 @@ export const DeviceSession = Schema.Struct({
 export type DeviceSession = typeof DeviceSession.Type;
 
 export const DeviceServiceState = Schema.Struct({
+  supportsHostRetry: Schema.optional(Schema.Boolean),
+  supportsToolUpdate: Schema.optional(Schema.Boolean),
+  supportsToolInspection: Schema.optional(Schema.Boolean),
   hosts: Schema.Array(DeviceHostSummary),
   hostStatus: DeviceHostStatus,
   hostStatusDetail: Schema.optional(Schema.String),
@@ -136,7 +154,14 @@ export const DeviceServiceState = Schema.Struct({
 });
 export type DeviceServiceState = typeof DeviceServiceState.Type;
 
-export const DeviceListInput = Schema.Struct({});
+export const DeviceListInput = Schema.Struct({
+  /** Install this server's pinned tool without enabling access or starting helpers. */
+  updateTool: Schema.optional(Schema.Literals(["hub", "agent"])),
+  /** Read inventory without installing tools or starting helpers. */
+  inspectOnly: Schema.optional(Schema.Boolean),
+  /** Retry this host only, including agent tools if access was already granted. */
+  retryHostId: Schema.optional(DeviceHostId),
+});
 export type DeviceListInput = typeof DeviceListInput.Type;
 
 export const DeviceConfigureInput = Schema.Struct({
@@ -335,11 +360,12 @@ export type DeviceActionType = DeviceActionInput["type"];
 export const DeviceDetailInput = Schema.Struct(DeviceTarget);
 export type DeviceDetailInput = typeof DeviceDetailInput.Type;
 
-export class DeviceHostUnavailableError extends Schema.TaggedErrorClass<DeviceHostUnavailableError>()(
+export class DeviceHostUnavailableError extends Schema.TaggedError<DeviceHostUnavailableError>()(
   "DeviceHostUnavailableError",
   {
     hostId: DeviceHostId,
     reason: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -347,7 +373,7 @@ export class DeviceHostUnavailableError extends Schema.TaggedErrorClass<DeviceHo
   }
 }
 
-export class DevicePlatformUnavailableError extends Schema.TaggedErrorClass<DevicePlatformUnavailableError>()(
+export class DevicePlatformUnavailableError extends Schema.TaggedError<DevicePlatformUnavailableError>()(
   "DevicePlatformUnavailableError",
   {
     hostId: DeviceHostId,
@@ -360,7 +386,7 @@ export class DevicePlatformUnavailableError extends Schema.TaggedErrorClass<Devi
   }
 }
 
-export class DeviceNotFoundError extends Schema.TaggedErrorClass<DeviceNotFoundError>()(
+export class DeviceNotFoundError extends Schema.TaggedError<DeviceNotFoundError>()(
   "DeviceNotFoundError",
   {
     hostId: DeviceHostId,
@@ -372,7 +398,7 @@ export class DeviceNotFoundError extends Schema.TaggedErrorClass<DeviceNotFoundE
   }
 }
 
-export class DeviceBootError extends Schema.TaggedErrorClass<DeviceBootError>()("DeviceBootError", {
+export class DeviceBootError extends Schema.TaggedError<DeviceBootError>()("DeviceBootError", {
   hostId: DeviceHostId,
   deviceId: DeviceId,
   reason: Schema.Literals(["disk_space", "timeout", "launch_failed"]),
@@ -389,7 +415,7 @@ export class DeviceBootError extends Schema.TaggedErrorClass<DeviceBootError>()(
   }
 }
 
-export class DeviceOperationError extends Schema.TaggedErrorClass<DeviceOperationError>()(
+export class DeviceOperationError extends Schema.TaggedError<DeviceOperationError>()(
   "DeviceOperationError",
   {
     operation: Schema.String,
@@ -416,7 +442,7 @@ export class DeviceOperationError extends Schema.TaggedErrorClass<DeviceOperatio
   }
 }
 
-export class DeviceActionUnavailableError extends Schema.TaggedErrorClass<DeviceActionUnavailableError>()(
+export class DeviceActionUnavailableError extends Schema.TaggedError<DeviceActionUnavailableError>()(
   "DeviceActionUnavailableError",
   {
     operation: Schema.String,
@@ -523,10 +549,11 @@ export const DeviceToolCloseInput = Schema.Struct({
 });
 export type DeviceToolCloseInput = typeof DeviceToolCloseInput.Type;
 
-export class DeviceToolUnavailableError extends Schema.TaggedErrorClass<DeviceToolUnavailableError>()(
+export class DeviceToolUnavailableError extends Schema.TaggedError<DeviceToolUnavailableError>()(
   "DeviceToolUnavailableError",
   {
     reason: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -544,3 +571,13 @@ export const DeviceToolError = Schema.Union([
   DeviceActionUnavailableError,
 ]);
 export type DeviceToolError = typeof DeviceToolError.Type;
+
+export function deviceToolInstallMessage(name: string, tool: DeviceToolVersion | undefined) {
+  if (!tool) return `Installing ${name}…`;
+  const previous =
+    tool.runningVersion ??
+    [...tool.installedVersions].sort((a, b) => a.localeCompare(b, "en", { numeric: true })).at(-1);
+  return previous && !tool.installedVersions.includes(tool.requiredVersion)
+    ? `Updating ${name} from ${previous} to ${tool.requiredVersion}…`
+    : `Installing ${name} ${tool.requiredVersion}…`;
+}

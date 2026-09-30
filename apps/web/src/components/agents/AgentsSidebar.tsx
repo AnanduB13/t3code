@@ -1,3 +1,4 @@
+import { Separator as SidebarSeparator } from "../ui/separator";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   BotIcon,
@@ -20,7 +21,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
 } from "../ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import { isElectron } from "../../env";

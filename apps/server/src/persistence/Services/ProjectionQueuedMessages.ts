@@ -1,5 +1,6 @@
 import {
   ChatAttachment,
+  OrchestrationMessageContext,
   IsoDateTime,
   MessageId,
   ModelSelection,
@@ -16,7 +17,9 @@ export const ProjectionQueuedMessage = Schema.Struct({
   messageId: MessageId,
   threadId: ThreadId,
   text: Schema.String,
+  holdUntilUserAction: Schema.optional(Schema.Boolean),
   attachments: Schema.Array(ChatAttachment),
+  context: Schema.optional(Schema.NullOr(OrchestrationMessageContext)),
   modelSelection: Schema.NullOr(ModelSelection),
   sourceProposedPlanThreadId: Schema.NullOr(ThreadId),
   sourceProposedPlanId: Schema.NullOr(OrchestrationProposedPlanId),
@@ -44,6 +47,7 @@ export const UpdateProjectionQueuedMessageTextInput = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   text: Schema.String,
+  holdUntilUserAction: Schema.optional(Schema.Boolean),
 });
 export type UpdateProjectionQueuedMessageTextInput =
   typeof UpdateProjectionQueuedMessageTextInput.Type;

@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
-import { ChatAttachment, ModelSelection } from "@t3tools/contracts";
+import { ChatAttachment, ModelSelection, OrchestrationMessageContext } from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -20,8 +20,10 @@ import {
 
 const ProjectionQueuedMessageDbRowSchema = ProjectionQueuedMessage.mapFields(
   Struct.assign({
+    holdUntilUserAction: Schema.Number,
     attachments: Schema.fromJsonString(Schema.Array(ChatAttachment)),
     modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
+    context: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageContext)),
   }),
 );
 
@@ -39,6 +41,8 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         thread_id,
         text,
         attachments_json,
+        context_json,
+        hold_until_user_action,
         model_selection_json,
         source_proposed_plan_thread_id,
         source_proposed_plan_id,
@@ -50,6 +54,8 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         ${row.threadId},
         ${row.text},
         ${JSON.stringify(row.attachments)},
+        ${row.context != null ? JSON.stringify(row.context) : null},
+        ${row.holdUntilUserAction ? 1 : 0},
         ${row.modelSelection !== null ? JSON.stringify(row.modelSelection) : null},
         ${row.sourceProposedPlanThreadId},
         ${row.sourceProposedPlanId},
@@ -72,6 +78,8 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
         thread_id AS "threadId",
         text,
         attachments_json AS "attachments",
+        context_json AS "context",
+        hold_until_user_action AS "holdUntilUserAction",
         model_selection_json AS "modelSelection",
         source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
         source_proposed_plan_id AS "sourceProposedPlanId",
@@ -100,9 +108,9 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
 
   const updateProjectionQueuedMessageText = SqlSchema.void({
     Request: UpdateProjectionQueuedMessageTextInput,
-    execute: ({ threadId, messageId, text }) => sql`
+    execute: ({ threadId, messageId, text, holdUntilUserAction }) => sql`
       UPDATE projection_queued_messages
-      SET text = ${text}
+      SET text = ${text}, hold_until_user_action = COALESCE(${holdUntilUserAction === undefined ? null : holdUntilUserAction ? 1 : 0}, hold_until_user_action)
       WHERE thread_id = ${threadId} AND message_id = ${messageId}
     `,
   });
@@ -127,6 +135,9 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
 
   const listByThreadId: ProjectionQueuedMessageRepositoryShape["listByThreadId"] = (input) =>
     listProjectionQueuedMessageRows(input).pipe(
+      Effect.map((rows) =>
+        rows.map((row) => ({ ...row, holdUntilUserAction: row.holdUntilUserAction === 1 })),
+      ),
       Effect.mapError(
         toPersistenceSqlError("ProjectionQueuedMessageRepository.listByThreadId:query"),
       ),

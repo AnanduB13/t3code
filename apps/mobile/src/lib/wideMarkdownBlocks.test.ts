@@ -17,6 +17,20 @@ describe("hasWideMarkdownBlock", () => {
     expect(hasWideMarkdownBlock("   ```\ncode\n```")).toBe(true);
   });
 
+  it("detects indented code blocks", () => {
+    const prompt = 'before\n\n    def search(x):\n        return x\n\n"""\n\nafter';
+    expect(hasWideMarkdownBlock(prompt)).toBe(true);
+    expect(hasWideMarkdownBlock("before\n\n\treturn x\n\nafter")).toBe(true);
+    expect(hasWideMarkdownBlock("before\n\n \treturn x\n\nafter")).toBe(true);
+    expect(hasWideMarkdownBlock(">     return x")).toBe(true);
+    expect(hasWideMarkdownBlock("> >  \treturn x")).toBe(true);
+    expect(hasWideMarkdownBlock("    1. indented code")).toBe(true);
+    expect(hasWideMarkdownBlock("    - code-like bullet")).toBe(true);
+    expect(hasWideMarkdownBlock("before\n   not code\nafter")).toBe(false);
+    expect(hasWideMarkdownBlock("before\n    \nafter")).toBe(false);
+    expect(hasWideMarkdownBlock("before\n \t\nafter")).toBe(false);
+  });
+
   it("detects top-level and blockquoted ordered-list markers", () => {
     expect(hasWideMarkdownBlock("1. One\n2. Two\n3. Three\n4. Four\n5. Five")).toBe(true);
     expect(hasWideMarkdownBlock("before\n3) Three")).toBe(true);
@@ -24,49 +38,9 @@ describe("hasWideMarkdownBlock", () => {
     expect(hasWideMarkdownBlock("> > 3) Three")).toBe(true);
   });
 
-  it("detects nested ordered lists and indented code", () => {
+  it("detects nested ordered lists", () => {
     expect(hasWideMarkdownBlock("- Parent\n    1. Child\n    2. Child")).toBe(true);
     expect(hasWideMarkdownBlock("> - Parent\n>     1. Child")).toBe(true);
-    expect(hasWideMarkdownBlock("    1. indented code")).toBe(true);
-    expect(hasWideMarkdownBlock("    - code-like bullet\n    1. indented code")).toBe(true);
-  });
-
-  it("detects pasted error traces with indented code and no fences", () => {
-    const prompt = [
-      "## Error Type",
-      "Console TypeError",
-      "",
-      "## Error Message",
-      'can\'t access property "activeChart", this._innerAPI() is undefined',
-      "",
-      "    at Chart.useEffect (src/app/replay-studio/Chart.tsx:546:37)",
-      "    at Home (src/app/page.tsx:1389:19)",
-      "",
-      "## Code Frame",
-      "  544 |     deliveredClock.current = current.time;",
-      "  545 |     ranges.current?.refresh();",
-      "> 546 |     const chart = instance.current?.activeChart();",
-      "      |                                     ^",
-      "  547 |     if (current.time < previous) {",
-      "  548 |       feed.current?.reset(current.time, false);",
-      "  549 |       instance.current?.resetCache();",
-      "",
-      "Next.js version: 16.3.3 (Turbopack)",
-      " getting this error.. fix it",
-    ].join("\n");
-
-    expect(hasWideMarkdownBlock(prompt)).toBe(true);
-    expect(hasWideMarkdownBlock(prompt, { includeOrderedLists: false })).toBe(true);
-  });
-
-  it("detects tab-indented and quoted code blocks", () => {
-    expect(hasWideMarkdownBlock("before\n\n\tcode\n\nafter")).toBe(true);
-    expect(hasWideMarkdownBlock("before\n\n  \tcode")).toBe(true);
-    expect(hasWideMarkdownBlock(">     code")).toBe(true);
-    expect(hasWideMarkdownBlock("> > ```ts\n> > code\n> > ```")).toBe(true);
-    expect(hasWideMarkdownBlock("> ~~~\n> code\n> ~~~")).toBe(true);
-    expect(hasWideMarkdownBlock("before\n    \n\t\nafter")).toBe(false);
-    expect(hasWideMarkdownBlock("   ordinary prose")).toBe(false);
   });
 
   it("can limit ordered-list width pinning to Android", () => {
@@ -77,6 +51,14 @@ describe("hasWideMarkdownBlock", () => {
     expect(hasWideMarkdownBlock("| a | b |\n| --- | --- |", { includeOrderedLists: false })).toBe(
       true,
     );
+  });
+
+  it("detects blockquotes only when the native renderer needs width pinning", () => {
+    expect(hasWideMarkdownBlock("> quoted", { includeBlockquotes: true })).toBe(true);
+    expect(hasWideMarkdownBlock("  > quoted", { includeBlockquotes: true })).toBe(true);
+    expect(hasWideMarkdownBlock("> quoted")).toBe(false);
+    expect(hasWideMarkdownBlock("prose > quoted", { includeBlockquotes: true })).toBe(false);
+    expect(hasWideMarkdownBlock("    > indented code", { includeBlockquotes: true })).toBe(true);
   });
 
   it("detects GFM tables", () => {

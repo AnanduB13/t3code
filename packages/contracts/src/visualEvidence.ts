@@ -57,7 +57,7 @@ export const VisualEvidenceCaptureResult = Schema.Struct({
 });
 export type VisualEvidenceCaptureResult = typeof VisualEvidenceCaptureResult.Type;
 
-export class VisualEvidenceCaptureError extends Schema.TaggedErrorClass<VisualEvidenceCaptureError>()(
+export class VisualEvidenceCaptureError extends Schema.TaggedError<VisualEvidenceCaptureError>()(
   "VisualEvidenceCaptureError",
   {
     reason: Schema.Literals([

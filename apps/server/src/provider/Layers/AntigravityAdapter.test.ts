@@ -421,7 +421,8 @@ it.layer(layer)("AntigravityAdapter", (it) => {
         modelSelection: { instanceId, model: nativeAlternative },
       });
       expect(second.model).toBe(nativeAlternative);
-      expect(second.cwd).toBe("/tmp");
+      // The adapter resolves the cwd it was given through the host Path.
+      expect(second.cwd).toBe((yield* Path.Path).resolve("/tmp"));
       expect(h.launches[1]?.resumeSessionId).toBe(nativeSessionId);
       expect(h.calls).toEqual([
         "start",
@@ -771,6 +772,44 @@ it.layer(layer)("AntigravityAdapter", (it) => {
       const ended = yield* h.waitForEvent((event) => event.type === "task.completed");
       expect(ended.payload.taskId).toBe(started.payload.taskId);
       expect(ended.payload.status).toBe("completed");
+    }),
+  );
+
+  it.effect("stops commands left running after a turn when the idle turn is stopped", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Start a watcher" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      yield* h.emitNative({
+        _tag: "ToolCallUpdated",
+        toolCall: {
+          toolCallId: "watcher-1",
+          kind: "execute",
+          status: "inProgress",
+          command: "tail -f log",
+          data: {},
+        },
+        rawPayload: {},
+      });
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      yield* Fiber.join(sending);
+      const started = yield* h.waitForEvent((event) => event.type === "task.started");
+
+      // Monitoring's Stop reaches the adapter as a turn interrupt. With no
+      // prompt to cancel, it has to end the session to stop the command.
+      yield* h.adapter.interruptTurn(threadId);
+      const stopped = yield* h.waitForEvent((event) => event.type === "task.completed");
+      expect(stopped.payload).toMatchObject({ taskId: started.payload.taskId, status: "stopped" });
+      yield* h.waitForEvent((event) => event.type === "session.exited");
+      expect(yield* h.adapter.hasSession(threadId)).toBe(false);
+      expect(h.controls.closed).toBe(1);
     }),
   );
 

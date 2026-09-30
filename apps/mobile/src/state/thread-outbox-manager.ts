@@ -9,13 +9,14 @@ import {
 } from "./thread-outbox-model";
 import type { ThreadOutboxStorage } from "./thread-outbox-storage";
 
-export class ThreadOutboxManagerError extends Schema.TaggedErrorClass<ThreadOutboxManagerError>()(
+export class ThreadOutboxManagerError extends Schema.TaggedError<ThreadOutboxManagerError>()(
   "ThreadOutboxManagerError",
   {
     operation: Schema.Literals([
       "load",
       "enqueue",
       "update",
+      "hold-thread",
       "remove",
       "clear-environment-load",
       "clear-environment-remove",
@@ -72,16 +73,26 @@ export function createThreadOutboxManager(options: ThreadOutboxManagerOptions) {
     options.registry.set(queuedMessagesByThreadKeyAtom, groupQueuedThreadMessages(messages));
   };
 
-  // Resolves true when hydration completed; false when the read failed (the
-  // next call retries). Destructive callers (the attachment sweep) must not
-  // treat a failed hydration as an empty queue.
+  // Readable messages can be used after a partial load. Only a complete load
+  // returns true, so cleanup cannot delete files owned by unreadable records.
+  // A later call retries failed reads without replacing live message objects.
   const load = (): Promise<boolean> => {
     if (loadPromise !== null) {
       return loadPromise;
     }
     loadPromise = serialize(async () => {
-      const persistedMessages = await options.storage.load();
-      setMessages([...persistedMessages, ...currentMessages()]);
+      const result = await options.storage.load();
+      const current = currentMessages();
+      const currentIds = new Set(current.map((message) => message.messageId));
+      const recovered = result.messages.filter(
+        (message) => !currentIds.has(message.messageId) && !revisions.has(message.messageId),
+      );
+      // Accepted edits and removals win over a later disk read. Retaining
+      // current objects also keeps retries from restarting the drain.
+      if (recovered.length > 0) setMessages([...recovered, ...current]);
+      if (result.errors.length > 0) {
+        throw new AggregateError(result.errors, "Some queued messages could not be read.");
+      }
       return true;
     }).catch((cause) => {
       loadPromise = null;
@@ -136,6 +147,53 @@ export function createThreadOutboxManager(options: ThreadOutboxManagerOptions) {
           messageId: message.messageId,
           cause,
         });
+      }
+    });
+  };
+
+  /** Stops delivery immediately, then persists the hold without discarding prompt files. */
+  const holdThread = (environmentId: EnvironmentId, threadId: ThreadId): Promise<void> => {
+    const held: QueuedThreadMessage[] = [];
+    setMessages(
+      currentMessages().map((message) => {
+        if (
+          message.environmentId !== environmentId ||
+          message.threadId !== threadId ||
+          message.creation
+        ) {
+          return message;
+        }
+        const next = { ...message, holdUntilUserAction: true };
+        bumpRevision(message.messageId);
+        held.push(next);
+        return next;
+      }),
+    );
+    return serialize(async () => {
+      const failures: ThreadOutboxManagerError[] = [];
+      for (const message of held) {
+        // Explicit edits and removals accepted after Stop retain ownership.
+        if (!currentMessages().some((candidate) => candidate === message)) continue;
+        try {
+          await options.storage.write(message);
+        } catch (cause) {
+          failures.push(
+            new ThreadOutboxManagerError({
+              operation: "hold-thread",
+              environmentId,
+              threadId,
+              messageId: message.messageId,
+              cause,
+            }),
+          );
+        }
+      }
+      if (failures.length > 0) {
+        // Keep the in-memory hold on failure; never resume work because saving failed.
+        throw new AggregateError(
+          failures,
+          "Some paused messages could not be saved. Keep the app open and move paused messages back to the composer.",
+        );
       }
     });
   };
@@ -275,19 +333,23 @@ export function createThreadOutboxManager(options: ThreadOutboxManagerOptions) {
     // changes after this request must not enter the clear set.
     const revisionsAtRequest = new Map(revisions);
     return serialize(async () => {
-      const persisted = await options.storage.load().catch((cause) => {
-        warn(
-          "[thread-outbox] failed to load messages while clearing environment",
-          new ThreadOutboxManagerError({
+      const persisted = await options.storage
+        .load()
+        .then((result) => {
+          if (result.errors.length > 0) {
+            throw new AggregateError(result.errors, "Some queued messages could not be read.");
+          }
+          return result.messages;
+        })
+        .catch((cause) => {
+          throw new ThreadOutboxManagerError({
             operation: "clear-environment-load",
             environmentId,
             threadId: null,
             messageId: null,
             cause,
-          }),
-        );
-        return [];
-      });
+          });
+        });
       const allMessages = flattenQueuedThreadMessages(
         groupQueuedThreadMessages([...persisted, ...currentMessages()]),
       );
@@ -383,6 +445,7 @@ export function createThreadOutboxManager(options: ThreadOutboxManagerOptions) {
     load,
     enqueue,
     confirmQueued,
+    holdThread,
     /** Current write revision for a queued message; input to update's CAS. */
     revisionOf: (messageId: MessageId): number => revisions.get(messageId) ?? 0,
     update,

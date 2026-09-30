@@ -1,11 +1,14 @@
+// @vitest-environment jsdom
 import { ApprovalRequestId } from "@t3tools/contracts";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 
 describe("ComposerPendingApprovalActions", () => {
-  it("states that the persistent approval lasts for this session", () => {
+  it("keeps the main decisions visible and secondary decisions in the menu", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
         requestId={ApprovalRequestId.make("approval-1")}
@@ -14,15 +17,13 @@ describe("ComposerPendingApprovalActions", () => {
       />,
     );
 
-    expect(markup).toContain(">Cancel<");
-    expect(markup).toContain("Always allow this session");
-    expect(markup).not.toContain(">Always allow<");
-    expect(markup).toContain("h-5");
-    expect(markup).toContain("sm:text-[11px]");
-    expect(markup).not.toContain("sm:h-6");
+    expect(markup).toContain(">Decline<");
+    expect(markup).toContain(">Approve<");
+    expect(markup).not.toContain(">Cancel<");
+    expect(markup).not.toContain("Always allow this session");
   });
 
-  it("shows only the approval choices advertised by an MCP server", () => {
+  it("keeps secondary provider labels out of the compact action row", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
         requestId={ApprovalRequestId.make("approval-safari")}
@@ -36,48 +37,69 @@ describe("ComposerPendingApprovalActions", () => {
       />,
     );
 
-    expect(markup).toContain("Always allow Safari");
+    expect(markup).not.toContain("Always allow Safari");
     expect(markup).toContain(">Approve<");
     expect(markup).not.toContain("Always allow this session");
   });
 
-  it("marks an option that carries a provider warning", () => {
+  it("shows the provider warning when opening secondary approval choices", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const respond = vi.fn(async () => undefined);
+    try {
+      await act(() =>
+        root.render(
+          <ComposerPendingApprovalActions
+            requestId={ApprovalRequestId.make("approval-1")}
+            isResponding={false}
+            options={[
+              { decision: "accept", label: "Allow once" },
+              {
+                decision: "acceptForSession",
+                label: "Allow for this thread",
+                warning: "Untrusted files could re-run this action without asking.",
+              },
+              { decision: "decline", label: "Deny" },
+            ]}
+            onRespondToApproval={respond}
+          />,
+        ),
+      );
+      await act(() =>
+        container.querySelector<HTMLButtonElement>('[aria-label="More approval options"]')!.click(),
+      );
+      const choice = document.querySelector<HTMLElement>('[role="menuitem"][aria-description]')!;
+      expect(choice.textContent).toContain("Allow for this thread");
+      expect(choice.getAttribute("aria-description")).toBe(
+        "Untrusted files could re-run this action without asking.",
+      );
+      await act(() => choice.click());
+      expect(respond).toHaveBeenCalledWith("approval-1", "acceptForSession");
+    } finally {
+      await act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves provider labels for the main decisions", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
         requestId={ApprovalRequestId.make("approval-1")}
         isResponding={false}
         options={[
           { decision: "accept", label: "Allow once" },
-          {
-            decision: "acceptForSession",
-            label: "Allow for this thread",
-            warning: "Untrusted files could re-run this action without asking.",
-          },
           { decision: "decline", label: "Deny" },
         ]}
         onRespondToApproval={async () => undefined}
       />,
     );
 
-    expect(markup).toContain(
-      'aria-description="Untrusted files could re-run this action without asking."',
-    );
-    expect(markup).toContain("text-warning");
-    expect(markup).toContain("Allow for this thread");
-  });
-
-  it("limits provider-supplied approval labels so narrow rows can wrap", () => {
-    const label = "Allow ".repeat(40).trim();
-    const markup = renderToStaticMarkup(
-      <ComposerPendingApprovalActions
-        requestId={ApprovalRequestId.make("approval-long-label")}
-        isResponding={false}
-        options={[{ decision: "acceptAlways", label }]}
-        onRespondToApproval={async () => undefined}
-      />,
-    );
-
-    expect(markup).toContain('class="max-w-40 truncate"');
-    expect(markup).toContain(label);
+    expect(markup).toContain("Allow once");
+    expect(markup).toContain("Deny");
+    expect(markup).not.toContain(">Approve<");
+    expect(markup).not.toContain(">Decline<");
   });
 });

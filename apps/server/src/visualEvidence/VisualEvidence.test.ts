@@ -48,7 +48,7 @@ describe("backend visual evidence", () => {
     ).toBe("http://127.0.0.1:5173/pricing?annual=true");
   });
 
-  effectIt("keeps only three pending captures and deletes evicted files", () =>
+  effectIt.effect("keeps only three pending captures and deletes evicted files", () =>
     Effect.gen(function* () {
       const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-evidence-pending-"));
       tempDirs.push(dir);

@@ -27,6 +27,8 @@ const invocation = (capabilities: ReadonlyArray<McpInvocationContext.McpCapabili
 });
 const client = McpSchema.McpServerClient.of({
   clientId: 1,
+  clientCapabilities: {},
+  clientInfo: { name: "mcp-test", version: "1.0.0" },
   protocolVersion: "2025-06-18",
   initializePayload: {
     protocolVersion: "2025-06-18",
@@ -76,6 +78,7 @@ new DataView(png.buffer).setUint32(16, 1206);
 new DataView(png.buffer).setUint32(20, 2622);
 
 const DeviceServiceMock = Layer.mock(DeviceService.DeviceService)({
+  agentAccessAllowed: () => Effect.succeed(true),
   state: Effect.succeed(state),
   list: Effect.succeed(state),
   open: (input) =>
@@ -137,6 +140,7 @@ it.effect("registers the device tools and returns the screenshot as image conten
 
 it.effect("rejects unavailable agent access before booting or opening a device", () => {
   const unavailable = Layer.mock(DeviceService.DeviceService)({
+    agentAccessAllowed: () => Effect.succeed(true),
     state: Effect.succeed(state),
     list: Effect.succeed(state),
     agentTarget: () =>
@@ -176,6 +180,7 @@ it.effect("rejects unavailable agent access before booting or opening a device",
 
 it.effect("denies existing device credentials immediately after agent access is disabled", () => {
   const disabled = Layer.mock(DeviceService.DeviceService)({
+    agentAccessAllowed: () => Effect.succeed(false),
     state: Effect.succeed({ ...state, agentAccessEnabled: false }),
     list: Effect.die("Disabled credentials must not list devices"),
     screenshot: () => Effect.die("Disabled credentials must not capture devices"),

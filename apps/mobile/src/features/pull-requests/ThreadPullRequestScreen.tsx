@@ -24,7 +24,11 @@ export function ThreadPullRequestScreen({
         })
       : null,
   );
-  const linked = selectedThread?.linkedPullRequest;
+  const linked =
+    selectedThread?.linkedPullRequest ??
+    (selectedThread?.pullRequests[0]
+      ? { ...selectedThread.pullRequests[0], projectId: selectedThread.projectId }
+      : undefined);
   const detected = selectedThread?.branch === status.data?.refName ? status.data?.pr : null;
   const repository = linked?.repository ?? selectedThreadProject?.repositoryIdentity?.displayName;
   const number = linked?.number ?? detected?.number;

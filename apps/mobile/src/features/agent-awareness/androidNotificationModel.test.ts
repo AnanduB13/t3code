@@ -13,6 +13,7 @@ function thread(patch: Partial<EnvironmentThreadShell> = {}): EnvironmentThreadS
     id: ThreadId.make("chat-a"),
     title: "Fix login",
     archivedAt: null,
+    pullRequests: [],
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
     projectId: ProjectId.make("project-a"),
     runtimeMode: "full-access",
@@ -109,6 +110,17 @@ describe("Android monitoring lifecycle", () => {
       expect(result.monitored).toEqual([]);
       expect(result.clearAlertKeys).toEqual([project().key]);
     }
+  });
+  it("hands linked environments to cloud notifications and resumes direct monitoring without replaying alerts", () => {
+    const initial = reconcileAndroidChatNotifications(new Map(), [thread()], live);
+    const cloud = reconcileAndroidChatNotifications(initial.next, [thread()], live, live);
+    expect(cloud.monitored).toEqual([]);
+    expect(cloud.alerts).toEqual([]);
+    expect(cloud.clearAlertKeys).toEqual([project().key]);
+    const completed = thread({ latestTurn: { ...thread().latestTurn!, state: "completed" } });
+    const direct = reconcileAndroidChatNotifications(cloud.next, [completed], live);
+    expect(direct.alerts).toEqual([]);
+    expect(direct.next.size).toBe(1);
   });
   it("dismisses an obsolete approval alert when work resumes", () => {
     const initial = reconcileAndroidChatNotifications(

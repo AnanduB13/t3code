@@ -50,7 +50,16 @@ export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
+  /** Opaque credential identity when the provider does not report an account. */
+  credentialFingerprint: Schema.optional(TrimmedNonEmptyString),
   resetCredits: Schema.optional(ServerProviderResetCredits),
+  /** Provider-owned usage settings when quota windows are not available to the client. */
+  externalUsage: Schema.optional(
+    Schema.Struct({
+      label: TrimmedNonEmptyString,
+      url: TrimmedNonEmptyString,
+    }),
+  ),
   unavailable: Schema.optional(
     Schema.Struct({
       reason: Schema.Literals(["unsupported", "probeFailed"]),
@@ -119,7 +128,7 @@ export const ProviderConsumeResetCreditInput = Schema.Union([
 ]);
 export type ProviderConsumeResetCreditInput = typeof ProviderConsumeResetCreditInput.Type;
 
-export class UsageLimitSourceError extends Schema.TaggedErrorClass<UsageLimitSourceError>()(
+export class UsageLimitSourceError extends Schema.TaggedError<UsageLimitSourceError>()(
   "UsageLimitSourceError",
   { detail: Schema.String },
 ) {
@@ -143,3 +152,25 @@ export const ProviderConsumeResetCreditResult = Schema.Struct({
   warning: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProviderConsumeResetCreditResult = typeof ProviderConsumeResetCreditResult.Type;
+
+/** A point-in-time view of one provider's limits, built for the /usage-limits panel. */
+export const UsageLimitsReport = Schema.Struct({
+  createdAt: IsoDateTime,
+  accounts: Schema.Array(
+    Schema.Struct({
+      id: TrimmedNonEmptyString,
+      driver: ProviderDriverKind,
+      label: TrimmedNonEmptyString,
+      plan: Schema.optional(TrimmedNonEmptyString),
+      email: Schema.optional(TrimmedNonEmptyString),
+      sourceLabel: Schema.optional(TrimmedNonEmptyString),
+      instanceId: Schema.optional(ProviderInstanceId),
+      resetCreditInput: Schema.optional(ProviderConsumeResetCreditInput),
+      displayName: Schema.optional(Schema.String),
+      accentColor: Schema.optional(Schema.String),
+      limits: ServerProviderUsageLimits,
+    }),
+  ),
+  notices: Schema.Array(Schema.String),
+});
+export type UsageLimitsReport = typeof UsageLimitsReport.Type;

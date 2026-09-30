@@ -7,7 +7,8 @@ import { Alert, AppState, Linking, Platform } from "react-native";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { requestAgentNotificationPermission } from "./notificationPermissions";
-import { androidNotifications } from "./androidNotifications";
+import { supportsAgentAwarenessPush } from "./capabilities";
+import { androidNotifications } from "./androidChatNotifications";
 
 export function AndroidNotificationSettings() {
   const preferences = useAtomValue(mobilePreferencesAtom);
@@ -65,10 +66,12 @@ export function AndroidNotificationSettings() {
   return (
     <SettingsSwitchRow
       icon="bell.badge"
-      label="Chat notifications"
+      label="Direct chat notifications"
       subtitle={
         androidNotifications
-          ? "Completion and attention alerts, with ongoing progress while chats run. Tap a notification to open its chat."
+          ? supportsAgentAwarenessPush()
+            ? "Progress and alerts for directly connected environments. Environments linked to T3 Connect use the cloud notification controls."
+            : "Progress and alerts while connected to an environment, including T3 Connect."
           : "Install the latest Android build to enable chat notifications."
       }
       disabled={busy || !androidNotifications || !AsyncResult.isSuccess(preferences)}

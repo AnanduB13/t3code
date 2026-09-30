@@ -22,8 +22,8 @@ After Dark-owned Expo project; the fork must never consume the official app's up
 
 ## After Dark OTA updates
 
-The production APK checks the `production` EAS Update channel when it launches. It also exposes
-**Settings → App → Check for Updates**. Before building the one-time OTA-capable base APK, link an
+The production APK checks the `after-dark` EAS Update channel when it launches. It also exposes
+**Settings → About T3 Code → Check for updates**. Before building the one-time OTA-capable base APK, link an
 After Dark-owned Expo project in the repository-root `.env.local`:
 
 ```bash
@@ -34,7 +34,7 @@ After that APK is installed, publish JavaScript, styling, and asset changes with
 
 ```bash
 vpx eas-cli@latest update \
-  --channel production \
+  --channel after-dark \
   --environment production \
   --platform android \
   --message "Describe the update"
@@ -51,20 +51,22 @@ repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 
 ## Development
 
-Build and run the local Android dev client (Android SDK plus an emulator or connected device
-required):
+For simulator/emulator development, select and boot a device, then ensure its native client matches
+this checkout before starting Metro:
 
 ```bash
-vp run android:dev
+node ../../scripts/mobile-native-client.ts ensure ios <simulator-udid>
+# Or: node ../../scripts/mobile-native-client.ts ensure android <emulator-serial>
+vp run dev:client
 ```
 
-Build a self-contained production-identity Android app locally:
+The helper compares a local Expo fingerprint and the installed binary with its last successful
+build record. It builds and installs missing, stale, or unverified clients and reuses matching ones.
+Use `check` instead of `ensure` for a read-only decision: exit 0 means compatible, 2 means a build is
+needed, and 1 means an operational error. Run it on the simulator host; no EAS login is required.
+An externally installed client is unverified until the helper builds it once.
 
-```bash
-vp run android:prod
-```
-
-Start Metro for the dev client:
+Start Metro for an already verified dev client:
 
 ```bash
 vp run dev:client
@@ -80,18 +82,29 @@ vp run dev:client:reset
 Run that reset once after installing or changing the Uniwind dependency patch. Cached transforms
 can otherwise reference its previous pnpm package path. Ordinary Metro starts still keep the cache.
 
-Component edits use Fast Refresh. Connection-runtime edits replace the active Effect layer through
-a stable atom runtime, preserving navigation and existing atom subscribers. Replaced registries
-and managed runtimes dispose their resources; the app does not force a JavaScript reload. The Uniwind patch
-skips global style invalidation when generated styles and themes are unchanged, while real style
-changes still refresh. See [mobile development lifecycle](../../docs/internals/mobile-development.md)
-for the lifetime boundaries.
+Component edits use Fast Refresh. See [mobile development lifecycle](../../docs/internals/mobile-development.md)
+before changing runtime ownership or refresh behavior.
+
+Build and run a local Android dev client, or build with the production After Dark identity:
+
+```bash
+vp run android:dev
+vp run android:prod
+```
+
+For Android cloud push notifications, set `T3CODE_ANDROID_GOOGLE_SERVICES_FILE` to the
+`google-services.json` for your After Dark Android package. Direct chat notifications use the
+local foreground service and do not require Firebase.
 
 Build and run the local iOS dev client:
 
 ```bash
 vp run ios:dev
 ```
+
+After changing a native dependency patch, rerun CocoaPods before rebuilding an existing iOS
+project. pnpm gives each patch hash a new package path; Pods can otherwise keep compiling the
+previous directory.
 
 If your Xcode account only has a Personal Team, use a bundle identifier you control and opt into the
 reduced-capability local build. Personal Team builds omit the widget and share extensions, push

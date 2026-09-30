@@ -69,7 +69,7 @@ already-running agent without the CLI.
 How to drive a device is returned from `device_open`, not kept in an
 always-loaded prompt or skill: it costs nothing in threads that never open a
 device and cannot drift from the pinned CLI version. The always-on prompt block
-is a few lines that point at the tools and forbid raw `simctl` and `adb`.
+is a few lines that point at the tools and prefer them over raw `simctl` and `adb`.
 
 ## The viewer decodes both vendored protocols
 
@@ -86,9 +86,7 @@ iOS. Android has no MJPEG; there the panel reports that it cannot decode.
 
 ## After Dark integration
 
-The device subsystem is backported from upstream nightly `b1e223e2b0`
-(`v0.0.41-nightly.20260912.1599`). Device surfaces extend the existing
-right-panel store; browser, Finder/file, terminal, agents, and pull-request
+Device surfaces extend the existing right-panel store; browser, Finder/file, terminal, agents, and pull-request
 surfaces retain their behavior. Floating device state is independent of the
 browser mini-player and its view-only preference. Observed session identifiers
 persist separately so dismissed device tabs do not reopen on reload.

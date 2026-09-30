@@ -66,7 +66,7 @@ function EnvironmentPullRequests({ environmentId }: { readonly environmentId: En
         {(["open", "closed", "merged", "all"] as const).map((value) => (
           <PrButton
             key={value}
-            label={value[0].toUpperCase() + value.slice(1)}
+            label={value.charAt(0).toUpperCase() + value.slice(1)}
             selected={state === value}
             onPress={() => setState(value)}
           />

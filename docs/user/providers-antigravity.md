@@ -81,8 +81,7 @@ Managed downloads are available for these environment hosts:
 Google does not publish a local Intel Mac runtime. Use an Intel Mac as a client connected to
 a supported remote environment.
 
-The current Linux x64 runtime downloads about 682 MB and uses about 2.01 GB after extraction.
-Allow at least 3 GB free for installation. An update keeps the previous runtime too.
+Allow several GB of free space, especially on Linux. An update keeps the previous runtime too.
 T3 Code does not download it until you choose to install it.
 
 On web or desktop, **Update Antigravity** appears when T3 Code has a newer managed release.
@@ -122,10 +121,16 @@ Project skills should use `.agents/skills`. T3 Code also discovers `.gemini/skil
 `.agent/skills` location. When multiple locations define the same skill name, `.gemini/skills`
 takes precedence, followed by `.agents/skills` and then `.agent/skills`.
 
-Antigravity reads and edits workspace files through T3 Code. Each write shows up as a file
-change approval with the content, so **Supervised** and **Auto-accept edits** behave the same way
-they do for other providers. Attach images, PDFs, text files, or audio clips to a message and
-the agent receives them directly.
+Skills for every project go in `~/.gemini/config/skills` or `~/.gemini/antigravity-cli/skills`.
+Antigravity does not read `~/.agents/skills` unless the project itself is your home directory.
+
+Antigravity reads and edits workspace files through T3 Code. File writes follow the selected
+permission mode. It accepts supported images, PDFs, text files, and audio directly. Native input
+limits are 1 MiB per text file, 10 MiB per image, 20 MiB per audio clip, and 50 MiB total per
+message. PDFs, text, and audio that exceed their native limits or the remaining budget use file
+paths for the agent to inspect. ZIP archives and videos also use paths and do not count toward
+the native budget. A video path does not enable native video input. Unsupported image formats
+are rejected. Native limits can be lower than the general upload limit.
 
 When the agent offers **Allow for this thread** on a shell or web tool, T3 Code shows Google's
 prompt injection warning next to that choice. Untrusted content could re-run the same action
@@ -178,9 +183,9 @@ Google controls account eligibility, models, and usage limits. T3 Code does not 
 paid-plan tier or remaining subscription quota. See Google's [Antigravity plans][plans] and
 [personal Google sign-in guide][google-setup].
 
-After an environment restarts, Google sign-in can show as not checked until an authenticated
-session succeeds. You can continue an existing thread. Antigravity checks saved Google sign-in
-when the session starts. An unchecked status does not require signing in again.
+An environment restart keeps your Google sign-in. The provider shows the saved account until a
+session, refresh, or sign-out reports something new. A cached account or model list does not prove
+current access; Antigravity checks saved credentials when a session starts.
 
 To check account access and reload models on web or desktop, open **Settings** > **Providers**
 and select the circular arrow beside **Checked** at the top of the page. Its tooltip says

@@ -54,12 +54,14 @@ export function reconcileAndroidChatNotifications(
   previous: ReadonlyMap<string, AndroidChatNotification>,
   threads: readonly EnvironmentThreadShell[],
   liveEnvironments: ReadonlySet<string>,
+  cloudOwnedEnvironments: ReadonlySet<string> = new Set(),
 ) {
   const next = new Map<string, AndroidChatNotification>();
   const alerts: AndroidChatNotification[] = [];
   const monitored: AndroidChatNotification[] = [];
   const clearAlertKeys: string[] = [];
   for (const thread of threads) {
+    if (cloudOwnedEnvironments.has(thread.environmentId)) continue;
     const projected = projectAndroidChatNotification(thread);
     if (!projected) continue;
     const prior = previous.get(projected.key);

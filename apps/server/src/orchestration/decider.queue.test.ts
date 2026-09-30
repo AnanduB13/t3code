@@ -9,6 +9,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationEvent,
+  type OrchestrationMessageContext,
   type OrchestrationReadModel,
   type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
@@ -775,6 +776,134 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
         }),
       );
       expect(error.message).toContain("no queued messages");
+    }),
+  );
+  it.effect("keeps structured context through queueing and combined steering", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const id of ["one", "two"]) {
+        const command = turnStartCommand(id);
+        const context: OrchestrationMessageContext = {
+          version: 1,
+          records: [
+            {
+              version: 1,
+              contextId: `ctx_${id}` as OrchestrationMessageContext["records"][number]["contextId"],
+              kind: "skill",
+              label: `$${id}`,
+              name: id,
+            },
+          ],
+        };
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({
+            readModel,
+            command: { ...command, message: { ...command.message, context } },
+          }),
+        );
+      }
+      expect(readModel.threads[0]?.queuedMessages[0]?.context?.records[0]?.contextId).toBe(
+        "ctx_one",
+      );
+      const planned = yield* decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.queue.steer",
+          commandId: asCommandId("steer-context"),
+          threadId: THREAD_ID,
+          messageId: asMessageId("message-two"),
+          messageIds: [asMessageId("message-one"), asMessageId("message-two")],
+          createdAt: NOW,
+        },
+      });
+      const next = yield* applyPlanned(readModel, planned);
+      expect(
+        next.threads[0]?.messages.at(-1)?.context?.records.map((record) => record.contextId),
+      ).toEqual(["ctx_one", "ctx_two"]);
+      expect(next.threads[0]?.queuedMessages).toEqual([]);
+    }),
+  );
+
+  it.effect("Stop removes captured prompts, holds overflow, and a new Send resumes it", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const id of ["captured", "other-device"]) {
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({ readModel, command: turnStartCommand(id) }),
+        );
+      }
+      const stopped = yield* decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.turn.interrupt",
+          commandId: asCommandId("stop-restore"),
+          threadId: THREAD_ID,
+          clearQueuedMessageIds: [asMessageId("message-captured"), asMessageId("already-sent")],
+          createdAt: NOW,
+        },
+      });
+      const events = Array.isArray(stopped) ? stopped : [stopped];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.queued-message-removed",
+        "thread.queued-message-updated",
+        "thread.turn-interrupt-requested",
+      ]);
+      readModel = yield* applyPlanned(readModel, stopped);
+      expect(readModel.threads[0]?.queuedMessages).toMatchObject([
+        { messageId: "message-other-device", holdUntilUserAction: true },
+      ]);
+      readModel = yield* withSessionStatus(
+        readModel,
+        "interrupted",
+        readModel.snapshotSequence + 1,
+      );
+      const error = yield* Effect.flip(
+        decideOrchestrationCommand({
+          readModel,
+          command: {
+            type: "thread.queue.drain",
+            commandId: asCommandId("auto-drain-held"),
+            threadId: THREAD_ID,
+            createdAt: NOW,
+          },
+        }),
+      );
+      expect(error.message).toContain("held after Stop");
+      readModel = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({ readModel, command: turnStartCommand("resume") }),
+      );
+      expect(readModel.threads[0]?.queuedMessages[0]?.holdUntilUserAction).toBe(false);
+      const drained = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          readModel,
+          command: {
+            type: "thread.queue.drain",
+            commandId: asCommandId("resume-drain"),
+            threadId: THREAD_ID,
+            createdAt: NOW,
+          },
+        }),
+      );
+      expect(drained.threads[0]?.messages.at(-1)?.id).toBe("message-other-device");
+    }),
+  );
+
+  it.effect("explicit steering starts immediately while default sends remain queued", () =>
+    Effect.gen(function* () {
+      const readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      const planned = yield* decideOrchestrationCommand({
+        readModel,
+        command: { ...turnStartCommand("steer-now"), dispatchMode: "steer" },
+      });
+      const events = Array.isArray(planned) ? planned : [planned];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.message-sent",
+        "thread.turn-start-requested",
+      ]);
     }),
   );
 });

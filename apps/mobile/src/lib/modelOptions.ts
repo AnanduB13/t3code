@@ -5,7 +5,6 @@ import type {
 } from "@t3tools/contracts";
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
-  buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 
@@ -43,18 +42,17 @@ function providerDisplayLabel(provider: {
 function normalizeSelectionOptions(
   selection: ModelSelection,
   capabilities: ModelCapabilities | null,
-  explicitOnly = false,
 ): ModelSelection {
   if (!capabilities) {
     return selection;
   }
-  const descriptors = getProviderOptionDescriptors({
-    caps: capabilities,
-    selections: selection.options,
-  });
-  const options = explicitOnly
-    ? buildExplicitProviderOptionSelectionsFromDescriptors(descriptors, selection.options)
-    : buildProviderOptionSelectionsFromDescriptors(descriptors);
+  const options = buildExplicitProviderOptionSelectionsFromDescriptors(
+    getProviderOptionDescriptors({
+      caps: capabilities,
+      selections: selection.options,
+    }),
+    selection.options,
+  );
   return options
     ? { ...selection, options }
     : {
@@ -184,7 +182,6 @@ export function buildModelOptions(
             model: model.slug,
           },
           model.capabilities,
-          provider.driver === "antigravity",
         ),
       });
     }

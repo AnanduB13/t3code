@@ -4,7 +4,7 @@ import { AppRegistry, LogBox } from "react-native";
 import { featureFlags } from "react-native-screens";
 
 import App from "./src/App";
-import { androidNotifications } from "./src/features/agent-awareness/androidNotifications";
+import { androidNotifications } from "./src/features/agent-awareness/androidChatNotifications";
 
 AppRegistry.registerHeadlessTask("T3ChatMonitor", () => async () => {
   await androidNotifications?.waitUntilStopped();

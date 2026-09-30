@@ -2,13 +2,16 @@ import { useAtomValue } from "@effect/atom-react";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
 import * as Notifications from "expo-notifications";
 import * as Linking from "expo-linking";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
-import { useThreadShells } from "../../state/entities";
+import { useManagedRelayEnvironments } from "../cloud/managedRelayState";
+import { supportsAgentAwarenessPush } from "./capabilities";
+import { useWorkspaceState } from "../../state/workspace";
+import { useServerConfigs, useThreadShells } from "../../state/entities";
 import { environmentShell } from "../../state/shell";
 import { environmentCatalog } from "../../connection/catalog";
 import { mobilePreferencesAtom } from "../../state/preferences";
-import { androidNotifications } from "./androidNotifications";
+import { androidNotifications } from "./androidChatNotifications";
 import {
   reconcileAndroidChatNotifications,
   type AndroidChatNotification,
@@ -29,6 +32,25 @@ export function AndroidNotificationWorker() {
 
 function NotificationWorker() {
   const threads = useThreadShells();
+  const managed = useManagedRelayEnvironments();
+  const { environments } = useWorkspaceState();
+  const configs = useServerConfigs();
+  // A linked server has one notification owner, even while its device registration
+  // retries. Turning cloud ongoing activity off must not start a second local card.
+  const cloudOwnedEnvironments = useMemo(() => {
+    if (!supportsAgentAwarenessPush() || managed.accountId === null) return new Set<string>();
+    const linked = new Set<string>([
+      ...(managed.data ?? []).map((environment) => environment.environmentId),
+      ...environments
+        .filter((environment) => environment.isRelayManaged)
+        .map((environment) => environment.environmentId),
+    ]);
+    for (const id of linked) {
+      const config = [...configs].find(([environmentId]) => environmentId === id)?.[1];
+      if (config?.environment.capabilities.agentActivityPublishing === false) linked.delete(id);
+    }
+    return linked;
+  }, [managed.accountId, managed.data, environments, configs]);
   const liveEnvironments = useAtomValue(liveEnvironmentsAtom);
   const preferences = useAtomValue(mobilePreferencesAtom);
   const enabled =
@@ -70,7 +92,12 @@ function NotificationWorker() {
   }, []);
 
   useEffect(() => {
-    const change = reconcileAndroidChatNotifications(previous.current, threads, liveEnvironments);
+    const change = reconcileAndroidChatNotifications(
+      previous.current,
+      threads,
+      liveEnvironments,
+      cloudOwnedEnvironments,
+    );
     previous.current = change.next;
     const alerts = enabled && permission ? change.alerts : [];
     const running =
@@ -90,7 +117,9 @@ function NotificationWorker() {
     };
     queue.current = queue.current
       .then(async () => {
-        for (const key of change.clearAlertKeys)
+        for (const key of enabled && permission
+          ? change.clearAlertKeys
+          : new Set([...change.clearAlertKeys, ...change.next.keys()]))
           await Notifications.dismissNotificationAsync(`t3-chat:${key}`);
         for (const chat of alerts)
           await Notifications.scheduleNotificationAsync({
@@ -111,6 +140,6 @@ function NotificationWorker() {
       disposed = true;
       if (heartbeat) clearInterval(heartbeat);
     };
-  }, [threads, liveEnvironments, enabled, permission, appState]);
+  }, [threads, liveEnvironments, cloudOwnedEnvironments, enabled, permission, appState]);
   return null;
 }

@@ -235,19 +235,19 @@ const ScopeFields = {
   providerInstanceId: ProviderInstanceId,
 };
 
-export class ComputerUseUnavailableError extends Schema.TaggedErrorClass<ComputerUseUnavailableError>()(
+export class ComputerUseUnavailableError extends Schema.TaggedError<ComputerUseUnavailableError>()(
   "ComputerUseUnavailableError",
   { ...ScopeFields, reason: Schema.String },
 ) {}
-export class ComputerUseDeviceSelectionRequiredError extends Schema.TaggedErrorClass<ComputerUseDeviceSelectionRequiredError>()(
+export class ComputerUseDeviceSelectionRequiredError extends Schema.TaggedError<ComputerUseDeviceSelectionRequiredError>()(
   "ComputerUseDeviceSelectionRequiredError",
   { ...ScopeFields, devices: Schema.Array(ComputerUseDevice) },
 ) {}
-export class ComputerUseDeviceNotFoundError extends Schema.TaggedErrorClass<ComputerUseDeviceNotFoundError>()(
+export class ComputerUseDeviceNotFoundError extends Schema.TaggedError<ComputerUseDeviceNotFoundError>()(
   "ComputerUseDeviceNotFoundError",
   { ...ScopeFields, deviceId: ComputerUseDeviceId },
 ) {}
-export class ComputerUseExecutionError extends Schema.TaggedErrorClass<ComputerUseExecutionError>()(
+export class ComputerUseExecutionError extends Schema.TaggedError<ComputerUseExecutionError>()(
   "ComputerUseExecutionError",
   {
     ...ScopeFields,
@@ -256,7 +256,7 @@ export class ComputerUseExecutionError extends Schema.TaggedErrorClass<ComputerU
     reason: Schema.String,
   },
 ) {}
-export class ComputerUseTimeoutError extends Schema.TaggedErrorClass<ComputerUseTimeoutError>()(
+export class ComputerUseTimeoutError extends Schema.TaggedError<ComputerUseTimeoutError>()(
   "ComputerUseTimeoutError",
   {
     ...ScopeFields,

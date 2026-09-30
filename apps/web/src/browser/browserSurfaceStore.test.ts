@@ -107,6 +107,7 @@ describe("browserSurfaceStore", () => {
           hidden: {
             rect: staleRect,
             visible: false,
+            zIndex: 30,
             content: null,
             fittedSourceContent: null,
             fitSourceContent: false,
@@ -118,6 +119,7 @@ describe("browserSurfaceStore", () => {
           active: {
             rect: liveRect,
             visible: true,
+            zIndex: 30,
             content: null,
             fittedSourceContent: null,
             fitSourceContent: false,
@@ -167,7 +169,7 @@ describe("browserSurfaceStore", () => {
   it("tracks whether a presented surface accepts browser input", () => {
     const tabId = "read-only-browser-surface";
     const lease = acquireBrowserSurface(tabId);
-    lease.present({ x: 10, y: 20, width: 320, height: 200 }, true, 12, false);
+    lease.present({ x: 10, y: 20, width: 320, height: 200 }, true, 12, 30, false);
 
     expect(useBrowserSurfaceStore.getState().byTabId[tabId]).toMatchObject({
       visible: true,
@@ -176,6 +178,17 @@ describe("browserSurfaceStore", () => {
 
     lease.release();
     expect(useBrowserSurfaceStore.getState().byTabId[tabId]?.interactive).toBe(true);
+  });
+
+  it("keeps the requested layer with the active surface lease", () => {
+    const tabId = "layered-browser-surface";
+    const lease = acquireBrowserSurface(tabId);
+    lease.present({ x: 10, y: 20, width: 320, height: 200 }, true, 12, 48);
+
+    expect(useBrowserSurfaceStore.getState().byTabId[tabId]).toMatchObject({
+      visible: true,
+      zIndex: 48,
+    });
   });
 
   it("clears fitted presentation state when its lease is released", () => {

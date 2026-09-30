@@ -43,7 +43,14 @@ export function ThreadDeviceWorkspace({ threadRef }: { threadRef: ScopedThreadRe
           name: device.name,
         });
     }
-    workspace.observe(threadRef, sessions);
+    workspace.observe(
+      threadRef,
+      sessions.filter((session) =>
+        state.devices.some(
+          (device) => device.hostId === session.hostId && device.id === session.deviceId,
+        ),
+      ),
+    );
     if (
       target &&
       !sessions.some((s) => s.hostId === target.hostId && s.deviceId === target.deviceId)

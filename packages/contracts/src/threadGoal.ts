@@ -38,6 +38,6 @@ export const ThreadGoalSetResult = Schema.Struct({ goal: ThreadGoal });
 export const ThreadGoalClearInput = Schema.Struct({ threadId: ThreadId });
 export const ThreadGoalClearResult = Schema.Struct({ cleared: Schema.Boolean });
 
-export class ThreadGoalError extends Schema.TaggedErrorClass<ThreadGoalError>()("ThreadGoalError", {
+export class ThreadGoalError extends Schema.TaggedError<ThreadGoalError>()("ThreadGoalError", {
   message: Schema.String,
 }) {}

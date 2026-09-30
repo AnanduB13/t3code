@@ -66,14 +66,11 @@ export const SkillCreateFailure = Schema.Literals([
 ]);
 export type SkillCreateFailure = typeof SkillCreateFailure.Type;
 
-export class SkillCreateError extends Schema.TaggedErrorClass<SkillCreateError>()(
-  "SkillCreateError",
-  {
-    failure: SkillCreateFailure,
-    message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {}
+export class SkillCreateError extends Schema.TaggedError<SkillCreateError>()("SkillCreateError", {
+  failure: SkillCreateFailure,
+  message: TrimmedNonEmptyString,
+  cause: Schema.optional(Schema.Defect()),
+}) {}
 
 export const SkillDocumentFailure = Schema.Literals([
   "provider_not_found",
@@ -85,7 +82,7 @@ export const SkillDocumentFailure = Schema.Literals([
 ]);
 export type SkillDocumentFailure = typeof SkillDocumentFailure.Type;
 
-export class SkillDocumentError extends Schema.TaggedErrorClass<SkillDocumentError>()(
+export class SkillDocumentError extends Schema.TaggedError<SkillDocumentError>()(
   "SkillDocumentError",
   {
     failure: SkillDocumentFailure,

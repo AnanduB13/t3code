@@ -8,7 +8,7 @@ export type NotificationPermissionResult =
   | { readonly type: "granted" }
   | { readonly type: "denied"; readonly canAskAgain: boolean };
 
-export class NotificationPermissionReadError extends Schema.TaggedErrorClass<NotificationPermissionReadError>()(
+export class NotificationPermissionReadError extends Schema.TaggedError<NotificationPermissionReadError>()(
   "NotificationPermissionReadError",
   {
     cause: Schema.Defect(),
@@ -19,7 +19,7 @@ export class NotificationPermissionReadError extends Schema.TaggedErrorClass<Not
   }
 }
 
-export class NotificationPermissionRequestError extends Schema.TaggedErrorClass<NotificationPermissionRequestError>()(
+export class NotificationPermissionRequestError extends Schema.TaggedError<NotificationPermissionRequestError>()(
   "NotificationPermissionRequestError",
   {
     cause: Schema.Defect(),
@@ -41,11 +41,16 @@ export const requestAgentNotificationPermission: Effect.Effect<
   if (Platform.OS === "android") {
     yield* Effect.tryPromise({
       try: () =>
-        Notifications.setNotificationChannelAsync("t3-chat-alerts", {
-          name: "Chat alerts",
-          importance: Notifications.AndroidImportance.HIGH,
-          sound: "default",
-        }),
+        Promise.all([
+          Notifications.setNotificationChannelAsync("agent-alerts", {
+            name: "Agent alerts",
+            importance: Notifications.AndroidImportance.HIGH,
+          }),
+          Notifications.setNotificationChannelAsync("t3-chat-alerts", {
+            name: "Chat alerts",
+            importance: Notifications.AndroidImportance.HIGH,
+          }),
+        ]),
       catch: (cause) => new NotificationPermissionRequestError({ cause }),
     });
   }

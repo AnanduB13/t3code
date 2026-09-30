@@ -7,18 +7,80 @@
  */
 import {
   type EnvironmentId,
-  type ProviderConsumeResetCreditInput,
   type ProviderUsageSnapshot,
+  type UsageLimitsReport,
+  type ProviderInstanceId,
+  type ProviderConsumeResetCreditInput,
+  type ServerProviderSlashCommand,
   isProviderAvailable,
   type ServerProvider,
+  type OrchestrationThreadActivity,
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
   type UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
 
+import * as DateTime from "effect/DateTime";
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
+
+export const CHATGPT_USAGE_URL = "https://chatgpt.com/#settings/Usage";
+const CHATGPT_USAGE_LIMIT_CODE = "subscription_sharing_usage_limit_exceeded";
+
+export function usesChatGptSharing(provider: ServerProvider | null | undefined): boolean {
+  return provider?.auth.status === "authenticated" && provider.auth.subscriptionSharing === true;
+}
+
+/** A historical limit must not turn an unrelated current failure into a usage notice. */
+export function isChatGptUsageLimitError(
+  activities: readonly OrchestrationThreadActivity[],
+  error: string | null | undefined,
+): boolean {
+  if (!error) return false;
+  for (let index = activities.length - 1; index >= 0; index--) {
+    const activity = activities[index]!;
+    if (activity.kind !== "runtime.error") continue;
+    const payload = activity.payload;
+    return (
+      typeof payload === "object" &&
+      payload !== null &&
+      "code" in payload &&
+      payload.code === CHATGPT_USAGE_LIMIT_CODE &&
+      "message" in payload &&
+      payload.message === error
+    );
+  }
+  return false;
+}
+
+export const CURSOR_USAGE_WINDOWS = [
+  {
+    id: "totalPercentUsed",
+    label: "Overall",
+    description: "Combined usage across both allowances, not a third quota.",
+  },
+  {
+    id: "autoPercentUsed",
+    label: "Cursor Models",
+    description: "Grok and Composer use this first. Auto can use either pool.",
+  },
+  {
+    id: "apiPercentUsed",
+    label: "Other Models",
+    description: "Claude, GPT, and Gemini use this pool. Grok and Composer fall back here.",
+  },
+] as const;
+
+export function cursorUsageWindowDetails(id: string) {
+  return CURSOR_USAGE_WINDOWS.find((window) => window.id === id);
+}
+
+function cursorUsageWindowRank(id: string): number {
+  const rank = CURSOR_USAGE_WINDOWS.findIndex((window) => window.id === id);
+  return rank < 0 ? CURSOR_USAGE_WINDOWS.length : rank;
+}
 
 /**
  * Providers that belong on the Limits view: enabled, installed, and one whose
@@ -48,16 +110,51 @@ export type LimitPresentations = ReadonlyMap<
   }
 >;
 
-function accountKey(driver: ServerProvider["driver"], email: string | undefined): string | null {
+/** One destination per service, even when several accounts or environments use it. */
+export function collectExternalUsageLinks(presentations: LimitPresentations) {
+  const links = new Map<
+    string,
+    {
+      readonly label: string;
+      readonly url: string;
+      readonly message: string | undefined;
+      readonly accounts: readonly string[];
+    }
+  >();
+  for (const presentation of presentations.values()) {
+    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
+      const external = provider.usageLimits?.externalUsage;
+      if (external && provider.auth.status === "authenticated") {
+        const account = `${provider.displayName ?? provider.instanceId} on ${presentation.entry.target.label}`;
+        links.set(external.url, {
+          ...external,
+          message: provider.usageLimits?.unavailable?.message,
+          accounts: [...new Set([...(links.get(external.url)?.accounts ?? []), account])],
+        });
+      }
+    }
+  }
+  return [...links.values()];
+}
+
+/** Prefer the reported email; use an identical credential when no email is available. */
+function accountKey(
+  driver: ServerProvider["driver"],
+  email: string | undefined,
+  limits?: ServerProviderUsageLimits,
+): string | null {
   const normalizedEmail = email?.trim().toLowerCase();
-  return normalizedEmail ? `${driver}:${normalizedEmail}` : null;
+  if (normalizedEmail) return `${driver}:${normalizedEmail}`;
+  return limits?.credentialFingerprint
+    ? `${driver}:credential:${limits.credentialFingerprint}`
+    : null;
 }
 
 /**
  * One subscription account as the pooled views see it, whichever way it was
- * reported. The same email signed in natively on two environments, or reported
- * by a hub as well as natively, is one account: its quota is one bucket, so
- * counting it twice would misstate what is left.
+ * reported. Matching emails or credentials across environments name
+ * one account. Its quota is one bucket, so counting it twice would misstate
+ * what is left.
  */
 export interface LimitAccount {
   readonly key: string;
@@ -155,7 +252,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
       if (!provider.usageLimits || limitsNotice(provider.usageLimits) !== null) continue;
       merge(
-        accountKey(provider.driver, provider.auth.email) ??
+        accountKey(provider.driver, provider.auth.email, provider.usageLimits) ??
           `${environmentId}:${provider.instanceId}`,
         {
           key: `${environmentId}:${provider.instanceId}`,
@@ -183,27 +280,31 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         : source.label;
       for (const account of source.accounts) {
         if (limitsNotice(account.usageLimits) !== null) continue;
-        merge(accountKey(account.driver, account.email) ?? `${source.id}:${account.id}`, {
-          key: `${source.id}:${account.id}`,
-          driver: account.driver,
-          displayName: account.email ? null : account.id.replace(/\.json$/i, ""),
-          email: account.email,
-          plan: account.plan,
-          accentColor: undefined,
-          environments: [],
-          sourceLabel,
-          redeem: account.usageLimits.resetCredits?.nextCreditId
-            ? {
-                environmentId,
-                input: {
-                  sourceId: source.id,
-                  accountId: account.id,
-                  creditId: account.usageLimits.resetCredits.nextCreditId,
-                },
-              }
-            : null,
-          limits: account.usageLimits,
-        });
+        merge(
+          accountKey(account.driver, account.email, account.usageLimits) ??
+            `${source.id}:${account.id}`,
+          {
+            key: `${source.id}:${account.id}`,
+            driver: account.driver,
+            displayName: account.email ? null : account.id.replace(/\.json$/i, ""),
+            email: account.email,
+            plan: account.plan,
+            accentColor: undefined,
+            environments: [],
+            sourceLabel,
+            redeem: account.usageLimits.resetCredits?.nextCreditId
+              ? {
+                  environmentId,
+                  input: {
+                    sourceId: source.id,
+                    accountId: account.id,
+                    creditId: account.usageLimits.resetCredits.nextCreditId,
+                  },
+                }
+              : null,
+            limits: account.usageLimits,
+          },
+        );
       }
     }
   }
@@ -276,6 +377,17 @@ export interface LimitPool {
   readonly driver: ServerProvider["driver"];
   readonly accounts: readonly LimitAccount[];
   readonly windows: readonly LimitPoolWindow[];
+}
+
+/** Show Cursor's two usable pools instead of a combined percentage when both are available. */
+export function displayLimitWindows(pool: LimitPool) {
+  if (pool.driver !== "cursor") return pool.windows;
+  const hasAuto = pool.windows.some((window) => window.id === "autoPercentUsed");
+  const hasApi = pool.windows.some((window) => window.id === "apiPercentUsed");
+  const hasBothPools = hasAuto && hasApi;
+  return pool.windows
+    .filter((window) => !hasBothPools || window.id !== "totalPercentUsed")
+    .sort((left, right) => cursorUsageWindowRank(left.id) - cursorUsageWindowRank(right.id));
 }
 
 const WINDOW_KIND_ORDER: Record<ServerProviderUsageWindow["kind"], number> = {
@@ -453,6 +565,192 @@ export function formatResetsIn(window: ServerProviderUsageWindow, now: number): 
   const resetsAt = resetMillis(window);
   if (resetsAt === null) return null;
   return resetsAt <= now ? "resets now" : `resets in ${formatDuration(resetsAt - now)}`;
+}
+
+/** Limit commands are served by T3 from the same snapshots as Usage → Limits. */
+export const USAGE_LIMITS_COMMAND = {
+  name: "usage-limits",
+  description: "Show this provider's usage limits",
+} satisfies ServerProviderSlashCommand;
+
+/** Handled by the client without sending a turn; anything with arguments stays an ordinary prompt. */
+export function isUsageLimitsCommand(prompt: string): boolean {
+  return prompt.trim().toLowerCase() === "/usage-limits";
+}
+
+/**
+ * Whether Limits has anything to say about this driver. A source that failed to
+ * read keeps no accounts, so its error counts for every driver rather than
+ * disappearing until the next successful refresh.
+ */
+export function hasProviderUsageLimits(
+  driver: ServerProvider["driver"],
+  providers: readonly ServerProvider[],
+  sources: UsageLimitSourceSnapshots,
+): boolean {
+  return (
+    providersWithLimits(providers).some((provider) => provider.driver === driver) ||
+    sources.some(
+      (source) =>
+        source.accounts.some((account) => account.driver === driver) ||
+        (source.error !== undefined && source.accounts.length === 0),
+    )
+  );
+}
+
+/**
+ * The drivers a set of sources would offer the command to, where a source that
+ * failed to read counts for every driver. Two snapshots with the same coverage
+ * need no catalog republish, however much their quotas moved.
+ */
+export function sameUsageLimitCommandCoverage(
+  previous: UsageLimitSourceSnapshots,
+  next: UsageLimitSourceSnapshots,
+): boolean {
+  const coverage = (sources: UsageLimitSourceSnapshots) =>
+    new Set(
+      sources.flatMap((source) =>
+        source.error !== undefined && source.accounts.length === 0
+          ? ["*"]
+          : source.accounts.map((account) => String(account.driver)),
+      ),
+    );
+  const before = coverage(previous);
+  const after = coverage(next);
+  return before.size === after.size && [...before].every((driver) => after.has(driver));
+}
+
+/** Advertise on workspace catalogs too, which replace the global command list. */
+export function withUsageLimitsCommands(
+  providers: readonly ServerProvider[],
+  sources: UsageLimitSourceSnapshots,
+): ServerProvider[] {
+  return providers.map((provider) => {
+    if (!hasProviderUsageLimits(provider.driver, providers, sources)) return provider;
+    const commands = (items: readonly ServerProviderSlashCommand[]) => [
+      ...items.filter((command) => command.name !== USAGE_LIMITS_COMMAND.name),
+      USAGE_LIMITS_COMMAND,
+    ];
+    return {
+      ...provider,
+      slashCommands: commands(provider.slashCommands),
+      ...(provider.workspaceSnapshots
+        ? {
+            workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
+              ...snapshot,
+              slashCommands: commands(snapshot.slashCommands),
+            })),
+          }
+        : {}),
+    };
+  });
+}
+
+/** A point-in-time report; never refreshes or guesses which pooled account serves a turn. */
+export function collectProviderUsageLimits(
+  instanceId: ProviderInstanceId,
+  providers: readonly ServerProvider[],
+  sources: UsageLimitSourceSnapshots,
+  now: number,
+): UsageLimitsReport | null {
+  const selected = providers.find((provider) => provider.instanceId === instanceId);
+  if (!selected || !hasProviderUsageLimits(selected.driver, providers, sources)) return null;
+  const native = providersWithLimits(providers).filter(
+    (provider) => provider.driver === selected.driver,
+  );
+  const nativeAccounts = new Set(
+    native.flatMap((provider) => {
+      const key = accountKey(provider.driver, provider.auth.email, provider.usageLimits);
+      return key && provider.usageLimits?.windows.length && !provider.usageLimits.unavailable
+        ? [key]
+        : [];
+    }),
+  );
+  const accounts: Array<UsageLimitsReport["accounts"][number]> = [];
+  const notices: string[] = [];
+  for (const provider of native) {
+    if (!provider.usageLimits) continue;
+    const key = accountKey(provider.driver, provider.auth.email, provider.usageLimits);
+    const hubCredits = sources
+      .flatMap((source) => source.accounts.map((account) => ({ source, account })))
+      .filter(
+        ({ account }) =>
+          key !== null &&
+          accountKey(account.driver, account.email, account.usageLimits) === key &&
+          account.usageLimits.resetCredits &&
+          !limitsNotice(account.usageLimits),
+      )
+      .sort(
+        (a, b) =>
+          Date.parse(b.account.usageLimits.checkedAt) - Date.parse(a.account.usageLimits.checkedAt),
+      )[0];
+    // Two independent decisions. Which balance to *display* follows whichever
+    // snapshot is fresher. Which path to *redeem through* always prefers the
+    // hub, because only the hub path clears the routing cooldown it holds for
+    // that account; redeeming natively against the same account resets the
+    // subscription upstream but leaves the hub refusing to route to it until
+    // its own cooldown expires. A hub credit id that a fresher native redeem
+    // already spent comes back as `alreadyRedeemed`, which still clears the
+    // cooldown, so preferring it is safe even when the hub snapshot is stale.
+    const hubCreditId = hubCredits?.account.usageLimits.resetCredits?.nextCreditId;
+    const showHubCredits =
+      hubCredits &&
+      (!provider.usageLimits.resetCredits ||
+        Date.parse(hubCredits.account.usageLimits.checkedAt) >
+          Date.parse(provider.usageLimits.checkedAt));
+    accounts.push({
+      id: provider.instanceId,
+      driver: provider.driver,
+      label: `${provider.displayName?.trim() || String(provider.driver)} [${provider.instanceId}]`,
+      ...(provider.auth.label ? { plan: provider.auth.label } : {}),
+      instanceId: provider.instanceId,
+      resetCreditInput:
+        hubCreditId && hubCredits
+          ? {
+              sourceId: hubCredits.source.id,
+              accountId: hubCredits.account.id,
+              creditId: hubCreditId,
+            }
+          : { instanceId: provider.instanceId },
+      ...(provider.displayName ? { displayName: provider.displayName } : {}),
+      ...(provider.accentColor ? { accentColor: provider.accentColor } : {}),
+      ...(provider.auth.email ? { email: provider.auth.email } : {}),
+      limits: showHubCredits
+        ? { ...provider.usageLimits, resetCredits: hubCredits.account.usageLimits.resetCredits }
+        : provider.usageLimits,
+    });
+  }
+  for (const source of sources) {
+    const matching = source.accounts.filter((account) => account.driver === selected.driver);
+    for (const account of matching) {
+      const key = accountKey(account.driver, account.email, account.usageLimits);
+      if (key && nativeAccounts.has(key)) continue;
+      accounts.push({
+        id: `${source.id}:${account.id}`,
+        driver: account.driver,
+        label: `${source.label} · ${account.id}`,
+        sourceLabel: "CLI Proxy",
+        ...(account.usageLimits.resetCredits?.nextCreditId
+          ? {
+              resetCreditInput: {
+                sourceId: source.id,
+                accountId: account.id,
+                creditId: account.usageLimits.resetCredits.nextCreditId,
+              },
+            }
+          : {}),
+        ...(account.plan ? { plan: account.plan } : {}),
+        ...(account.email ? { email: account.email } : {}),
+        limits: account.usageLimits,
+      });
+    }
+    // A source that failed to read has no accounts left to match on, so its
+    // error is reported to every provider rather than silently dropped.
+    if (source.error && (matching.length > 0 || source.accounts.length === 0)) {
+      notices.push(`${source.label}: ${source.error}`);
+    }
+  }
+  return { createdAt: DateTime.formatIso(DateTime.makeUnsafe(now)), accounts, notices };
 }
 
 /** Older environments report windows through a separate RPC, without reset credits. */

@@ -4,11 +4,11 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
-import * as NodeSqliteClient from "../NodeSqliteClient.ts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import ProjectionQueuedMessages from "./036_ProjectionQueuedMessages.ts";
 import ProjectionQueuedMessagePosition from "./043_ProjectionQueuedMessagePosition.ts";
 
-const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("044_AfterDarkUpstreamCompatibility legacy history", (it) => {
   it.effect("replays upstream migrations skipped by an existing After Dark database", () =>

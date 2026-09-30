@@ -155,7 +155,7 @@ function DeviceIntegrationControls({
           {state.hostStatusDetail}
         </p>
       ) : null}
-      <DeviceHostsSettings environmentId={environmentId} hosts={hosts} />
+      <DeviceHostsSettings environmentId={environmentId} />
     </>
   );
 }

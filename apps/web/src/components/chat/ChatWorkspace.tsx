@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -190,8 +191,14 @@ function ChatWorkspaceDivider(props: {
   );
 }
 
+type RoutePane = Pick<
+  ComponentProps<typeof ChatView>,
+  "draftId" | "routeKind" | "threadSyncPhase" | "forceExpandedMobileComposer"
+> & { readonly chatViewKey?: string };
+
 const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
   readonly threadRef: ScopedThreadRef;
+  readonly routePane?: RoutePane;
   readonly active: boolean;
   readonly reserveNativeControls: boolean;
   readonly paneCount: number;
@@ -207,7 +214,7 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
     status,
   });
 
-  if (!shell && !detail) {
+  if (!shell && !detail && props.routePane?.routeKind !== "draft") {
     return (
       <div className="grid min-h-0 place-items-center bg-background p-6 text-center text-sm text-muted-foreground">
         This chat is unavailable. Select this pane, then choose another thread from the sidebar.
@@ -218,10 +225,16 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       <ChatView
+        key={props.routePane?.chatViewKey}
         environmentId={props.threadRef.environmentId}
         threadId={props.threadRef.threadId}
-        routeKind="server"
-        threadSyncPhase={threadSyncPhase}
+        {...(props.routePane?.routeKind === "draft" && props.routePane.draftId
+          ? { routeKind: "draft" as const, draftId: props.routePane.draftId }
+          : {
+              routeKind: "server" as const,
+              threadSyncPhase: props.routePane?.threadSyncPhase ?? threadSyncPhase,
+            })}
+        forceExpandedMobileComposer={props.routePane?.forceExpandedMobileComposer ?? false}
         reserveTitleBarControlInset={props.reserveNativeControls}
         workspacePaneActive={props.active}
         chatPaneCount={props.paneCount}
@@ -233,7 +246,13 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
   );
 });
 
-export function ChatWorkspace({ routeThreadRef }: { readonly routeThreadRef: ScopedThreadRef }) {
+export function ChatWorkspace({
+  routeThreadRef,
+  routePane,
+}: {
+  readonly routeThreadRef: ScopedThreadRef;
+  readonly routePane?: RoutePane;
+}) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const paneThreadKeys = useChatWorkspaceLayoutStore((state) => state.paneThreadKeys);
@@ -321,7 +340,7 @@ export function ChatWorkspace({ routeThreadRef }: { readonly routeThreadRef: Sco
 
   return (
     <DiffWorkerPoolProvider>
-      <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
+      <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh">
         <div
           ref={gridRef}
           className="relative grid min-h-0 min-w-0 flex-1 bg-border"
@@ -360,6 +379,11 @@ export function ChatWorkspace({ routeThreadRef }: { readonly routeThreadRef: Sco
                 ) : (
                   <ChatWorkspacePane
                     threadRef={threadRef}
+                    {...(routePane &&
+                    threadRef.environmentId === routeEnvironmentId &&
+                    threadRef.threadId === routeThreadId
+                      ? { routePane }
+                      : {})}
                     active={active}
                     reserveNativeControls={isMobile || index === visibleColumns - 1}
                     paneCount={paneEntries.length}

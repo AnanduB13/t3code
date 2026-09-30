@@ -289,7 +289,7 @@ export const makeCodexUsageReader = Effect.fn("makeCodexUsageReader")(function* 
       );
       yield* client.request("initialize", buildCodexInitializeParams());
       yield* client.notify("initialized", undefined);
-      const response = yield* client.request("account/rateLimits/read", undefined);
+      const response = yield* client.request("account/rateLimits/read", {});
       const updatedAt = DateTime.formatIso(yield* DateTime.now);
       return codexUsageSnapshot({
         instanceId: input.instanceId,

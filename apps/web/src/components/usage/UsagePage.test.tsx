@@ -1,183 +1,142 @@
-import { USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
+import { EnvironmentId, UsageDay, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
 import { mergeUsage } from "@t3tools/shared/usageMerge";
-import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const testState = vi.hoisted(() => ({
   useUsage: vi.fn(),
-  metric: "cost" as "cost" | "tokens" | "limits",
-  breakdown: "model" as "model" | "day",
-  windowSelection: 30 as number | "all",
+  navigate: vi.fn(),
+  canGoBack: true,
 }));
 
-vi.mock("react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("react")>();
-  return {
-    ...actual,
-    useState: vi.fn((initial: unknown) => [
-      typeof initial === "function"
-        ? { metric: testState.metric, windowDays: testState.windowSelection }
-        : initial === "model"
-          ? testState.breakdown
-          : initial,
-      vi.fn(),
-    ]),
-  };
-});
-vi.mock("../../state/usageLimits", () => ({
-  useUsageLimitsRefresh: () => ({ now: 0, refresh: vi.fn(), refreshing: false }),
-}));
 vi.mock("../../env", () => ({ isElectron: false }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => testState.navigate,
+  useCanGoBack: () => testState.canGoBack,
+}));
 vi.mock("../../state/usage", () => ({ useUsage: testState.useUsage }));
 vi.mock("../ui/scroll-area", () => ({ ScrollArea: "div" }));
 vi.mock("../ui/sidebar", () => ({ SidebarInset: "div" }));
 vi.mock("../WorkspaceBreadcrumb", () => ({
   WorkspaceBreadcrumb: "div",
   WorkspaceBreadcrumbItem: "div",
+  WorkspaceBreadcrumbSeparator: "span",
 }));
 vi.mock("./UsageProviderChart", () => ({ UsageProviderChart: "div" }));
-vi.mock("./UsageLimits", () => ({ UsageLimitsSection: () => <div>Account usage limits</div> }));
+vi.mock("./UsagePriceOverrides", () => ({ UsagePriceOverrides: () => null }));
+vi.mock("./usageProviders", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./usageProviders")>();
+  return {
+    ...actual,
+    PROVIDER_PRESENTATION: {
+      codex: { color: "white", label: "Codex", mark: "span" },
+      claude: { color: "orange", label: "Claude Code", mark: "span" },
+    },
+  };
+});
 
 import { UsagePage } from "./UsagePage";
-
-const daily = [
+const environments = [
   {
-    day: "2026-08-10",
-    costUsd: 13,
-    totalTokens: 13_000,
-    byProvider: new Map([
-      ["codex", { costUsd: 7, totalTokens: 7_000 }],
-      ["claude", { costUsd: 6, totalTokens: 6_000 }],
-    ]),
-  },
-  {
-    day: "2026-08-11",
-    costUsd: 11,
-    totalTokens: 11_000,
-    byProvider: new Map([
-      ["codex", { costUsd: 6, totalTokens: 6_000 }],
-      ["claude", { costUsd: 5, totalTokens: 5_000 }],
-    ]),
-  },
-] as const;
-
-const models = [
-  {
-    model: "expensive-model",
-    provider: "claude" as const,
-    costUsd: 10,
-    totalTokens: 100,
-    records: 1,
-    costShare: 10 / 16,
-  },
-  {
-    model: "token-heavy-model",
-    provider: "codex" as const,
-    costUsd: 5,
-    totalTokens: 1_000,
-    records: 1,
-    costShare: 5 / 16,
+    environmentId: EnvironmentId.make("test-environment"),
+    label: "Test environment",
+    isPending: false,
+    error: null,
+    summary: {
+      contractVersion: USAGE_CONTRACT_VERSION,
+      readAt: "2026-08-11T12:37:00.000Z",
+      sinceDay: UsageDay.make("2026-08-10"),
+      untilDay: UsageDay.make("2026-08-11"),
+      timeZone: "UTC",
+      buckets: [],
+      sources: [],
+      pricing: { status: "fresh", source: "test", fetchedAt: null, knownModels: 1 },
+      scanDurationMs: 1,
+    },
   },
 ];
 
 beforeEach(() => {
-  testState.metric = "cost";
-  testState.breakdown = "model";
-  testState.windowSelection = 30;
-  testState.useUsage.mockReset();
   testState.useUsage.mockReturnValue({
-    merged: {
-      ...mergeUsage([], USAGE_CONTRACT_VERSION),
-      totalTokens: 24_000,
-      cachedInputTokens: 18_000,
-      uncachedInputTokens: 4_000,
-      outputTokens: 2_000,
-      sessions: 2,
-      costUsd: 24,
-      daily,
-      models,
-      providers: [
-        {
-          provider: "codex",
-          costUsd: 13,
-          totalTokens: 13_000,
-          sessions: 1,
-          costShare: 13 / 24,
-          tokenShare: 13 / 24,
-        },
-        {
-          provider: "claude",
-          costUsd: 11,
-          totalTokens: 11_000,
-          sessions: 1,
-          costShare: 11 / 24,
-          tokenShare: 11 / 24,
-        },
-      ],
-    },
-    environments: [],
+    merged: mergeUsage([], USAGE_CONTRACT_VERSION),
+    environments,
+    selectedEnvironments: environments,
     isPending: false,
     isPartial: false,
     refresh: vi.fn(),
   });
 });
 
-describe("UsagePage restored dashboard", () => {
-  it("shows the device, origin, provider, totals, and breakdown sections", () => {
-    const markup = renderToStaticMarkup(<UsagePage />);
+describe("UsagePage Escape navigation", () => {
+  let renderer: Root;
+  let container: HTMLDivElement;
+  let back: ReturnType<typeof vi.spyOn>;
 
-    expect(markup).toContain("Device usage");
-    expect(markup).toContain("All device usage");
-    expect(markup).toContain("T3 Code usage");
-    expect(markup).toContain("Terminal usage");
-    expect(markup).toContain("Token cost");
-    expect(markup).toContain("Cache savings");
-    expect(markup).toContain("Breakdown");
+  beforeEach(async () => {
+    back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    testState.navigate.mockClear();
+    testState.canGoBack = true;
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.append(container);
+    renderer = createRoot(container);
+    await act(() => {
+      renderer.render(<UsagePage />);
+    });
   });
 
-  it("offers the original date ranges including all time", () => {
-    const markup = renderToStaticMarkup(<UsagePage />);
-
-    expect(markup).toContain("7 days");
-    expect(markup).toContain("30 days");
-    expect(markup).toContain("90 days");
-    expect(markup).toContain("All time");
-    expect(markup).not.toContain("Past 24h");
+  afterEach(async () => {
+    await act(() => renderer.unmount());
+    container.remove();
+    back.mockRestore();
+    vi.unstubAllGlobals();
   });
 
-  it("restores account limits as a third usage view", () => {
-    testState.metric = "limits";
+  function escape(properties: { repeat?: boolean; isComposing?: boolean } = {}) {
+    return new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+      ...properties,
+    });
+  }
 
-    const markup = renderToStaticMarkup(<UsagePage />);
-
-    expect(markup).toContain("Account usage limits");
-    expect(markup).toContain(">limits</button>");
-    expect(markup).not.toContain("Token cost");
+  it("returns to the previous page on Escape", () => {
+    document.body.dispatchEvent(escape());
+    expect(back).toHaveBeenCalledOnce();
+    expect(testState.navigate).not.toHaveBeenCalled();
   });
 
-  it("requests the complete history when all time is selected", () => {
-    testState.windowSelection = "all";
+  it("returns home when there is no previous app page", async () => {
+    testState.canGoBack = false;
+    await act(() => renderer.render(<UsagePage />));
 
-    renderToStaticMarkup(<UsagePage />);
-
-    expect(testState.useUsage).toHaveBeenCalledWith(
-      expect.objectContaining({ sinceDay: "1970-01-01", resolution: "day" }),
-    );
+    document.body.dispatchEvent(escape());
+    expect(testState.navigate).toHaveBeenCalledWith({ to: "/" });
+    expect(back).not.toHaveBeenCalled();
   });
 
-  it("shows the newest days first in the day breakdown", () => {
-    testState.breakdown = "day";
+  it("closes the environment menu before Escape navigates back", async () => {
+    const trigger = container.querySelector<HTMLButtonElement>('[data-slot="menu-trigger"]')!;
+    await act(() => trigger.click());
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
 
-    const markup = renderToStaticMarkup(<UsagePage />);
-    const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
+    await act(() => {
+      document.activeElement!.dispatchEvent(escape());
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(back).not.toHaveBeenCalled();
 
-    expect(body.indexOf("$11.00")).toBeLessThan(body.indexOf("$13.00"));
+    document.body.dispatchEvent(escape());
+    expect(back).toHaveBeenCalledOnce();
   });
 
-  it("keeps the model breakdown ordered by merged usage", () => {
-    const markup = renderToStaticMarkup(<UsagePage />);
-    const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
-
-    expect(body).toMatch(/expensive-model.*token-heavy-model/);
+  it.each([{ repeat: true }, { isComposing: true }])("ignores Escape with %j", (properties) => {
+    document.body.dispatchEvent(escape(properties));
+    expect(back).not.toHaveBeenCalled();
+    expect(testState.navigate).not.toHaveBeenCalled();
   });
 });
+
+// @vitest-environment jsdom

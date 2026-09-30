@@ -1,69 +1,138 @@
-# Source Control Integrations
+# Source control
 
-T3 Code connects to your Git hosting provider so you can create pull requests, review code, and manage repositories without leaving the app.
+T3 Code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, and Azure DevOps to clone and publish
+repositories, create pull requests, and review changes.
 
-## Supported Providers
+## Connect an account
 
-T3 Code works with the platforms your team already uses:
+Install Git and configure authentication on the machine running your T3 Code server. For a remote
+environment, do this on the remote machine. After signing in, open **Settings → Source Control**
+and choose **Rescan**.
 
-- **GitHub** – Pull requests, repository creation, and clone integration
-- **GitLab** – Merge requests, repository publishing, and hosted clones
-- **Bitbucket** – Pull request workflows (via API token authentication)
-- **Azure DevOps** – Pull request support for Microsoft-hosted repositories
+### GitHub
 
-## What You Can Do
+Install [GitHub CLI](https://cli.github.com/) 2.81.0 or newer, then sign in:
 
-In web and desktop threads, click an image in **changed files** to preview its current
-workspace contents. Click a text file to view its turn diff, or **Open diff** to view
-the full turn diff.
+```bash
+gh auth login
+```
 
-### Start Projects from Anywhere
+### Forgejo and Gitea
 
-**Clone repositories directly**
+Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
+[Gitea CLI (`tea`)](https://gitea.com/gitea/tea) 0.16 or later on your T3 Code server.
+Sign in with `fj --host https://your-server auth add-token` or `tea login add`.
+Repeat for each server you use, including Codeberg.
 
-- Open the Command Palette (`Cmd/Ctrl + K`) → **Add Project**
-- Choose **GitHub repository**, **GitLab repository**, **Bitbucket repository**, **Azure DevOps repository**, or paste any **Git URL**
-- Enter the repository path (`owner/repo`, `group/project`, `workspace/repository`, or `project/repository`) or a full Git URL, pick a destination, and start coding
+T3 Code prefers a matching `fj` login and falls back to `tea` when `fj` is unavailable
+or has no login for that server. Once an account is selected, failed actions stay on that
+account. Settings shows the detected CLI. Forgejo and Gitea share one integration entry.
+Servers hosted under a URL subpath, such as `https://example.com/forgejo`, use `tea` because
+fj 0.6 does not preserve the subpath when checking its account.
 
-**Publish local projects to the cloud**
+When cloning or publishing, use a full repository URL to select a specific server.
+You can use `owner/repo` when only one fj server is configured, or with your default `tea`
+login when fj is unavailable or unconfigured. With multiple fj servers, use the full URL.
+If you have multiple `tea` accounts on one server, select one with
+`tea login default <login-name>`. Git push and clone also need Git credentials or an SSH key
+for that server.
 
-- Have a local Git repository without a remote?
-- Use the **Publish Repository** action to create a new hosted repository (GitHub, GitLab, Bitbucket, or Azure DevOps), add it as your origin remote, and push, in one flow
-- If the local repository has no commits yet, publishing creates the remote and wires it up but does not push. Make a commit, then push normally.
+### GitLab
 
-### Manage Code Reviews Without Context Switching
+Install [GitLab CLI](https://gitlab.com/gitlab-org/cli), then sign in:
 
-**Create pull requests while you work**
+```bash
+glab auth login
+```
 
-- Push a branch and create a pull request from the Git actions controls in the toolbar
-- Open **Environment details** in the thread toolbar to review changed lines, the active checkout and branch, upstream sync, pull request status, and the recommended next Git action
-- T3 Code can suggest titles and descriptions based on your commits
-- With **Repository conventions** selected, generated source control text follows the project's
-  `AGENTS.md` along with recent commit subjects. Claude writers also follow `CLAUDE.md`
-- Supports GitHub Pull Requests, GitLab Merge Requests, Bitbucket Pull Requests, and Azure DevOps Pull Requests
+### Bitbucket
 
-**Stay on top of open reviews**
+Open **Settings → Source Control**, expand **Bitbucket**, and choose how to sign in:
 
-- See if your current branch already has an open PR/MR
-- Open several reviews from the **Pull requests** page as tabs in the right panel
-- Filter the list by author or labels, rank authors by merges in the loaded results, see label and
-  change-size context on each row, and sort the results currently shown by update time, creation
-  time, or change size
-- While working in a thread, open linked reviews in the same compact right-panel tabs without
-  leaving the conversation
-- Open the review directly in your browser with one click
-- If T3 Code cannot load a GitHub pull request, including when GitHub rate limits requests, use
-  **Open on GitHub** in the error view
-- Command-click (Control-click on Windows and Linux) a pull request number in the sidebar to open it in your browser instead of in T3 Code
-- Check out a teammate's branch to review code locally
+- **Access token**: a token created for one repository, project, or workspace. It can only reach
+  what it was created for.
+- **API token**: an Atlassian API token for your account, used with your account email. It can
+  reach every repository you can. Give it read/write access to repositories and pull requests, plus
+  user read access (`read:user:bitbucket`).
 
-**Fix what you wrote, in place**
+Choose **Save**; the change applies right away, and replaces any credential saved with the other
+method. Credentials are saved on the environment's server, so select a remote environment to
+configure it. Saved tokens can't be viewed again; enter a new one to replace it, or choose
+**Remove**.
 
-- Rewrite a pull request's title and description from the review itself, in Markdown, with a
-  preview before you save
-- Rewrite your own comments the same way, wherever they are shown
-- Works on GitHub, GitLab, and Bitbucket. Azure DevOps takes a new title and description; its
-  comments stay read-only here, as they already were
+If no credentials are saved, T3 Code falls back to these variables in the server's environment.
+Restart the server after changing them:
+
+```bash
+export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
+# or
+export T3CODE_BITBUCKET_EMAIL="you@example.com"
+export T3CODE_BITBUCKET_API_TOKEN="your-token"
+```
+
+### Azure DevOps
+
+Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), add the DevOps extension, and sign in:
+
+```bash
+az extension add --name azure-devops
+az login
+```
+
+## Clone or publish a project
+
+Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
+provider or paste a Git URL, then choose where to save it. The project opens right away while the
+clone runs in the background: you can write your first prompt, and sending waits until the files
+are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
+toast or from the banner above the composer.
+
+For a local Git repository without a remote, **Publish Repository** creates a hosted repository,
+adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
+make your first commit before pushing.
+
+## Inspect the current workspace
+
+In a web or desktop thread, select an image in **changed files** to preview its current contents.
+Select a text file for its turn diff, or **Open diff** for the full turn diff. **Environment details**
+in the thread toolbar shows changed lines, checkout and branch, upstream sync, pull request
+status, and the recommended next Git action.
+
+## Create a pull request
+
+Use a thread's Git actions to commit, push, and create a pull request. T3 Code can generate commit
+messages, review titles, and descriptions from your changes.
+
+Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
+uses the project's `AGENTS.md` and recent commit subjects. Claude writers also follow `CLAUDE.md`.
+
+## Review and merge
+
+Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
+or merge. You can edit review titles and descriptions and your own comments where the host allows it.
+GitLab calls these merge requests.
+
+GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
+supports approving waiting fork workflows and opening a revert pull request for a merged change.
+
+GitHub sharing is off by default. In Settings → Connections → GitHub sharing (Environments on mobile), choose
+**Read PRs** or **Read and act** for each environment you trust to share GitHub access.
+Enable both the original environment and the environment answering its requests on this client.
+**Read and act** can use broader GitHub permissions than the original environment's credential;
+only enable it for environments you control and trust. Changing a saved endpoint or removing an
+environment clears its permission.
+
+GitHub review details, linked PR status, and permitted review actions can then use another
+connected environment signed in to the same GitHub account. Each needs a project on that host.
+A connected local environment is preferred for actions and can answer slow or failed reads.
+Browsers and mobile clients need a paired environment to use its GitHub CLI credentials.
+Credentials stay on their machines. Previously verified credentials remain usable for routing
+for ten minutes during a GitHub outage; new credentials must be verified first. An action with
+an uncertain result is never automatically retried elsewhere. Listings, diffs, and checkout or
+PR creation from Git actions continue to use the project's environment.
+
+For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
+declined pull request.
 
 ### Review Pull Requests on Mobile
 
@@ -85,99 +154,63 @@ when switching tabs or when a submission fails; leaving the review asks before d
 Use **Refresh** to fetch updates or **Open on host** for changes and activity the host cannot
 show in the app. Create and push new pull requests through the thread’s Git actions.
 
-### Know Your Setup at a Glance
+### Mark files as viewed
 
-The **Source Control settings** page shows you exactly what's connected:
+Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a
+running count. A tick belongs to the pull request rather than to a commit, so scoping the tab to a
+single commit keeps them. A file pushed to after you cleared it comes back marked **Changed**.
 
-- ✅ Which providers are authenticated and ready
-- ⚠️ What's missing and how to fix it
-- 👤 Which account is signed in (when available)
+On GitHub these are GitHub's own viewed marks, so a review carries between T3 Code and github.com
+in either direction. Forgejo, GitLab, Bitbucket, and Azure DevOps expose no record T3 Code can read, so the
+server you are connected to keeps them instead: they follow you across the apps connected to that
+server, but the host's own site will not show them, and the count reads **viewed in T3 Code**.
 
-Run a quick **Rescan** after setting up a new machine or changing credentials.
+Viewed-file marks are managed in the web and desktop **Code** tab. After Dark mobile also has
+full diff and review screens through **PR** in the bottom dock.
 
-## Getting Started
+## Troubleshooting
 
-### For GitHub (Recommended for most users)
+- **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,
+  check the credentials saved in Settings → Source Control, or confirm the running server received
+  the environment variables.
+- **GitHub sign-in cannot be verified:** update GitHub CLI to at least 2.81.0.
+- **Push fails despite a connected account:** check the Git remote's credentials. SSH and HTTPS
+  remotes can require separate setup from the hosting provider's API access.
+- **A review cannot load:** open it on the host website while resolving connectivity, permissions,
+  or rate limits.
 
-1. Install the GitHub CLI (version 2.81.0 or newer) on the machine running T3 Code:
-   ```bash
-   brew install gh
-   ```
-2. Sign in:
-   ```bash
-   gh auth login
-   ```
-3. Open **Settings → Source Control** in T3 Code and verify GitHub shows as authenticated
+## Linked pull requests
 
-You can now clone, publish, and create pull requests.
+A thread can hold several pull requests, including reviews from another repository on the same host.
+Use **Link pull request** in the command palette or **Linked pull requests** panel, or right-click a
+pull request link in the conversation. Creating a pull request from Git actions links it automatically.
+Agents can link their pull requests with the `link_pull_request` tool.
 
-### For GitLab
+Use **Link this PR** in a branch-detected badge's tooltip to keep it with the thread. From a review
+on the Pull Requests page, **Link to thread** lets you search for an active thread. The review header
+also lists the threads that link to it, including archived threads, so you can return to their context.
 
-1. Install the GitLab CLI:
-   ```bash
-   brew install glab
-   ```
-2. Authenticate:
-   ```bash
-   glab auth login
-   ```
-3. Check **Settings → Source Control** to confirm the connection
+Thread badges show a stack's layer count or the current review number with a count of additional
+links. Clicking a badge with more than one review opens the **Linked pull requests** panel. On mobile, the Git overview lists linked reviews and their stacks; tap a review to open it.
+Linking and unlinking are available in the web and desktop clients.
 
-### For Bitbucket
+The **Linked pull requests** panel lists every review and groups stacks. Unlink a review from its
+row menu. An unlinked stack layer stays out of later syncs. Open linked reviews refresh on the server;
+closed reviews refresh periodically so reopening one on the host is detected. Merged reviews refresh
+when requested. With **Auto-settle merged threads** enabled, a thread can settle after every linked
+review is terminal. An open or unsynced link keeps it active.
 
-Bitbucket uses tokens instead of a CLI tool. Two options, both set as environment variables on the
-machine running T3 Code.
+Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
+out from the matching organization and repository.
 
-Recommended, a Bitbucket access token:
+## GitHub stacks
 
-```bash
-export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
-```
+The Pull Requests page shows each PR's position in its GitHub stack. Open the stack badge in a
+review to navigate its layers. **Merge stack** submits the selected pull request and every unmerged
+layer below it to GitHub together, respecting branch rules and merge queues. The confirmation shows
+the scope and merge strategy. GitHub rebases the remaining stack after merging.
 
-Or an Atlassian account email plus API token, with read/write access to pull requests and
-repositories, plus read access to your user account (`read:user:bitbucket`, used to verify the
-connection):
-
-```bash
-export T3CODE_BITBUCKET_EMAIL="you@example.com"
-export T3CODE_BITBUCKET_API_TOKEN="your-token"
-```
-
-If both are set, the access token wins. Restart T3 Code and verify the connection in **Source
-Control settings**.
-
-### For Azure DevOps
-
-1. Install Azure CLI:
-   ```bash
-   brew install azure-cli
-   ```
-2. Add the DevOps extension:
-   ```bash
-   az extension add --name azure-devops
-   ```
-3. Sign in:
-   ```bash
-   az login
-   ```
-
----
-
-## Requirements & Troubleshooting
-
-**Git is required** – T3 Code uses Git for all local operations. Ensure `git` is installed on your server.
-
-**Server-side setup** – Authentication happens on the machine running T3 Code (the server), not your local browser. If you're using a hosted or team instance, your administrator may have already configured providers.
-
-**Common issues:**
-
-- **Provider shows "Not authenticated"** – Run the login command for that provider (e.g., `gh auth login`) in a terminal on the server, then rescan in Settings
-- **GitHub says it could not verify sign-in status** – T3 Code needs GitHub CLI 2.81.0 or newer to check sign-in status. Update `gh` (e.g., `brew upgrade gh`), then rescan
-- **Bitbucket not connecting** – Double-check your environment variables are set in the correct shell profile and the server was restarted
-- **Can't push to a remote** – Verify your Git remote URL matches the provider you've authenticated with (SSH vs HTTPS remotes may need different credentials)
-
-**Need more help?** Check your provider's CLI documentation:
-
-- [GitHub CLI](https://cli.github.com/)
-- [GitLab CLI](https://gitlab.com/gitlab-org/cli)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/)
+**Rebase stack** updates remote branches from bottom to top without changing your local checkout.
+It can rewrite history and restart checks. If a layer fails, earlier updates remain; resolve that
+layer before retrying. GitHub may require manual conflict resolution after a lower layer is amended,
+even when its changes look independent. Stack actions require an environment that supports them.

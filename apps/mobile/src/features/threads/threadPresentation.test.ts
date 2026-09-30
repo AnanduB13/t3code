@@ -2,7 +2,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveThreadStatus } from "./threadPresentation";
+import { resolveThreadListV2Status } from "./threadListV2";
 
 const completedThread: EnvironmentThreadShell = {
   environmentId: EnvironmentId.make("environment-1"),
@@ -25,6 +25,7 @@ const completedThread: EnvironmentThreadShell = {
   createdAt: "2026-08-23T10:00:00.000Z",
   updatedAt: "2026-08-23T10:05:00.000Z",
   archivedAt: null,
+  pullRequests: [],
   settledOverride: null,
   settledAt: null,
   session: null,
@@ -36,6 +37,6 @@ const completedThread: EnvironmentThreadShell = {
 
 describe("resolveThreadStatus", () => {
   it("does not keep a completed task labeled done without an unread marker", () => {
-    expect(resolveThreadStatus(completedThread)).toBeNull();
+    expect(resolveThreadListV2Status(completedThread)).toBe("ready");
   });
 });

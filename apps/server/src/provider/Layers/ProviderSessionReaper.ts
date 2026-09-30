@@ -176,7 +176,12 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           continue;
         }
 
-        const idleDurationMs = now - lastSeenMs;
+        const sessionUpdatedMs = Date.parse(thread?.session?.updatedAt ?? binding.lastSeenAt);
+        const lastActivityMs = Math.max(
+          lastSeenMs,
+          Number.isNaN(sessionUpdatedMs) ? lastSeenMs : sessionUpdatedMs,
+        );
+        const idleDurationMs = now - lastActivityMs;
         if (idleDurationMs < inactivityThresholdMs) {
           continue;
         }

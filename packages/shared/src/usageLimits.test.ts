@@ -1,24 +1,34 @@
+import { withLegacyUsageLimits } from "./usageLimits.ts";
 import {
   EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
+  EventId,
+  type OrchestrationThreadActivity,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   type LimitAccount,
+  isUsageLimitsCommand,
+  collectProviderUsageLimits,
+  sameUsageLimitCommandCoverage,
+  withUsageLimitsCommands,
   collectLimitAccounts,
+  collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
+  displayLimitWindows,
   elapsedShare,
   formatResetsIn,
   limitsNotice,
   paceOf,
   providersWithLimits,
   remainingPercent,
-  withLegacyUsageLimits,
+  isChatGptUsageLimitError,
+  usesChatGptSharing,
 } from "./usageLimits.ts";
 
 const now = Date.parse("2026-09-03T12:00:00.000Z");
@@ -196,6 +206,74 @@ describe("pools", () => {
     });
     // The fresher native snapshot wins; the hub row is pre-filtered by email.
     expect(accounts[0]?.limits.windows[0]?.usedPercent).toBe(55);
+  });
+
+  it("merges OpenCode Go limits from machines with the same API key", () => {
+    const go = provider({
+      driver: ProviderDriverKind.make("opencode"),
+      instanceId: ProviderInstanceId.make("opencode"),
+      auth: { status: "authenticated" },
+      usageLimits: {
+        checkedAt,
+        credentialFingerprint: "shared-go-key",
+        windows: [{ ...window, id: "go_rolling", usedPercent: 3 }],
+      },
+    });
+    const input = new Map([
+      [EnvironmentId.make("env-a"), { ...laptop, serverConfig: { providers: [go] } }],
+      [
+        EnvironmentId.make("env-b"),
+        {
+          entry: { target: { label: "Desktop" } },
+          serverConfig: {
+            providers: [
+              {
+                ...go,
+                usageLimits: {
+                  ...go.usageLimits!,
+                  checkedAt: "2026-09-03T11:30:00.000Z",
+                  windows: [{ ...window, id: "go_rolling", usedPercent: 4 }],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    ]);
+    const accounts = collectLimitAccounts(input);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]?.environments).toEqual([
+      { environmentId: "env-a", label: "Laptop" },
+      { environmentId: "env-b", label: "Desktop" },
+    ]);
+    expect(collectLimitPools(accounts, now)[0]?.windows[0]?.members).toHaveLength(1);
+    expect(accounts[0]?.limits.windows[0]?.usedPercent).toBe(4);
+
+    const differentKey = {
+      ...go,
+      usageLimits: { ...go.usageLimits!, credentialFingerprint: "other-go-key" },
+    };
+    input.set(EnvironmentId.make("env-b"), {
+      entry: { target: { label: "Desktop" } },
+      serverConfig: { providers: [differentKey] },
+    });
+    expect(collectLimitAccounts(input)).toHaveLength(2);
+
+    input.set(EnvironmentId.make("env-a"), {
+      ...laptop,
+      serverConfig: {
+        providers: [{ ...go, auth: { status: "authenticated", email: "same@example.com" } }],
+      },
+    });
+    input.set(EnvironmentId.make("env-b"), {
+      entry: { target: { label: "Desktop" } },
+      serverConfig: {
+        providers: [
+          { ...differentKey, auth: { status: "authenticated", email: "SAME@example.com" } },
+        ],
+      },
+    });
+    expect(collectLimitAccounts(input)).toHaveLength(1);
   });
 
   it("takes windows from a fresher hub read but credits and redeem from the native instance", () => {
@@ -684,6 +762,53 @@ describe("pooled account columns", () => {
   });
 });
 
+describe("Cursor limit presentation", () => {
+  const cursorAccount: LimitAccount = {
+    key: "cursor",
+    driver: ProviderDriverKind.make("cursor"),
+    displayName: "Cursor",
+    email: undefined,
+    plan: undefined,
+    accentColor: undefined,
+    environments: [],
+    sourceLabel: "Cursor",
+    redeem: null,
+    limits: {
+      checkedAt: "2026-09-03T11:00:00.000Z",
+      windows: [
+        { id: "apiPercentUsed", kind: "monthly", label: "Other Models", usedPercent: 49 },
+        { id: "autoPercentUsed", kind: "monthly", label: "Cursor Models", usedPercent: 9 },
+        { id: "totalPercentUsed", kind: "monthly", label: "Overall", usedPercent: 15 },
+      ],
+    },
+  };
+
+  it("hides the combined percentage and orders the two pools", () => {
+    const [pool] = collectLimitPools([cursorAccount], now);
+    const display = displayLimitWindows(pool!);
+    expect(display.map((window) => window.id)).toEqual(["autoPercentUsed", "apiPercentUsed"]);
+  });
+
+  it("keeps the combined percentage as a card if either allowance is missing", () => {
+    const [pool] = collectLimitPools(
+      [
+        {
+          ...cursorAccount,
+          limits: {
+            ...cursorAccount.limits,
+            windows: cursorAccount.limits.windows.filter(
+              (window) => window.id !== "apiPercentUsed",
+            ),
+          },
+        },
+      ],
+      now,
+    );
+    const display = displayLimitWindows(pool!);
+    expect(display.map((window) => window.id)).toEqual(["totalPercentUsed", "autoPercentUsed"]);
+  });
+});
+
 describe("collectLimitNotices", () => {
   const checkedAt = "2026-09-03T11:00:00.000Z";
   const claude = ProviderDriverKind.make("claudeAgent");
@@ -739,12 +864,375 @@ describe("collectLimitNotices", () => {
   });
 });
 
+describe("/usage-limits", () => {
+  const limits = { checkedAt: "2026-09-03T11:00:00.000Z", windows: [window] };
+  const selected = provider({
+    usageLimits: limits,
+    auth: { status: "authenticated", email: "same@example.com" },
+  });
+  const sources = [
+    {
+      id: UsageLimitSourceId.make("hub"),
+      kind: "cliproxy" as const,
+      label: "Accounts",
+      checkedAt: limits.checkedAt,
+      accounts: [
+        {
+          id: "duplicate",
+          driver: selected.driver,
+          email: "SAME@example.com",
+          usageLimits: limits,
+        },
+        { id: "oss", driver: selected.driver, plan: "Codex OSS", usageLimits: limits },
+        { id: "other-provider", driver: ProviderDriverKind.make("claude"), usageLimits: limits },
+      ],
+    },
+  ];
+
+  it("uses hub credit balances and redemption targets in the composer, including native duplicates", () => {
+    const hubs = sources.map((source) => ({
+      ...source,
+      accounts: source.accounts.map((account) => ({
+        ...account,
+        usageLimits: {
+          ...account.usageLimits,
+          resetCredits: { availableCount: 2, nextCreditId: `${account.id}-credit` },
+        },
+      })),
+    }));
+    const report = collectProviderUsageLimits(selected.instanceId, [selected], hubs, now);
+    expect(report?.accounts[0]?.limits.resetCredits?.availableCount).toBe(2);
+    expect(report?.accounts[0]?.resetCreditInput).toEqual({
+      sourceId: "hub",
+      accountId: "duplicate",
+      creditId: "duplicate-credit",
+    });
+    expect(report?.accounts.find((account) => account.id === "hub:oss")?.resetCreditInput).toEqual({
+      sourceId: "hub",
+      accountId: "oss",
+      creditId: "oss-credit",
+    });
+  });
+
+  it("redeems a native duplicate through the hub even when the native snapshot is fresher", () => {
+    const fresher = provider({
+      usageLimits: {
+        checkedAt: "2026-09-03T11:30:00.000Z",
+        windows: [window],
+        resetCredits: { availableCount: 3, nextCreditId: "native-credit" },
+      },
+      auth: { status: "authenticated", email: "same@example.com" },
+    });
+    const stale = [
+      {
+        id: UsageLimitSourceId.make("hub"),
+        kind: "cliproxy" as const,
+        label: "Accounts",
+        checkedAt: limits.checkedAt,
+        accounts: [
+          {
+            id: "duplicate",
+            driver: fresher.driver,
+            email: "SAME@example.com",
+            usageLimits: {
+              ...limits,
+              resetCredits: { availableCount: 2, nextCreditId: "hub-credit" },
+            },
+          },
+        ],
+      },
+    ];
+    const report = collectProviderUsageLimits(fresher.instanceId, [fresher], stale, now);
+    // Only redeeming through the hub clears the routing cooldown it holds for
+    // this account, so the hub wins the path even with a staler balance.
+    expect(report?.accounts[0]?.resetCreditInput).toEqual({
+      sourceId: "hub",
+      accountId: "duplicate",
+      creditId: "hub-credit",
+    });
+    // The fresher native balance is still the one shown.
+    expect(report?.accounts[0]?.limits.resetCredits?.availableCount).toBe(3);
+  });
+
+  it("keeps accounts and custom instances separate, filtering by driver", () => {
+    const report = collectProviderUsageLimits(
+      selected.instanceId,
+      [
+        selected,
+        provider({
+          instanceId: ProviderInstanceId.make("codex-work"),
+          displayName: "Work",
+          usageLimits: { ...limits, resetCredits: { availableCount: 2 } },
+        }),
+        provider({
+          driver: ProviderDriverKind.make("claude"),
+          instanceId: ProviderInstanceId.make("claude"),
+          usageLimits: limits,
+        }),
+      ],
+      sources,
+      now,
+    );
+    expect(report?.createdAt).toBe("2026-09-03T12:00:00.000Z");
+    expect(report?.accounts.map((account) => account.id)).toEqual([
+      "codex",
+      "codex-work",
+      "hub:oss",
+    ]);
+    expect(report?.accounts[0]).toMatchObject({
+      instanceId: selected.instanceId,
+      email: selected.auth.email,
+    });
+    expect(report?.accounts[1]).toMatchObject({
+      displayName: "Work",
+      limits: { resetCredits: { availableCount: 2 } },
+    });
+    expect(report?.accounts[2]).toMatchObject({
+      label: "Accounts · oss",
+      sourceLabel: "CLI Proxy",
+      plan: "Codex OSS",
+    });
+    expect(report?.notices).toEqual([]);
+  });
+
+  it("supports a source-only provider and keeps duplicates when the native probe failed", () => {
+    expect(
+      collectProviderUsageLimits(selected.instanceId, [provider({})], sources, now)?.accounts.map(
+        (account) => account.id,
+      ),
+    ).toEqual(["hub:duplicate", "hub:oss"]);
+    const failed = provider({ usageLimits: { ...limits, unavailable: { reason: "probeFailed" } } });
+    expect(
+      collectProviderUsageLimits(selected.instanceId, [failed], sources, now)?.accounts.map(
+        (account) => account.id,
+      ),
+    ).toEqual(["codex", "hub:duplicate", "hub:oss"]);
+    expect(collectProviderUsageLimits(selected.instanceId, [provider({})], [], now)).toBeNull();
+    expect(
+      collectProviderUsageLimits(
+        selected.instanceId,
+        [provider({ enabled: false, usageLimits: limits })],
+        [],
+        now,
+      ),
+    ).toBeNull();
+  });
+
+  it("surfaces source errors only for sources that carry the selected driver", () => {
+    const failing = { ...sources[0]!, error: "token expired" };
+    expect(
+      collectProviderUsageLimits(selected.instanceId, [selected], [failing], now)?.notices,
+    ).toEqual(["Accounts: token expired"]);
+    const claudeOnly = { ...failing, accounts: failing.accounts.slice(2) };
+    expect(
+      collectProviderUsageLimits(selected.instanceId, [selected], [claudeOnly], now)?.notices,
+    ).toEqual([]);
+    // A read failure clears the accounts, so the error must not depend on a match.
+    const unreadable = { ...failing, accounts: [] };
+    expect(
+      collectProviderUsageLimits(selected.instanceId, [selected], [unreadable], now)?.notices,
+    ).toEqual(["Accounts: token expired"]);
+    // A source-only provider still gets the report, carrying only the error.
+    const sourceOnly = collectProviderUsageLimits(
+      selected.instanceId,
+      [provider({})],
+      [unreadable],
+      now,
+    );
+    expect(sourceOnly?.accounts).toEqual([]);
+    expect(sourceOnly?.notices).toEqual(["Accounts: token expired"]);
+  });
+
+  it("advertises global and workspace commands only for providers present in Limits", () => {
+    const withWorkspace = provider({
+      workspaceSnapshots: [
+        { cwd: "/tmp/project", checkedAt: limits.checkedAt, slashCommands: [], skills: [] },
+      ],
+    });
+    const [supported] = withUsageLimitsCommands([withWorkspace], sources);
+    expect(supported?.slashCommands.map((command) => command.name)).toEqual(["usage-limits"]);
+    expect(
+      supported?.workspaceSnapshots?.[0]?.slashCommands.map((command) => command.name),
+    ).toEqual(["usage-limits"]);
+    expect(withUsageLimitsCommands([withWorkspace], [])[0]?.slashCommands).toEqual([]);
+    // A provider's own command of the same name is left alone without coverage.
+    const ownCommand = provider({
+      slashCommands: [{ name: "usage-limits", description: "Provider's own" }],
+    });
+    expect(withUsageLimitsCommands([ownCommand], [])[0]?.slashCommands).toEqual([
+      { name: "usage-limits", description: "Provider's own" },
+    ]);
+    const unreadable = { ...sources[0]!, accounts: [], error: "token expired" };
+    expect(
+      withUsageLimitsCommands([withWorkspace], [unreadable])[0]?.slashCommands.map(
+        (command) => command.name,
+      ),
+    ).toEqual(["usage-limits"]);
+    expect(
+      withUsageLimitsCommands([selected], [])[0]?.slashCommands.map((command) => command.name),
+    ).toEqual(["usage-limits"]);
+  });
+});
+
+describe("sameUsageLimitCommandCoverage", () => {
+  const codexAccount = {
+    id: "a",
+    driver: ProviderDriverKind.make("codex"),
+    usageLimits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [] },
+  };
+  const base = {
+    id: UsageLimitSourceId.make("hub"),
+    kind: "cliproxy" as const,
+    label: "Accounts",
+    checkedAt: "2026-09-03T11:00:00.000Z",
+  };
+  it("ignores quota movement but not the drivers offered the command", () => {
+    const withCodex = [{ ...base, accounts: [codexAccount] }];
+    const withCodexLater = [
+      {
+        ...base,
+        accounts: [
+          {
+            ...codexAccount,
+            usageLimits: { ...codexAccount.usageLimits, checkedAt: "2026-09-03T12:00:00.000Z" },
+          },
+        ],
+      },
+    ];
+    expect(sameUsageLimitCommandCoverage(withCodex, withCodexLater)).toBe(true);
+    expect(sameUsageLimitCommandCoverage(withCodex, [{ ...base, accounts: [] }])).toBe(false);
+  });
+  it("treats a failed read as a change in coverage, in both directions", () => {
+    const empty = [{ ...base, accounts: [] }];
+    const failed = [{ ...base, accounts: [], error: "token expired" }];
+    expect(sameUsageLimitCommandCoverage(empty, failed)).toBe(false);
+    expect(sameUsageLimitCommandCoverage(failed, empty)).toBe(false);
+    expect(
+      sameUsageLimitCommandCoverage(failed, [{ ...base, accounts: [], error: "still down" }]),
+    ).toBe(true);
+  });
+});
+
 describe("remainingPercent", () => {
   it("inverts and clamps the reported usage", () => {
     expect(remainingPercent(window)).toBe(60);
     expect(remainingPercent({ ...window, usedPercent: 0 })).toBe(100);
     expect(remainingPercent({ ...window, usedPercent: 100 })).toBe(0);
     expect(remainingPercent({ ...window, usedPercent: 33.4 })).toBe(67);
+  });
+});
+
+describe("isUsageLimitsCommand", () => {
+  it("recognizes only the standalone local action", () => {
+    expect(isUsageLimitsCommand("  /USAGE-LIMITS\n")).toBe(true);
+    expect(isUsageLimitsCommand("/usage-limits explain")).toBe(false);
+    expect(isUsageLimitsCommand("Explain /usage-limits")).toBe(false);
+    expect(isUsageLimitsCommand("/usage")).toBe(false);
+  });
+});
+
+describe("external usage settings", () => {
+  it("deduplicates destinations across accounts and environments without inventing quota pools", () => {
+    const managed = provider({
+      usageLimits: {
+        checkedAt: "2026-09-03T11:00:00.000Z",
+        windows: [],
+        unavailable: { reason: "unsupported", message: "Track usage in ChatGPT." },
+        externalUsage: { label: "ChatGPT usage", url: "https://chatgpt.com/#settings/Usage" },
+      },
+    });
+    const presentations = new Map([
+      [
+        EnvironmentId.make("a"),
+        {
+          entry: { target: { label: "A" } },
+          serverConfig: {
+            providers: [managed, { ...managed, instanceId: ProviderInstanceId.make("personal") }],
+          },
+        },
+      ],
+      [
+        EnvironmentId.make("b"),
+        { entry: { target: { label: "B" } }, serverConfig: { providers: [managed] } },
+      ],
+    ]);
+    expect(collectExternalUsageLinks(presentations)).toEqual([
+      {
+        ...managed.usageLimits!.externalUsage,
+        message: "Track usage in ChatGPT.",
+        accounts: [`${managed.instanceId} on A`, "personal on A", `${managed.instanceId} on B`],
+      },
+    ]);
+    expect(collectLimitAccounts(presentations)).toEqual([]);
+    expect(collectLimitNotices(presentations)).toEqual([]);
+  });
+  it("omits disabled, uninstalled and signed-out providers", () => {
+    const managed = provider({
+      usageLimits: {
+        checkedAt: "2026-09-03T11:00:00.000Z",
+        windows: [],
+        externalUsage: { label: "ChatGPT usage", url: "https://chatgpt.com/#settings/Usage" },
+      },
+    });
+    const presentations = new Map([
+      [
+        EnvironmentId.make("a"),
+        {
+          entry: { target: { label: "A" } },
+          serverConfig: {
+            providers: [
+              { ...managed, enabled: false },
+              { ...managed, installed: false },
+              { ...managed, auth: { status: "unauthenticated" as const } },
+              provider({}),
+            ],
+          },
+        },
+      ],
+    ]);
+    expect(collectExternalUsageLinks(presentations)).toEqual([]);
+  });
+});
+
+describe("ChatGPT sharing presentation", () => {
+  it("requires verified sharing metadata rather than the Codex driver or login type", () => {
+    const codex = provider({ auth: { status: "authenticated", type: "chatgpt" } });
+    expect(usesChatGptSharing(codex)).toBe(false);
+    expect(
+      usesChatGptSharing({ ...codex, auth: { ...codex.auth, subscriptionSharing: true } }),
+    ).toBe(true);
+    expect(
+      usesChatGptSharing({
+        ...codex,
+        auth: { status: "unauthenticated", subscriptionSharing: true },
+      }),
+    ).toBe(false);
+  });
+  it("only gives the matching current structured limit error a management action", () => {
+    const limit: OrchestrationThreadActivity = {
+      id: EventId.make("sharing-limit"),
+      tone: "error",
+      kind: "runtime.error",
+      summary: "Runtime error",
+      turnId: null,
+      createdAt: "2026-09-03T12:00:00.000Z",
+      payload: { code: "subscription_sharing_usage_limit_exceeded", message: "Limit reached" },
+    };
+    expect(isChatGptUsageLimitError([limit], "Limit reached")).toBe(true);
+    expect(isChatGptUsageLimitError([limit], "A different failure")).toBe(false);
+    expect(isChatGptUsageLimitError([limit], null)).toBe(false);
+    expect(
+      isChatGptUsageLimitError(
+        [{ ...limit, payload: { message: "Limit reached" } }],
+        "Limit reached",
+      ),
+    ).toBe(false);
+    expect(
+      isChatGptUsageLimitError(
+        [limit, { ...limit, payload: { code: "unrelated", message: "Limit reached" } }],
+        "Limit reached",
+      ),
+    ).toBe(false);
   });
 });
 
