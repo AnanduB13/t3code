@@ -16,6 +16,9 @@ const state = vi.hoisted(() => ({
   input: false,
   approval: false,
   sessionError: false,
+  sessionStatus: null as string | null,
+  sessionUpdatedAt: "2026-09-13T10:00:00.000Z",
+  omitTurn: false,
   turnError: false,
   add: vi.fn(
     (_toast: { title: string; description: string; actionProps: { onClick: () => void } }) =>
@@ -40,12 +43,18 @@ vi.mock("@effect/atom-react", () => ({
           archivedAt: state.archivedAt,
           hasPendingUserInput: state.input,
           hasPendingApprovals: state.approval,
-          session: state.sessionError ? { status: "error" } : null,
-          latestTurn: {
-            turnId: "turn-1",
-            state: state.turnError ? "error" : state.completedAt ? "completed" : "running",
-            completedAt: state.completedAt,
-          },
+          session: state.sessionError
+            ? { status: "error" }
+            : state.sessionStatus
+              ? { status: state.sessionStatus, updatedAt: state.sessionUpdatedAt }
+              : null,
+          latestTurn: state.omitTurn
+            ? null
+            : {
+                turnId: "turn-1",
+                state: state.turnError ? "error" : state.completedAt ? "completed" : "running",
+                completedAt: state.completedAt,
+              },
         },
       ],
     }),
@@ -108,6 +117,9 @@ beforeEach(() => {
     input: false,
     approval: false,
     sessionError: false,
+    sessionStatus: null,
+    sessionUpdatedAt: "2026-09-13T10:00:00.000Z",
+    omitTurn: false,
     turnError: false,
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -230,13 +242,13 @@ describe("thread notifications", () => {
     expect(state.add).not.toHaveBeenCalled();
   });
 
-  it("keeps sound but replaces the system popup when showing a toast", async () => {
+  it("keeps the completion system popup and sound when showing a toast", async () => {
     state.mode = "notifications-and-sound";
     await render();
     await complete();
     expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
     expect(state.add).toHaveBeenCalledTimes(1);
-    expect(state.notification).not.toHaveBeenCalled();
+    expect(state.notification).toHaveBeenCalledTimes(1);
   });
 
   it("keeps system alerts when the app is in the background", async () => {
@@ -250,5 +262,91 @@ describe("thread notifications", () => {
       tag: "env-1:thread-1",
       silent: true,
     });
+  });
+  it("notifies for the active thread only after its run settles", async () => {
+    state.mode = "notifications";
+    state.active.threadId = "thread-1";
+    state.sessionStatus = "running";
+    await render();
+    // A tool/checkpoint may finish while the provider is still working.
+    await complete();
+    await render();
+    expect(state.notification).not.toHaveBeenCalled();
+    state.sessionStatus = "ready";
+    await render();
+    await render();
+    expect(state.notification).toHaveBeenCalledTimes(1);
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
+  it("ignores tool progress and notifies once for a run without a checkpoint", async () => {
+    state.mode = "notifications";
+    state.omitTurn = true;
+    state.sessionStatus = "running";
+    await render();
+    state.sessionUpdatedAt = "2026-09-13T10:01:00.000Z";
+    await render();
+    expect(state.notification).not.toHaveBeenCalled();
+    state.sessionStatus = "ready";
+    await render();
+    state.sessionUpdatedAt = "2026-09-13T10:02:00.000Z";
+    await render();
+    expect(state.notification).toHaveBeenCalledTimes(1);
+    state.sessionStatus = "running";
+    await render();
+    state.sessionStatus = "ready";
+    await render();
+    expect(state.notification).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["darwin", "win32", "linux"])(
+    "requests native notification permission on %s",
+    async (platform) => {
+      Object.assign(window, { desktopBridge: { platform } });
+      const requestPermission = vi.fn(async () => {
+        Object.assign(Notification, { permission: "granted" });
+        return "granted";
+      });
+      Object.assign(Notification, { permission: "default", requestPermission });
+      state.mode = "notifications";
+      await render();
+      await complete();
+      await render();
+      expect(requestPermission).toHaveBeenCalledTimes(1);
+      expect(state.notification).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("leaves browser permission requests to an explicit settings action", async () => {
+    const requestPermission = vi.fn();
+    Object.assign(Notification, { permission: "default", requestPermission });
+    state.mode = "notifications";
+    await render();
+    await complete();
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(state.notification).not.toHaveBeenCalled();
+  });
+
+  it("respects disabling notifications while native permission is pending", async () => {
+    Object.assign(window, { desktopBridge: { platform: "darwin" } });
+    let grantPermission!: (value: string) => void;
+    const permission = new Promise<string>((resolve) => {
+      grantPermission = resolve;
+    });
+    Object.assign(Notification, {
+      permission: "default",
+      requestPermission: () => permission,
+    });
+    state.mode = "notifications";
+    await render();
+    await complete();
+    state.mode = "off";
+    await render();
+    await act(async () => {
+      Object.assign(Notification, { permission: "granted" });
+      grantPermission("granted");
+      await permission;
+    });
+    expect(state.notification).not.toHaveBeenCalled();
   });
 });

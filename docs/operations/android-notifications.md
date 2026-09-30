@@ -11,8 +11,9 @@ notifications** preference remains separate from cloud push and ongoing cloud ac
 `T3AgentNotifications.isConfigured` checks Firebase initialization. A binary without matching
 Google Services configuration cannot claim cloud ownership: the direct worker continues covering
 its connected environments. With cloud configured and an account signed in, relay-linked
-environments belong to cloud delivery, including while device registration retries. Turning cloud
-ongoing activity off must not start a duplicate direct card. Environments explicitly lacking agent
+environments belong to cloud delivery only after device registration succeeds. Until then, direct
+notifications can cover a live connection. Turning cloud ongoing activity off must not start a
+duplicate direct card while device registration remains active. Environments explicitly lacking agent
 activity publishing remain eligible for direct notifications.
 
 Keep the bridges and notification identifiers separate. Disabling or signing out of one route

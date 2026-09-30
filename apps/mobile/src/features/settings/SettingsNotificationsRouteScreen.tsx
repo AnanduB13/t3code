@@ -1,4 +1,4 @@
-import { AndroidNotificationSettings } from "../agent-awareness/AndroidNotificationSettings";
+import { DirectNotificationSettings } from "../agent-awareness/DirectNotificationSettings";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { useAuth } from "@clerk/expo";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
@@ -65,9 +65,9 @@ export function SettingsNotificationsRouteScreen() {
           contentInsetAdjustmentBehavior="automatic"
           contentContainerClassName="px-5 pt-4"
         >
-          {Platform.OS === "android" ? (
+          {Platform.OS === "android" || Platform.OS === "ios" ? (
             <SettingsSection title="Direct connections">
-              <AndroidNotificationSettings />
+              <DirectNotificationSettings />
             </SettingsSection>
           ) : (
             <Text className="text-base text-foreground-muted">
@@ -433,9 +433,9 @@ function ConfiguredSettingsNotificationsRouteScreen() {
           paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
-        {Platform.OS === "android" ? (
+        {Platform.OS === "android" || Platform.OS === "ios" ? (
           <SettingsSection title="Direct connections">
-            <AndroidNotificationSettings />
+            <DirectNotificationSettings />
           </SettingsSection>
         ) : null}
         <SettingsSection title="Agent activity">

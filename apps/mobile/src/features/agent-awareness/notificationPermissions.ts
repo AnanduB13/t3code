@@ -30,14 +30,7 @@ export class NotificationPermissionRequestError extends Schema.TaggedError<Notif
   }
 }
 
-export const requestAgentNotificationPermission: Effect.Effect<
-  NotificationPermissionResult,
-  NotificationPermissionReadError | NotificationPermissionRequestError
-> = Effect.gen(function* () {
-  if (Platform.OS !== "ios" && Platform.OS !== "android") {
-    return { type: "unsupported" };
-  }
-
+export const ensureAgentNotificationChannels = Effect.gen(function* () {
   if (Platform.OS === "android") {
     yield* Effect.tryPromise({
       try: () =>
@@ -54,6 +47,16 @@ export const requestAgentNotificationPermission: Effect.Effect<
       catch: (cause) => new NotificationPermissionRequestError({ cause }),
     });
   }
+});
+
+export const requestAgentNotificationPermission: Effect.Effect<
+  NotificationPermissionResult,
+  NotificationPermissionReadError | NotificationPermissionRequestError
+> = Effect.gen(function* () {
+  if (Platform.OS !== "ios" && Platform.OS !== "android") {
+    return { type: "unsupported" };
+  }
+  yield* ensureAgentNotificationChannels;
 
   const existing = yield* Effect.tryPromise({
     try: () => Notifications.getPermissionsAsync(),

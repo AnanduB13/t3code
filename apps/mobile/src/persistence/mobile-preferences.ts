@@ -18,6 +18,7 @@ const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
 export interface Preferences {
   readonly liveActivitiesEnabled?: boolean;
   readonly androidChatNotificationsEnabled?: boolean;
+  readonly directChatNotificationsEnabled?: boolean;
   readonly themeId?: MobileThemeId;
   readonly lightThemeId?: MobileThemeId;
   readonly darkThemeId?: MobileThemeId;
@@ -87,6 +88,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
     liveActivitiesEnabled?: boolean;
     androidChatNotificationsEnabled?: boolean;
+    directChatNotificationsEnabled?: boolean;
     themeId?: MobileThemeId;
     lightThemeId?: MobileThemeId;
     darkThemeId?: MobileThemeId;
@@ -109,6 +111,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
 
   if (typeof parsed.androidChatNotificationsEnabled === "boolean") {
     preferences.androidChatNotificationsEnabled = parsed.androidChatNotificationsEnabled;
+  }
+  if (typeof parsed.directChatNotificationsEnabled === "boolean") {
+    preferences.directChatNotificationsEnabled = parsed.directChatNotificationsEnabled;
   }
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;

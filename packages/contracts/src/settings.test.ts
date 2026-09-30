@@ -234,8 +234,9 @@ describe("ClientSettings cite selected text", () => {
 });
 
 describe("ClientSettings notifications", () => {
-  it("requires opt-in when existing settings omit notification preferences", () => {
-    expect(decodeClientSettings({}).notificationMode).toBe("off");
+  it("defaults to system alerts without overriding an explicit opt-out", () => {
+    expect(decodeClientSettings({}).notificationMode).toBe("notifications");
+    expect(decodeClientSettings({ notificationMode: "off" }).notificationMode).toBe("off");
     expect(decodeClientSettings({}).inAppNotificationsEnabled).toBe(false);
     expect(decodeClientSettingsPatch({})).not.toHaveProperty("inAppNotificationsEnabled");
     expect(decodeClientSettingsPatch({})).not.toHaveProperty("notificationMode");

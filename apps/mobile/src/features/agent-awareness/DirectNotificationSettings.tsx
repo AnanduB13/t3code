@@ -7,16 +7,16 @@ import { Alert, AppState, Linking, Platform } from "react-native";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { requestAgentNotificationPermission } from "./notificationPermissions";
-import { supportsAgentAwarenessPush } from "./capabilities";
 import { androidNotifications } from "./androidChatNotifications";
+import { directChatNotificationsEnabled } from "./directNotificationPreferences";
 
-export function AndroidNotificationSettings() {
+export function DirectNotificationSettings() {
   const preferences = useAtomValue(mobilePreferencesAtom);
   const save = useAtomSet(updateMobilePreferencesAtom);
   const [granted, setGranted] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (Platform.OS !== "android") return;
+    if (Platform.OS !== "android" && Platform.OS !== "ios") return;
     let disposed = false;
     const refresh = () =>
       void Notifications.getPermissionsAsync()
@@ -33,27 +33,24 @@ export function AndroidNotificationSettings() {
       subscription.remove();
     };
   }, []);
-  if (Platform.OS !== "android") return null;
+  if (Platform.OS !== "android" && Platform.OS !== "ios") return null;
   const change = async (enabled: boolean) => {
     setBusy(true);
     try {
       if (!enabled) {
-        save({ androidChatNotificationsEnabled: false });
+        save({ directChatNotificationsEnabled: false, androidChatNotificationsEnabled: false });
         await androidNotifications?.stop();
         return;
       }
       const result = await Effect.runPromise(requestAgentNotificationPermission);
       setGranted(result.type === "granted");
-      if (result.type === "granted") save({ androidChatNotificationsEnabled: true });
+      if (result.type === "granted")
+        save({ directChatNotificationsEnabled: true, androidChatNotificationsEnabled: true });
       else if (result.type === "denied" && !result.canAskAgain)
-        Alert.alert(
-          "Allow notifications",
-          "Enable notifications for T3 Code in Android settings.",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Open Settings", onPress: () => void Linking.openSettings() },
-          ],
-        );
+        Alert.alert("Allow notifications", "Enable notifications for T3 Code in system settings.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open Settings", onPress: () => void Linking.openSettings() },
+        ]);
     } catch (error) {
       Alert.alert(
         "Notifications unavailable",
@@ -68,17 +65,15 @@ export function AndroidNotificationSettings() {
       icon="bell.badge"
       label="Direct chat notifications"
       subtitle={
-        androidNotifications
-          ? supportsAgentAwarenessPush()
-            ? "Progress and alerts for directly connected environments. Environments linked to T3 Connect use the cloud notification controls."
-            : "Progress and alerts while connected to an environment, including T3 Connect."
-          : "Install the latest Android build to enable chat notifications."
+        Platform.OS === "android" && androidNotifications
+          ? "System alerts when a run finishes or needs attention, with quiet progress while it runs."
+          : "System alerts when a run finishes or needs attention while connected. Use T3 Connect for delivery when the app is suspended or closed."
       }
-      disabled={busy || !androidNotifications || !AsyncResult.isSuccess(preferences)}
+      disabled={busy || !AsyncResult.isSuccess(preferences)}
       value={
         granted &&
         AsyncResult.isSuccess(preferences) &&
-        preferences.value.androidChatNotificationsEnabled === true
+        directChatNotificationsEnabled(preferences.value)
       }
       onValueChange={(enabled) => void change(enabled)}
     />

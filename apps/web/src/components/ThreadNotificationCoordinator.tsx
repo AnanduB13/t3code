@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { resolveThreadAwarenessPhase } from "@t3tools/shared/agentAwareness";
 import * as Option from "effect/Option";
 import {
   CircleAlertIcon,
@@ -35,7 +36,7 @@ export function ThreadNotificationCoordinator() {
   const onNotification = useCallback((environmentId: EnvironmentId, notification: Notification) => {
     pending.current.get(notification.tag)?.notification.close();
     pending.current.set(notification.tag, { environmentId, notification });
-    setNotificationBadge(pending.current.size);
+    setNotificationBadge(document.hasFocus() ? 0 : pending.current.size);
   }, []);
 
   useEffect(() => {
@@ -104,31 +105,50 @@ function EnvironmentNotifications({
     strict: false,
   });
   const previous = useRef(
-    new Map<ThreadId, { attention: string | null; completion: number | null }>(),
+    new Map<
+      ThreadId,
+      {
+        attention: string | null;
+        completion: number | null;
+        phase: ReturnType<typeof resolveThreadAwarenessPhase>;
+      }
+    >(),
   );
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (shell.status !== "live" || Option.isNone(shell.snapshot)) {
       previous.current.clear();
       return;
     }
-    const next = new Map<ThreadId, { attention: string | null; completion: number | null }>();
+    const next: typeof previous.current = new Map();
     for (const thread of shell.snapshot.value.threads) {
       let status = resolveSidebarThreadStatus(thread);
       if (status === "ready" && thread.latestTurn?.state === "error") status = "failed";
       const prior = previous.current.get(thread.id);
+      const phase = resolveThreadAwarenessPhase(thread);
       const attention =
         status === "input" || status === "approval" || status === "failed"
           ? `${thread.latestTurn?.turnId ?? ""}:${status}`
           : null;
-      const completedAt = Date.parse(thread.latestTurn?.completedAt ?? "");
+      // Some providers finish without a checkpoint-backed latestTurn. Their
+      // settled session is the completion signal; tool updates remain running.
+      const completedAt = Date.parse(
+        thread.latestTurn?.completedAt ??
+          (prior?.phase !== "completed" ? thread.session?.updatedAt : undefined) ??
+          "",
+      );
       const completion =
-        status === "ready" &&
-        thread.latestTurn?.state === "completed" &&
-        Number.isFinite(completedAt)
+        phase === "completed" && Number.isFinite(completedAt)
           ? completedAt
           : (prior?.completion ?? null);
-      next.set(thread.id, { attention, completion });
+      next.set(thread.id, { attention, completion, phase });
       if (!prior || thread.archivedAt !== null) continue;
       const kind =
         attention && attention !== prior.attention
@@ -184,16 +204,26 @@ function EnvironmentNotifications({
             },
           },
         });
-        continue;
+        if (kind !== "completion") continue;
       }
       if (
         !hasDesktopNotifications(mode) ||
-        (document.visibilityState === "visible" && document.hasFocus()) ||
-        typeof Notification === "undefined" ||
-        Notification.permission !== "granted"
+        (kind !== "completion" && document.visibilityState === "visible" && document.hasFocus()) ||
+        typeof Notification === "undefined"
       )
         continue;
-      try {
+      const showNotification = async () => {
+        // Electron's Notification API delivers native macOS/Windows/Linux
+        // alerts. Browser permission prompts must stay in the Settings gesture.
+        if (window.desktopBridge && Notification.permission === "default") {
+          await Notification.requestPermission();
+        }
+        if (
+          Notification.permission !== "granted" ||
+          !mounted.current ||
+          !hasDesktopNotifications(getClientSettings().notificationMode)
+        )
+          return;
         const notification = new Notification(title, {
           body: thread.title,
           tag: `${environmentId}:${thread.id}`,
@@ -208,9 +238,10 @@ function EnvironmentNotifications({
             params: { environmentId, threadId: thread.id },
           });
         });
-      } catch {
-        // Some browsers expose Notification but reject desktop presentation.
-      }
+      };
+      void showNotification().catch((error: unknown) => {
+        console.warn("Could not show system notification", error);
+      });
     }
     previous.current = next;
   }, [

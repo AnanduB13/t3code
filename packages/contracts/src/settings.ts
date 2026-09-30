@@ -297,7 +297,7 @@ export type ChatWidth = typeof ChatWidth.Type;
 
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed("off" as const)),
+    Schema.withDecodingDefault(Effect.succeed("notifications" as const)),
   ),
   inAppNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   diffColorScheme: DiffColorScheme.pipe(

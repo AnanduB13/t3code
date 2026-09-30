@@ -13,8 +13,6 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.messaging.RemoteMessage
 import expo.modules.notifications.service.ExpoFirebaseMessagingService
 
@@ -135,11 +133,7 @@ object AgentNotifications {
     val seen = prefs.getString("seenAlertsOrdered", null)?.split('\n')
       ?: prefs.getStringSet("seenAlerts", emptySet()).orEmpty().toList()
     if (alertId != null && alertId !in seen) {
-      // Match iOS foreground presentation. Consume suppressed alerts as well,
-      // so a delivery retry cannot surface them after the app backgrounds.
-      if (!ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-        postAlert(context, scheme, data, alertId)
-      }
+      postAlert(context, scheme, data, alertId)
       prefs.edit().remove("seenAlerts").putString(
         "seenAlertsOrdered",
         (seen.takeLast(63) + alertId).joinToString("\n")
@@ -167,8 +161,8 @@ object AgentNotifications {
   }
 
   /**
-   * Renders a relay-shaped payload without the registration, freshness and
-   * foreground checks, for the showcase capture's staged notifications.
+   * Renders a relay-shaped payload without the registration and freshness
+   * checks, for the showcase capture's staged notifications.
    */
   @Synchronized
   fun showcase(context: Context, scheme: String, data: Map<String, String>) {
