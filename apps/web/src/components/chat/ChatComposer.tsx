@@ -1623,6 +1623,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const prompt = composerDraft.prompt;
   const composerImages = attachmentDraft.images;
   const composerFiles = attachmentDraft.files;
+  const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
   // A question answer has no chips: its files live in the question draft and show in the
   // strip. Only the thread prompt's references decide which files leave the strip.
   const inlineFileIdSet = useMemo(() => {
@@ -1662,10 +1663,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const previewAnnotationIds = new Set(
       composerPreviewAnnotations.map((annotation) => annotation.id),
     );
-    return composerImages.filter((image) => !previewAnnotationIds.has(image.id));
-  }, [composerImages, composerPreviewAnnotations]);
+    const inlineContextIds = new Set(
+      questionAttachmentTarget ? [] : collectInlineContextIds(prompt),
+    );
+    return composerImages.filter((image) => {
+      if (previewAnnotationIds.has(image.id)) return false;
+      const upload = uploadsByImageId[image.id];
+      // Failed uploads keep the tray's retry action until they recover.
+      const needsRetry =
+        supportsAttachmentUploads &&
+        upload?.environmentId === environmentId &&
+        upload.status === "failed";
+      return needsRetry || !inlineContextIds.has(toKindScopedComposerContextId("image", image.id));
+    });
+  }, [
+    composerImages,
+    composerPreviewAnnotations,
+    environmentId,
+    prompt,
+    questionAttachmentTarget,
+    supportsAttachmentUploads,
+    uploadsByImageId,
+  ]);
   const nonPersistedComposerImageIds = attachmentDraft.nonPersistedImageIds;
-  const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
   const openPrLink = useOpenPrLink(routeThreadRef);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const previewFile = composerFiles.find((file) => file.id === previewFileId);
