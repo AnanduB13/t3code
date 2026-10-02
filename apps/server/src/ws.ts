@@ -36,6 +36,7 @@ import {
   type DispatchResult,
   type DiscoveredLocalServerList,
   EventId,
+  AgentDiscoveryError,
   HermesAgentError,
   type EditorId,
   type FileManagerRevealKind,
@@ -197,6 +198,8 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { hermesClient } from "./agents/HermesClient.ts";
+import { agentDiscovery } from "./agents/AgentDiscovery.ts";
+import { ScheduledJobs } from "./agents/ScheduledJobs.ts";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 const isHermesAgentError = Schema.is(HermesAgentError);
 
@@ -552,6 +555,7 @@ const makeWsRpcLayer = (
               Effect.orElseSucceed(() => null),
             );
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const scheduledJobs = yield* ScheduledJobs;
       const threadDeletionReactor = yield* ThreadDeletionReactor;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Every command dispatched on this connection carries the connecting
@@ -2416,6 +2420,36 @@ const makeWsRpcLayer = (
         [WS_METHODS.serverProbe]: (_input) =>
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {
             "rpc.aggregate": "server",
+          }),
+        [WS_METHODS.agentsDiscover]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.agentsDiscover,
+            Effect.tryPromise({
+              try: () => agentDiscovery.discover(),
+              catch: () =>
+                new AgentDiscoveryError({ message: "Could not discover agents on this computer." }),
+            }),
+            { "rpc.aggregate": "agents" },
+          ),
+        [WS_METHODS.scheduledList]: () =>
+          observeRpcEffect(WS_METHODS.scheduledList, scheduledJobs.list(), {
+            "rpc.aggregate": "scheduled",
+          }),
+        [WS_METHODS.scheduledSave]: ({ id, job }) =>
+          observeRpcEffect(WS_METHODS.scheduledSave, scheduledJobs.save(job, id), {
+            "rpc.aggregate": "scheduled",
+          }),
+        [WS_METHODS.scheduledSetEnabled]: ({ id, enabled }) =>
+          observeRpcEffect(WS_METHODS.scheduledSetEnabled, scheduledJobs.setEnabled(id, enabled), {
+            "rpc.aggregate": "scheduled",
+          }),
+        [WS_METHODS.scheduledDelete]: ({ id }) =>
+          observeRpcEffect(WS_METHODS.scheduledDelete, scheduledJobs.remove(id), {
+            "rpc.aggregate": "scheduled",
+          }),
+        [WS_METHODS.scheduledRun]: ({ id }) =>
+          observeRpcEffect(WS_METHODS.scheduledRun, scheduledJobs.runNow(id), {
+            "rpc.aggregate": "scheduled",
           }),
         [WS_METHODS.agentsHermesStatus]: (_input) =>
           observeRpcEffect(

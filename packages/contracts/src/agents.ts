@@ -2,6 +2,28 @@ import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+export const DiscoveredAgentRuntime = Schema.Struct({
+  kind: Schema.Literals(["hermes", "openclaw"]),
+  state: Schema.Literals(["running", "starting", "unavailable"]),
+  endpoint: Schema.NullOr(Schema.String),
+  version: Schema.optional(Schema.String),
+  model: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
+  agents: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+});
+export type DiscoveredAgentRuntime = typeof DiscoveredAgentRuntime.Type;
+
+export const AgentDiscoveryResult = Schema.Struct({
+  hostname: Schema.String,
+  runtimes: Schema.Array(DiscoveredAgentRuntime),
+});
+export type AgentDiscoveryResult = typeof AgentDiscoveryResult.Type;
+
+export class AgentDiscoveryError extends Schema.TaggedError<AgentDiscoveryError>()(
+  "AgentDiscoveryError",
+  { message: Schema.String },
+) {}
+
 export const HermesAgentStatus = Schema.Struct({
   available: Schema.Boolean,
   endpoint: Schema.String,

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useMemo } from "react";
 
-import { usePrimaryEnvironmentId } from "../../state/environments";
+import { useAgentEnvironment } from "./useAgentEnvironment";
 import { hermesAgentEnvironment } from "../../state/hermesAgents";
 import { useEnvironmentQuery } from "../../state/query";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -36,7 +36,7 @@ export function AgentsSidebar() {
   const standaloneScheduled = useLocation({
     select: (location) => location.pathname.startsWith("/scheduled"),
   });
-  const environmentId = usePrimaryEnvironmentId();
+  const { environmentId, environment } = useAgentEnvironment();
   const agentsSection = useAgentsSidebarStore((state) => state.section);
   const section = standaloneScheduled ? "tasks" : agentsSection;
   const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
@@ -54,7 +54,8 @@ export function AgentsSidebar() {
     isPending: status.isPending,
     error: status.error,
   });
-  const connected = connectionState === "connected";
+  const connected =
+    environment?.connection.phase === "connected" && connectionState === "connected";
   const sessions = useEnvironmentQuery(
     environmentId && connected
       ? hermesAgentEnvironment.sessions({ environmentId, input: {} })
@@ -162,7 +163,7 @@ export function AgentsSidebar() {
               <RefreshCwIcon className="size-3.5" />
             </button>
           </div>
-          {connectionState === "connecting" ? (
+          {environment?.connection.phase === "connected" && connectionState === "connecting" ? (
             <div className="flex justify-center py-8 text-sidebar-muted-foreground">
               <LoaderCircleIcon className="size-4 animate-spin" />
             </div>
@@ -233,6 +234,7 @@ export function AgentsSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link to="/agents" />}
+              onClick={() => useAgentsSidebarStore.getState().showOverview()}
               isActive={!standaloneScheduled}
               className="gap-2 px-2 text-muted-foreground data-[active=true]:text-foreground"
             >

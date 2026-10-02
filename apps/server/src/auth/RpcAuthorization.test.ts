@@ -15,6 +15,20 @@ import {
 } from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("allows agent discovery with read-only access", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.agentsDiscover)).toBe(AuthOrchestrationReadScope);
+  });
+  it("requires operate access to change or run scheduled jobs", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.scheduledList)).toBe(AuthOrchestrationReadScope);
+    for (const method of [
+      WS_METHODS.scheduledSave,
+      WS_METHODS.scheduledSetEnabled,
+      WS_METHODS.scheduledRun,
+      WS_METHODS.scheduledDelete,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
+  });
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });

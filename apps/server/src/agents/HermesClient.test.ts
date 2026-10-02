@@ -1,4 +1,8 @@
+import * as NodeAssert from "node:assert/strict";
 import { assert, describe, it } from "@effect/vitest";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { HermesAgentError } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -189,9 +193,9 @@ describe("HermesClient", () => {
       apiKey: "secret",
       fetch: async () =>
         new Response(
-          JSON.stringify([
-            { id: "abcdef123456", name: "Daily brief", schedule_display: "every 24h" },
-          ]),
+          JSON.stringify({
+            jobs: [{ id: "abcdef123456", name: "Daily brief", schedule_display: "every 24h" }],
+          }),
         ),
     });
     const result = await client.listCronJobs();
@@ -202,23 +206,25 @@ describe("HermesClient", () => {
   it("creates local scheduled tasks with an optional project folder", async () => {
     const commands: string[][] = [];
     const client = new HermesClient({
-      endpoint: "http://hermes.test",
+      endpoint: "http://127.0.0.1:8642",
       command: async (args) => {
         commands.push([...args]);
         return { stdout: "Created job: abcdef123456\n", stderr: "" };
       },
       fetch: async () =>
         new Response(
-          JSON.stringify([
-            {
-              id: "abcdef123456",
-              name: "Daily health",
-              prompt: "Review the project",
-              schedule: { kind: "cron", expr: "0 9 * * *", display: "0 9 * * *" },
-              workdir: "/code/app",
-              deliver: "local",
-            },
-          ]),
+          JSON.stringify({
+            jobs: [
+              {
+                id: "abcdef123456",
+                name: "Daily health",
+                prompt: "Review the project",
+                schedule: { kind: "cron", expr: "0 9 * * *", display: "0 9 * * *" },
+                workdir: "/code/app",
+                deliver: "local",
+              },
+            ],
+          }),
         ),
     });
 
@@ -249,14 +255,16 @@ describe("HermesClient", () => {
   it("edits and controls scheduled tasks through the Hermes CLI", async () => {
     const commands: string[][] = [];
     const client = new HermesClient({
-      endpoint: "http://hermes.test",
+      endpoint: "http://127.0.0.1:8642",
       command: async (args) => {
         commands.push([...args]);
         return { stdout: "ok\n", stderr: "" };
       },
       fetch: async () =>
         new Response(
-          JSON.stringify([{ id: "abcdef123456", name: "Review", prompt: "Review", enabled: true }]),
+          JSON.stringify({
+            jobs: [{ id: "abcdef123456", name: "Review", prompt: "Review", enabled: true }],
+          }),
         ),
     });
 
@@ -296,7 +304,7 @@ describe("HermesClient", () => {
 
   it("falls back to the local Hermes cron store when the API lacks cron routes", async () => {
     const client = new HermesClient({
-      endpoint: "http://hermes.test",
+      endpoint: "http://127.0.0.1:8642",
       apiKey: "secret",
       cronJobsFile: new URL("./fixtures/hermes-cron-jobs.json", import.meta.url).pathname,
       fetch: async () => new Response("Not found", { status: 404 }),
@@ -304,6 +312,94 @@ describe("HermesClient", () => {
     const result = await client.listCronJobs();
     assert.strictEqual(result.jobs[0]?.id, "fixture123456");
     assert.strictEqual(result.jobs[0]?.completedRuns, 7);
+  });
+
+  it("requests paused schedules from the supported jobs API", async () => {
+    const client = new HermesClient({
+      endpoint: "http://hermes.test",
+      apiKey: "secret",
+      fetch: async (url) => {
+        assert.strictEqual(url, "http://hermes.test/api/jobs?include_disabled=true");
+        return Response.json({ jobs: [{ id: "paused", enabled: false }] });
+      },
+    });
+    assert.isFalse((await client.listCronJobs()).jobs[0]?.enabled);
+  });
+
+  it("does not substitute local jobs for remote failures or authentication errors", async () => {
+    for (const endpoint of ["http://hermes.test", "http://127.0.0.1:8642"]) {
+      for (const status of [401, 403, 500, ...(endpoint.includes("hermes.test") ? [404] : [])]) {
+        const client = new HermesClient({
+          endpoint,
+          apiKey: "secret",
+          cronJobsFile: new URL("./fixtures/hermes-cron-jobs.json", import.meta.url).pathname,
+          fetch: async () => Response.json({ error: "runner failure" }, { status }),
+        });
+        await NodeAssert.rejects(client.listCronJobs(), /runner failure/);
+      }
+    }
+  });
+
+  it("never runs the local CLI to mutate a remote computer", async () => {
+    let commands = 0;
+    const client = new HermesClient({
+      endpoint: "http://hermes.test",
+      command: async () => {
+        commands++;
+        return { stdout: "", stderr: "" };
+      },
+    });
+    await NodeAssert.rejects(
+      client.createCronJob({ name: "Task", prompt: "Review", schedule: "every 1h" }),
+      /target computer/,
+    );
+    await NodeAssert.rejects(
+      client.updateCronJob({ jobId: "job", name: "Task", prompt: "Review", schedule: "every 1h" }),
+      /target computer/,
+    );
+    await NodeAssert.rejects(client.pauseCronJob("job"), /target computer/);
+    await NodeAssert.rejects(client.resumeCronJob("job"), /target computer/);
+    await NodeAssert.rejects(client.runCronJob("job"), /target computer/);
+    await NodeAssert.rejects(client.deleteCronJob("job"), /target computer/);
+    assert.strictEqual(commands, 0);
+  });
+
+  it("reports authentication failures instead of claiming the runner is connected", async () => {
+    const client = new HermesClient({
+      endpoint: "http://hermes.test",
+      apiKey: "bad-key",
+      fetch: async (url) =>
+        url.endsWith("/health")
+          ? Response.json({ status: "ok" })
+          : Response.json({ error: "Invalid API key" }, { status: 401 }),
+    });
+    const status = await client.status();
+    assert.isFalse(status.available);
+    assert.strictEqual(status.message, "Invalid API key");
+  });
+
+  it("picks up a configured API key on retry without restarting T3", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-hermes-key-"));
+    try {
+      const envFile = NodePath.join(directory, ".env");
+      await NodeFSP.writeFile(envFile, "API_SERVER_KEY=old-key\n");
+      const client = new HermesClient({
+        endpoint: "http://hermes.test",
+        apiKey: "",
+        envFile,
+        configFile: NodePath.join(directory, "config.yaml"),
+        fetch: async (url, init) =>
+          url.endsWith("/health") ||
+          new Headers(init?.headers).get("authorization") === "Bearer new-key"
+            ? Response.json({ data: [] })
+            : Response.json({ error: "Invalid API key" }, { status: 401 }),
+      });
+      assert.isFalse((await client.status()).available);
+      await NodeFSP.writeFile(envFile, "API_SERVER_KEY=new-key\n");
+      assert.isTrue((await client.status()).available);
+    } finally {
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("returns a disconnected status without throwing", async () => {

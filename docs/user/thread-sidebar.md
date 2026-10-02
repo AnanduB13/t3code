@@ -152,7 +152,13 @@ for custom configuration.
 
 ## Inspect agent work
 
-On web and desktop, use **Agents** to follow work delegated to subagents.
+On web and desktop, **Agents** discovers Hermes and OpenClaw on each computer
+connected through **Settings → Connections**. Each computer needs a running T3
+server; connecting a computer for screen control alone does not expose its agents.
+Open Hermes on the chosen computer to chat and browse its conversations. OpenClaw
+shows gateway status and agent names when its CLI is available to T3; manage its
+conversations in OpenClaw. Disconnected computers remain listed so you can reconnect
+them without losing track of where an agent runs.
 
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it

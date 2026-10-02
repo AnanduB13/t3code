@@ -333,7 +333,6 @@ import {
   previewAnnotationFromRecord,
   reviewCommentFromRecord,
 } from "../lib/composerContextRecords";
-import type { QueuedTimelineMessage } from "../queuedMessageStore";
 import { prepareQueuedMessageContext } from "./chat/queuedMessageRestore";
 import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
@@ -541,7 +540,6 @@ import {
 } from "./chat/composerPromptHistory";
 
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
-const EMPTY_QUEUED_MESSAGES: QueuedTimelineMessage[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -3357,24 +3355,6 @@ export default function ChatView(props: ChatViewProps) {
   const serverMessages = activeThread?.messages;
   const queuedMessages = activeThread?.queuedMessages ?? [];
   const displayedQueuedMessages: ReadonlyArray<OrchestrationQueuedMessage> = queuedMessages;
-  const queuedTimelineMessages = useMemo<ReadonlyArray<QueuedTimelineMessage>>(
-    () =>
-      queuedMessages.map((message) => ({
-        id: message.messageId,
-        prompt: message.text,
-        images: message.attachments.filter((attachment) => attachment.type === "image"),
-        files: message.attachments.filter((attachment) => attachment.type !== "image"),
-        terminalContexts:
-          message.context?.records.filter((record) => record.kind === "terminal") ?? [],
-        previewAnnotations:
-          message.context?.records.filter((record) => record.kind === "preview-annotation") ?? [],
-        reviewComments:
-          message.context?.records.filter((record) => record.kind === "review-comment") ?? [],
-        createdAt: message.queuedAt,
-        ...(message.holdUntilUserAction ? { holdUntilUserAction: true } : {}),
-      })),
-    [queuedMessages],
-  );
   const [projectServerMessagePreviews] = useState(createMessageAttachmentPreviewProjector);
   const [projectHandoffMessagePreviews] = useState(createMessageAttachmentPreviewProjector);
   const downloadFileAttachment = useCallback(
@@ -3621,6 +3601,7 @@ export default function ChatView(props: ChatViewProps) {
     attachmentPreviewHandoffByMessageId,
     displayServerMessages,
     optimisticUserMessages,
+    queuedMessages,
     projectHandoffMessagePreviews,
   ]);
   const timelineProjectionRef = useRef<{
@@ -8728,47 +8709,6 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread, environmentId, removeQueuedMessage],
   );
 
-  const onRestoreQueuedMessage = useCallback(
-    async (id: string) => {
-      const message = activeThread?.queuedMessages.find((message) => message.messageId === id);
-      if (!message || !activeThread || interruptInFlightRef.current) return;
-      interruptInFlightRef.current = true;
-      setIsRestoringQueuedMessages(true);
-      try {
-        const prepared = await prepareQueuedRestoreRef.current([message]);
-        if (prepared.messageIds.length === 0) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "warning",
-              title: "This message cannot be restored yet",
-              description: "Make room for attachments, or use Send now to keep its full context.",
-            }),
-          );
-          return;
-        }
-        const result = await removeQueuedMessage({
-          environmentId,
-          input: {
-            threadId: activeThread.id,
-            messageId: message.messageId,
-            expectedText: prepared.expectedTextByMessageId[message.messageId]!,
-          },
-        });
-        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-        prepared.restore(result.value.clearedQueuedMessageIds ?? prepared.messageIds);
-      } catch (error) {
-        setThreadError(
-          activeThread.id,
-          error instanceof Error ? error.message : "Could not restore the queued message.",
-        );
-      } finally {
-        interruptInFlightRef.current = false;
-        setIsRestoringQueuedMessages(false);
-      }
-    },
-    [activeThread, environmentId, removeQueuedMessage, setThreadError],
-  );
-
   const onUpdateQueuedMessage = useCallback(
     async (messageId: MessageId, text: string) => {
       if (!activeThread || interruptInFlightRef.current) return;
@@ -10112,16 +10052,6 @@ export default function ChatView(props: ChatViewProps) {
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                 topFadeEnabled={!hasTimelineTopBanner}
                 loadEarlier={paintOnlyDisplayedTimeline ? null : loadEarlierTurns}
-                queuedMessages={
-                  paintOnlyDisplayedTimeline ? EMPTY_QUEUED_MESSAGES : queuedTimelineMessages
-                }
-                onSteerQueuedMessage={onSteerQueuedMessage}
-                steerQueuedMessageShortcutLabel={shortcutLabelForCommand(
-                  keybindings,
-                  "thread.steerQueuedMessage",
-                  { context: { terminalFocus: false } },
-                )}
-                onRemoveQueuedMessage={onRestoreQueuedMessage}
               />
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}

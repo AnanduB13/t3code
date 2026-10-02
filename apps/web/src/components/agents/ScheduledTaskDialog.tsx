@@ -69,6 +69,7 @@ export function ScheduledTaskDialog({
   open,
   onOpenChange,
   job,
+  deviceLabel,
   projects,
   timezone,
   saving,
@@ -77,6 +78,7 @@ export function ScheduledTaskDialog({
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly job: HermesCronJob | null;
+  readonly deviceLabel: string;
   readonly projects: readonly ScheduledProjectOption[];
   readonly timezone: string;
   readonly saving: boolean;
@@ -122,7 +124,7 @@ export function ScheduledTaskDialog({
               {job ? "Edit scheduled task" : "New scheduled task"}
             </DialogTitle>
             <DialogDescription>
-              The scheduled agent runs this task unattended and adds a new result after every run.
+              Runs unattended on {deviceLabel} and adds a new result after every run.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-5">

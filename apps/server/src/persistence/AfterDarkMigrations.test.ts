@@ -70,7 +70,7 @@ it.effect("upgrades the old After Dark ledger without losing queues, read state,
       yield* sql`SELECT migration_id FROM after_dark_migrations ORDER BY migration_id`;
     assert.deepEqual(
       forkLedger,
-      [1, 2, 3, 4, 5, 6].map((migration_id) => ({ migration_id })),
+      [1, 2, 3, 4, 5, 6, 7].map((migration_id) => ({ migration_id })),
     );
     const latest = yield* sql`SELECT MAX(migration_id) AS id FROM effect_sql_migrations`;
     assert.deepEqual(latest, [{ id: 54 }]);
@@ -81,7 +81,7 @@ it.effect("repairs the deployed After Dark migration 54 without changing saved t
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* runMigrations({ toMigrationInclusive: 53 });
-    yield* sql`DELETE FROM after_dark_migrations WHERE migration_id = 6`;
+    yield* sql`DELETE FROM after_dark_migrations WHERE migration_id >= 6`;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name)
       VALUES (54, 'AfterDarkMainCompatibility')`;
     yield* sql`INSERT INTO projection_threads

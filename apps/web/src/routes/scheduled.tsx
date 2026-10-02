@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { HermesWorkspaceView } from "./agents";
+import { ScheduledJobsPage } from "../components/agents/ScheduledJobsPage";
 
 export const Route = createFileRoute("/scheduled")({
   beforeLoad: ({ context }) => {
@@ -11,5 +11,5 @@ export const Route = createFileRoute("/scheduled")({
       throw redirect({ to: "/pair", replace: true });
     }
   },
-  component: () => <HermesWorkspaceView section="tasks" standaloneScheduled />,
+  component: ScheduledJobsPage,
 });

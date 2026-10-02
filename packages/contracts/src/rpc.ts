@@ -315,6 +315,15 @@ import {
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
 import {
+  ScheduledJob,
+  ScheduledJobInput,
+  ScheduledJobRun,
+  ScheduledJobsSnapshot,
+  ScheduledJobError,
+} from "./scheduledJobs.ts";
+import {
+  AgentDiscoveryError,
+  AgentDiscoveryResult,
   HermesAgentError,
   HermesAgentStatus,
   HermesCronJobList,
@@ -470,6 +479,12 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   // External agents
+  scheduledList: "scheduled.list",
+  scheduledSave: "scheduled.save",
+  scheduledSetEnabled: "scheduled.setEnabled",
+  scheduledDelete: "scheduled.delete",
+  scheduledRun: "scheduled.run",
+  agentsDiscover: "agents.discover",
   agentsHermesStatus: "agents.hermes.status",
   agentsHermesListSessions: "agents.hermes.sessions.list",
   agentsHermesListCronJobs: "agents.hermes.cron.list",
@@ -547,6 +562,39 @@ export const WS_METHODS = {
 } as const;
 
 const HermesRpcError = Schema.Union([HermesAgentError, EnvironmentAuthorizationError]);
+
+const ScheduledRpcError = Schema.Union([ScheduledJobError, EnvironmentAuthorizationError]);
+const WsScheduledListRpc = Rpc.make(WS_METHODS.scheduledList, {
+  payload: Schema.Struct({}),
+  success: ScheduledJobsSnapshot,
+  error: ScheduledRpcError,
+});
+const WsScheduledSaveRpc = Rpc.make(WS_METHODS.scheduledSave, {
+  payload: Schema.Struct({ id: Schema.optional(TrimmedNonEmptyString), job: ScheduledJobInput }),
+  success: ScheduledJob,
+  error: ScheduledRpcError,
+});
+const WsScheduledSetEnabledRpc = Rpc.make(WS_METHODS.scheduledSetEnabled, {
+  payload: Schema.Struct({ id: TrimmedNonEmptyString, enabled: Schema.Boolean }),
+  success: ScheduledJob,
+  error: ScheduledRpcError,
+});
+const WsScheduledDeleteRpc = Rpc.make(WS_METHODS.scheduledDelete, {
+  payload: Schema.Struct({ id: TrimmedNonEmptyString }),
+  success: Schema.Void,
+  error: ScheduledRpcError,
+});
+const WsScheduledRunRpc = Rpc.make(WS_METHODS.scheduledRun, {
+  payload: Schema.Struct({ id: TrimmedNonEmptyString }),
+  success: ScheduledJobRun,
+  error: ScheduledRpcError,
+});
+
+export const WsAgentsDiscoverRpc = Rpc.make(WS_METHODS.agentsDiscover, {
+  payload: Schema.Struct({}),
+  success: AgentDiscoveryResult,
+  error: Schema.Union([AgentDiscoveryError, EnvironmentAuthorizationError]),
+});
 
 export const WsHermesStatusRpc = Rpc.make(WS_METHODS.agentsHermesStatus, {
   payload: Schema.Struct({}),
@@ -1677,6 +1725,12 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsScheduledListRpc,
+  WsScheduledSaveRpc,
+  WsScheduledSetEnabledRpc,
+  WsScheduledDeleteRpc,
+  WsScheduledRunRpc,
+  WsAgentsDiscoverRpc,
   WsHermesStatusRpc,
   WsHermesListSessionsRpc,
   WsHermesListCronJobsRpc,

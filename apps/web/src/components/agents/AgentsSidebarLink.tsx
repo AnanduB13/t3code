@@ -2,9 +2,11 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { BotIcon, CalendarClockIcon } from "lucide-react";
 
 import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import { useAgentsSidebarStore } from "./agentsSidebarStore";
 
 export function AgentsSidebarLink() {
   const pathname = useLocation({ select: (location) => location.pathname });
+  const showOverview = useAgentsSidebarStore((state) => state.showOverview);
 
   return (
     <SidebarGroup className="px-2 py-1">
@@ -12,6 +14,7 @@ export function AgentsSidebarLink() {
         <SidebarMenuItem>
           <SidebarMenuButton
             render={<Link to="/agents" />}
+            onClick={showOverview}
             isActive={pathname.startsWith("/agents")}
             tooltip="Agents"
             className="gap-2 px-2 text-muted-foreground data-[active=true]:text-foreground"

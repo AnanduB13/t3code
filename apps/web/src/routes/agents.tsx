@@ -34,6 +34,7 @@ import type {
   HermesCronRun,
   HermesMessage,
   HermesSession,
+  EnvironmentId,
 } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
@@ -46,7 +47,7 @@ import { SidebarInset } from "../components/ui/sidebar";
 import { Textarea } from "../components/ui/textarea";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { cn } from "../lib/utils";
-import { usePrimaryEnvironmentId } from "../state/environments";
+import { useAgentEnvironment } from "../components/agents/useAgentEnvironment";
 import { hermesAgentEnvironment } from "../state/hermesAgents";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -59,6 +60,7 @@ import {
   localScheduledTasks,
 } from "../components/agents/Agents.tasks";
 import { useAgentsSidebarStore } from "../components/agents/agentsSidebarStore";
+import { AgentsOverview } from "../components/agents/AgentsOverview";
 import {
   ScheduledTaskDialog,
   type ScheduledTaskInput,
@@ -178,7 +180,31 @@ export function HermesWorkspaceView({
   readonly section: HermesWorkspaceSection;
   readonly standaloneScheduled?: boolean;
 }) {
-  const environmentId = usePrimaryEnvironmentId();
+  const { environmentId } = useAgentEnvironment();
+  return (
+    <HermesEnvironmentWorkspace
+      key={environmentId ?? "no-environment"}
+      environmentId={environmentId}
+      section={section}
+      standaloneScheduled={standaloneScheduled}
+    />
+  );
+}
+
+function HermesEnvironmentWorkspace({
+  environmentId,
+  section,
+  standaloneScheduled,
+}: {
+  readonly environmentId: EnvironmentId | null;
+  readonly section: HermesWorkspaceSection;
+  readonly standaloneScheduled: boolean;
+}) {
+  const { environment, environments } = useAgentEnvironment();
+  const setEnvironmentId = useAgentsSidebarStore((state) => state.setEnvironmentId);
+  const showOverview = useAgentsSidebarStore((state) => state.showOverview);
+  const deviceLabel = environment?.label ?? "this computer";
+  const deviceConnected = environment?.connection.phase === "connected";
   const selectedId = useAgentsSidebarStore((state) => state.selectedSessionId);
   const setSelectedId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
   const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
@@ -197,6 +223,13 @@ export function HermesWorkspaceView({
   } | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taskScrollRef = useRef<HTMLDivElement>(null);
   const pendingPrependRef = useRef<{ readonly height: number; readonly top: number } | null>(null);
@@ -212,7 +245,7 @@ export function HermesWorkspaceView({
     isPending: status.isPending,
     error: status.error,
   });
-  const connected = connectionState === "connected";
+  const connected = deviceConnected && connectionState === "connected";
   const sessions = useEnvironmentQuery(
     environmentId && connected
       ? hermesAgentEnvironment.sessions({ environmentId, input: {} })
@@ -366,6 +399,7 @@ export function HermesWorkspaceView({
             input: { jobId: editingTask.id, ...input, workdir: input.workdir ?? "" },
           })
         : await createCronJob({ environmentId, input });
+      if (!mountedRef.current) return false;
       setTaskMutation(null);
       if (result._tag === "Success") {
         pendingSelectedTaskIdRef.current = result.value.id;
@@ -413,6 +447,7 @@ export function HermesWorkspaceView({
               ? runCronJob
               : deleteCronJob;
       const result = await command({ environmentId, input: { jobId: job.id } });
+      if (!mountedRef.current) return;
       setTaskMutation(null);
       if (result._tag === "Success") {
         if (action === "delete") setSelectedTaskId(null);
@@ -444,6 +479,7 @@ export function HermesWorkspaceView({
   const handleCreate = useCallback(async () => {
     if (!environmentId) return;
     const result = await createSession({ environmentId, input: {} });
+    if (!mountedRef.current) return;
     if (AsyncResult.isSuccess(result)) {
       setSelectedId(result.value.id);
       sessions.refresh();
@@ -477,6 +513,7 @@ export function HermesWorkspaceView({
       environmentId,
       input: { sessionId: selectedSession.id },
     });
+    if (!mountedRef.current) return;
     if (AsyncResult.isSuccess(result)) {
       setSelectedId(result.value.id);
       sessions.refresh();
@@ -496,6 +533,7 @@ export function HermesWorkspaceView({
       environmentId,
       input: { sessionId: selectedSession.id },
     });
+    if (!mountedRef.current) return;
     if (AsyncResult.isSuccess(result)) {
       setSelectedId(null);
       sessions.refresh();
@@ -539,7 +577,7 @@ export function HermesWorkspaceView({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header
           className={cn(
-            "flex h-12 shrink-0 items-center gap-3 border-b border-border px-3 sm:px-5",
+            "flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-5",
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
@@ -551,6 +589,31 @@ export function HermesWorkspaceView({
           <span className="text-sm font-semibold">
             {standaloneScheduled ? "Scheduled" : "Agents"}
           </span>
+          {!standaloneScheduled ? (
+            <Button size="xs" variant="ghost" onClick={showOverview}>
+              All agents
+            </Button>
+          ) : null}
+          <select
+            aria-label="Computer for scheduled tasks and agents"
+            className="h-7 min-w-0 max-w-48 rounded-md border bg-background px-2 text-sm"
+            value={environmentId ?? ""}
+            disabled={taskMutation !== null || sending || taskDialogOpen}
+            onChange={(event) => {
+              const target = environments.find(
+                (entry) => entry.environmentId === event.target.value,
+              );
+              if (target) setEnvironmentId(target.environmentId);
+            }}
+          >
+            {!environment ? <option value={environmentId ?? ""}>Choose a computer</option> : null}
+            {environments.map((entry) => (
+              <option key={entry.environmentId} value={entry.environmentId}>
+                {entry.label}
+                {entry.connection.phase === "connected" ? "" : " (disconnected)"}
+              </option>
+            ))}
+          </select>
           <Badge
             variant={connected ? "success" : connectionState === "error" ? "error" : "outline"}
           >
@@ -566,7 +629,8 @@ export function HermesWorkspaceView({
                       : "bg-muted-foreground",
               )}
             />
-            {standaloneScheduled ? "Scheduler" : "Hermes"} {connectionState}
+            {standaloneScheduled ? "Scheduler" : "Hermes"}{" "}
+            {deviceConnected ? connectionState : "disconnected"}
           </Badge>
           {!standaloneScheduled && status.data?.model ? (
             <span className="hidden text-xs text-muted-foreground sm:inline">
@@ -585,7 +649,26 @@ export function HermesWorkspaceView({
           </Button>
         </header>
 
-        {connectionState === "connecting" ? (
+        {connected && (cronJobs.error || sessions.error) ? (
+          <div
+            role="alert"
+            className="flex items-center gap-3 border-b border-border px-5 py-3 text-sm text-destructive"
+          >
+            <span className="flex-1">{cronJobs.error ?? sessions.error}</span>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                cronJobs.refresh();
+                sessions.refresh();
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : null}
+
+        {deviceConnected && connectionState === "connecting" ? (
           <div className="flex flex-1 items-center justify-center text-muted-foreground">
             <LoaderCircleIcon className="size-5 animate-spin" />
           </div>
@@ -599,12 +682,14 @@ export function HermesWorkspaceView({
                   : "Hermes API isn’t reachable"}
               </h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                T3 looked for Hermes at{" "}
+                {deviceConnected
+                  ? `T3 looked for Hermes on ${deviceLabel} at `
+                  : `Connect ${deviceLabel} in Settings → Connections. Its Hermes runner is at `}
                 <code className="rounded bg-muted px-1.5 py-0.5">
                   {status.data?.endpoint ?? "http://127.0.0.1:8642"}
                 </code>
-                . Enable Hermes’ API server and restart its gateway. T3 reads the API key
-                server-side from{" "}
+                . You can choose another connected computer above. Enable Hermes’ API server on the
+                selected computer and restart its gateway. T3 reads the API key server-side from{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5">~/.hermes/.env</code> or{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5">HERMES_API_KEY</code>.
               </p>
@@ -1015,6 +1100,7 @@ export function HermesWorkspaceView({
         open={taskDialogOpen}
         onOpenChange={setTaskDialogOpen}
         job={editingTask}
+        deviceLabel={deviceLabel}
         projects={projects
           .filter((project) => project.environmentId === environmentId)
           .map((project) => ({ title: project.title, workspaceRoot: project.workspaceRoot }))}
@@ -1039,6 +1125,8 @@ export const Route = createFileRoute("/agents")({
 });
 
 function AgentsWorkspace() {
+  const view = useAgentsSidebarStore((state) => state.agentView);
   const section = useAgentsSidebarStore((state) => state.section);
+  if (view === "overview") return <AgentsOverview />;
   return <HermesWorkspaceView section={section} />;
 }
