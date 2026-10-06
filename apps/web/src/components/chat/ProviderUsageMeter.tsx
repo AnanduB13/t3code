@@ -4,6 +4,7 @@ import { composerUsageWindowLabel, selectComposerUsageWindow } from "@t3tools/sh
 
 import { usageLimitProvidersAtom } from "../../state/providerUsage";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 function formatReset(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -19,6 +20,15 @@ function usageColor(remainingPercent: number): string {
   if (remainingPercent <= 10) return "var(--color-red-500)";
   if (remainingPercent <= 25) return "var(--color-amber-500)";
   return "color-mix(in oklab, var(--color-primary) 82%, transparent)";
+}
+
+function compactPlanLabel(label: string): string {
+  return label
+    .replaceAll("_", " ")
+    .trim()
+    .replace(/\s+subscription$/i, "")
+    .replace(/^(?:ChatGPT|Claude|Cursor)\s+/i, "")
+    .replace(/\s+(\d+)x\b/gi, " · $1×");
 }
 
 function UsageGauge({ remainingPercent }: { readonly remainingPercent: number }) {
@@ -82,18 +92,34 @@ export function ProviderUsageMeter(props: {
         side="top"
         align="end"
         padding="compact"
-        className="w-64 max-w-none text-left whitespace-normal"
+        width="sm"
+        className="text-left whitespace-normal"
       >
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-medium text-muted-foreground text-xs">{windowLabel} usage</div>
-              <div className="mt-0.5 text-2xs text-muted-foreground/65">{displayName}</div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="shrink-0">
+              <div className="whitespace-nowrap font-medium text-muted-foreground text-xs">
+                {windowLabel} usage
+              </div>
+              <div className="mt-0.5 max-w-32 truncate text-2xs text-muted-foreground/65">
+                {displayName}
+              </div>
             </div>
             {plan ? (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-3xs font-medium capitalize text-muted-foreground">
-                {plan.replaceAll("_", " ")}
-              </span>
+              <Tooltip>
+                <TooltipTrigger
+                  aria-label={plan}
+                  render={
+                    <span
+                      tabIndex={0}
+                      className="min-w-0 max-w-24 truncate rounded-full bg-muted px-2 py-0.5 text-3xs font-medium capitalize text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                  }
+                >
+                  {compactPlanLabel(plan)}
+                </TooltipTrigger>
+                <TooltipPopup side="top">{plan}</TooltipPopup>
+              </Tooltip>
             ) : null}
           </div>
           {provider.usageLimits.windows.map((window) => {
