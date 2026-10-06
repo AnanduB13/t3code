@@ -111,6 +111,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   return (
     <section
       aria-label="Prompt queue"
+      data-composer-banner-surface="attached"
       className="chat-composer-glass pointer-events-auto relative z-0 mx-auto -mb-3 w-[calc(100%_-_1.5rem)] max-w-[46.5rem] overflow-hidden rounded-t-2xl border border-border/70 pb-3 shadow-sm"
     >
       {collapsed ? (
