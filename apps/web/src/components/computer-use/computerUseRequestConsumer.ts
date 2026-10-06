@@ -4,7 +4,7 @@ import type {
   ComputerUseResponse,
   ComputerUseStreamEvent,
 } from "@t3tools/contracts";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 type RequestStreamResult<E> = AsyncResult.AsyncResult<ComputerUseStreamEvent, E>;
 
@@ -24,11 +24,12 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
     let activeConnectionId: ComputerUseStreamEvent["connectionId"] | null = null;
     let connectionExplicitlyAnnounced = false;
     let requestsVersion = 0;
-    const activeRequestIds = new Set<string>();
+    // Each in-flight request keeps the handler that started it, so cancelling
+    // from the finalizer never reads the registry after it is disposed.
+    const activeRequests = new Map<string, { readonly cancel: (requestId: string) => void }>();
     const cancelActiveRequests = () => {
-      const handler = get.once(options.requestHandlerAtom);
-      for (const requestId of activeRequestIds) handler.cancel(requestId);
-      activeRequestIds.clear();
+      for (const [requestId, handler] of activeRequests) handler.cancel(requestId);
+      activeRequests.clear();
     };
 
     const consume = (result: RequestStreamResult<E>) => {
@@ -47,7 +48,7 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
         if (activeConnectionId === null) activeConnectionId = event.connectionId;
         if (activeConnectionId === event.connectionId) {
           get.once(options.requestHandlerAtom).cancel(event.requestId);
-          activeRequestIds.delete(event.requestId);
+          activeRequests.delete(event.requestId);
         }
         return;
       }
@@ -59,14 +60,14 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
         activeConnectionId = event.connectionId;
       }
       const request = event.request;
-      if (activeRequestIds.has(request.requestId)) return;
-      activeRequestIds.add(request.requestId);
+      if (activeRequests.has(request.requestId)) return;
+      const handler = get.once(options.requestHandlerAtom);
+      activeRequests.set(request.requestId, handler);
       const canRespond = () =>
         !disposed &&
         activeConnectionId === event.connectionId &&
-        activeRequestIds.has(request.requestId);
-      void get
-        .once(options.requestHandlerAtom)
+        activeRequests.has(request.requestId);
+      void handler
         .handle(request)
         .then(
           (result) =>
@@ -95,7 +96,7 @@ export function createComputerUseRequestConsumerAtom<E>(options: {
         )
         .catch((cause) => console.warn("Computer Use response could not be delivered", cause))
         .finally(() => {
-          if (activeConnectionId === event.connectionId) activeRequestIds.delete(request.requestId);
+          if (activeConnectionId === event.connectionId) activeRequests.delete(request.requestId);
         });
     };
 

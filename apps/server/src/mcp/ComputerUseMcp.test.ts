@@ -10,18 +10,22 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
-import { McpSchema, McpServer } from "effect/unstable/ai";
+import { McpSchema, McpServer } from "effect/ai";
 
 import * as ComputerUseBroker from "./ComputerUseBroker.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { computerUseToolResult } from "./toolkits/computer/results.ts";
 
-const invocation = {
+const invocation: McpInvocationContext.McpInvocationScope = {
   environmentId: EnvironmentId.make("computer-mcp-test"),
-  threadId: ThreadId.make("computer-mcp-test"),
-  providerInstanceId: ProviderInstanceId.make("codex"),
-  providerSessionId: "test-session",
+  requestNamespace: "test-session",
+  thread: {
+    threadId: ThreadId.make("computer-mcp-test"),
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    providerSessionId: "test-session",
+  },
+  client: undefined,
   capabilities: new Set(["computerUse"] as const),
   issuedAt: 1,
 };
@@ -37,7 +41,7 @@ const client = McpSchema.McpServerClient.of({
   },
   getClient: Effect.die("unused"),
 });
-const TestLayer = McpHttpServer.ComputerUseToolkitRegistrationLive.pipe(
+const TestLayer = McpHttpServer.layerComputerUseToolkit.pipe(
   Layer.provideMerge(McpServer.McpServer.layer),
   Layer.provideMerge(ComputerUseBroker.layer.pipe(Layer.provide(NodeServices.layer))),
 );

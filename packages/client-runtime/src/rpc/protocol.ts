@@ -1,6 +1,6 @@
 import { WsRpcGroup, WsProviderConsumeResetCreditRpc } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { RpcClient } from "effect/unstable/rpc";
+import { RpcClient } from "effect/rpc";
 
 // Reset redemption is offered only by newer servers that publish reset credits.
 // Keep it out of this checkout's older server handler group.

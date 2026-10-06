@@ -36,12 +36,13 @@ describe("PullRequestRow", () => {
         selected={false}
         showProjectTitle
         showProvider={false}
+        speedMode={false}
+        onActed={() => undefined}
         onSelect={() => undefined}
       />,
     );
 
     expect(markup).toContain("Payments Dashboard");
-    expect(markup).toContain("Project: Payments Dashboard");
     expect(markup).toContain("acme/web");
   });
 });

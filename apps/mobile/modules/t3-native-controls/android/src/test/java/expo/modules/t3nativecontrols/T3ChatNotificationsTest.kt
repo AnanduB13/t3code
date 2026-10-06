@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [24, 26, 36])
 class T3ChatNotificationsTest {
   private fun chat(key: String, turn: String = "turn-a") = mapOf<String, Any?>(
-    "key" to key, "turnId" to turn, "title" to "Fix login", "body" to "Run tests",
+    "key" to key, "runId" to turn, "title" to "Fix login", "body" to "Run tests",
     "deepLink" to "t3code-after-dark://threads/env/chat", "ongoing" to true,
     "totalSteps" to 3, "completedSteps" to 1
   )

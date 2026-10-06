@@ -31,6 +31,8 @@ export function createThreadVisitSync(input: {
 
   function visit(visit: ThreadVisit): Promise<void> | undefined {
     const { threadKey, visitedAt, markUnread } = visit;
+    // Servers without visit tracking keep the local marker as the only record.
+    if (!canonical.has(threadKey)) return;
     const current = canonical.get(threadKey);
     if (
       !pending.has(threadKey) &&
@@ -59,6 +61,8 @@ export function createThreadVisitSync(input: {
       threads: readonly Pick<EnvironmentThreadShell, "id" | "environmentId" | "lastVisitedAt">[],
     ) {
       for (const thread of threads) {
+        // `undefined` means the server predates visit tracking: nothing to mirror.
+        if (thread.lastVisitedAt === undefined) continue;
         const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
         const value = thread.lastVisitedAt ?? undefined;
         const first = !canonical.has(key);

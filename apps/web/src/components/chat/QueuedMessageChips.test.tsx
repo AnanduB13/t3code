@@ -1,15 +1,14 @@
-import { MessageId, type OrchestrationQueuedMessage } from "@t3tools/contracts";
+import type { QueuedPrompt } from "@t3tools/client-runtime/state/queued-prompts";
+import { MessageId, RunId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { QueuedMessageChips } from "./QueuedMessageChips";
 
-const queuedMessage = (
-  messageId: string,
-  text: string,
-  attachmentCount = 0,
-): OrchestrationQueuedMessage => ({
+const queuedMessage = (messageId: string, text: string, attachmentCount = 0): QueuedPrompt => ({
   messageId: MessageId.make(messageId),
+  runId: RunId.make(`run-${messageId}`),
+  holdUntilUserAction: false,
   text,
   attachments: Array.from({ length: attachmentCount }, (_, index) => ({
     type: "image" as const,

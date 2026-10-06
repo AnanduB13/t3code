@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import { Atom, AsyncResult } from "effect/reactivity";
 import * as Effect from "effect/Effect";
 import * as Notifications from "expo-notifications";
 import * as Linking from "expo-linking";
@@ -101,23 +101,17 @@ function NotificationWorker() {
       disposed = true;
     };
   }, [appState, savedChoice]);
-  useEffect(() => {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
-    });
-    return () => {
+  // Foreground presentation belongs to useAgentNotificationNavigation's single
+  // handler: direct alerts banner like relay alerts unless their thread is on screen.
+  useEffect(
+    () => () => {
       pendingAlerts.current.clear();
-      Notifications.setNotificationHandler(null);
       void androidNotifications
         ?.stop()
         .catch((error: unknown) => console.warn("Could not stop chat monitoring", error));
-    };
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
     const change = reconcileAndroidChatNotifications(

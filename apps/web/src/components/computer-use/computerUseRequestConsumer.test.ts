@@ -5,7 +5,7 @@ import {
   type ComputerUseResponse,
   type ComputerUseStreamEvent,
 } from "@t3tools/contracts";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import * as Cause from "effect/Cause";
 import { describe, expect, it, vi } from "vite-plus/test";
 

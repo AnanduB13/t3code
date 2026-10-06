@@ -1,10 +1,13 @@
-import { ComposerContextId, MessageId, type OrchestrationQueuedMessage } from "@t3tools/contracts";
+import type { QueuedPrompt } from "@t3tools/client-runtime/state/queued-prompts";
+import { ComposerContextId, MessageId, RunId } from "@t3tools/contracts";
 import { collectComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { describe, expect, it } from "vite-plus/test";
 import { prepareQueuedMessageContext } from "./queuedMessageRestore";
 
-const message: OrchestrationQueuedMessage = {
+const message: QueuedPrompt = {
   messageId: MessageId.make("queued"),
+  runId: RunId.make("run-queued"),
+  holdUntilUserAction: false,
   text: "Check [Terminal](t3-context://v1/terminal/terminal_same)",
   queuedAt: "2026-09-30T00:00:00Z",
   attachments: [],

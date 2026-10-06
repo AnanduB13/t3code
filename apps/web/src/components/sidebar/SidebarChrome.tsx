@@ -4,17 +4,16 @@ import {
   ChevronDownIcon,
   Code2Icon,
   FolderKanbanIcon,
-  GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
-import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { APP_EDITION_LABEL } from "../../branding";
 import { cn } from "../../lib/utils";
-import { useEnvironments } from "../../state/environments";
+import { usePullRequestsSupported } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -60,7 +59,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
     // The titlebar row, not a padded SidebarHeader: it aligns to the window controls.
     <div
       className={cn(
-        "@container/sidebar-header relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 px-3 md:px-0",
+        "relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 px-3 md:pl-0",
         isElectron && "drag-region",
       )}
     >
@@ -70,20 +69,52 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         variant={backdropVariant ? "media-navigation" : "ghost"}
         className="relative top-auto z-10 translate-y-0 md:hidden"
       />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 hidden @[15rem]/sidebar-header:inline-flex"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
-        >
-          {pillLabel}
-        </Badge>
-      ) : null}
+      {/* One visible line: the pill wraps onto the clipped second line once it no longer fits.
+          The padding keeps the brand's focus ring inside the clip. */}
+      <div className="relative z-10 flex h-8 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden py-0.5">
+        <SidebarBrand onBackdrop={backdropVariant !== null} />
+        {pillLabel ? (
+          <div className="ml-1 flex h-7 items-center">
+            <Badge data-environment-identification="pill" size="sm" variant="secondary">
+              {pillLabel}
+            </Badge>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 });
+
+// Measures the brand at its titlebar inset, plus the header's right padding and the
+// sidebar border, so the sidebar minimum follows font size, zoom and macOS window controls.
+export function SidebarBrandWidthProbe({
+  onWidthChange,
+}: {
+  onWidthChange: (width: number) => void;
+}) {
+  const observeWidth = useCallback(
+    (probe: HTMLDivElement) => {
+      const observer = new ResizeObserver(([entry]) => {
+        if (entry) onWidthChange(entry.borderBoxSize[0]?.inlineSize ?? probe.offsetWidth);
+      });
+      observer.observe(probe);
+      return () => observer.disconnect();
+    },
+    [onWidthChange],
+  );
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none invisible fixed top-0 left-0 flex w-max border-r border-transparent pr-3"
+      ref={observeWidth}
+    >
+      <div className="ml-[var(--workspace-titlebar-content-left)] flex">
+        <SidebarBrandMark onBackdrop={false} />
+      </div>
+    </div>
+  );
+}
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   const navigate = useNavigate();
@@ -92,26 +123,17 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
     <Menu>
       <MenuTrigger
         aria-label="Switch T3 Code workspace mode"
-        className={cn(
-          "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md px-1 outline-hidden ring-ring hover:bg-white/10 focus-visible:ring-2",
-          onBackdrop ? "text-white" : "text-foreground",
-        )}
-      >
-        <span className="flex min-w-0 flex-col items-start">
-          <span className="flex items-center gap-1 text-sm leading-3.5 font-medium tracking-tight">
-            <T3Wordmark aria-label="T3" className="h-2.5 w-auto shrink-0" />
-            <span className={onBackdrop ? "text-white/70" : "text-muted-foreground"}>Code</span>
-          </span>
-          <span
+        render={
+          <button
+            type="button"
             className={cn(
-              "max-w-full truncate text-[10px] leading-3 tracking-tight",
-              onBackdrop ? "text-white/70" : "text-muted-foreground",
+              "relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring hover:bg-white/10 focus-visible:ring-2",
+              onBackdrop ? "text-white" : "text-foreground",
             )}
-          >
-            {APP_EDITION_LABEL}
-          </span>
-        </span>
-        <ChevronDownIcon className="size-3 opacity-60" />
+          />
+        }
+      >
+        <SidebarBrandMark onBackdrop={onBackdrop} />
       </MenuTrigger>
       <MenuPopup align="start" className="w-56">
         <MenuItem onClick={() => void navigate({ to: "/" })}>
@@ -130,6 +152,29 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
         </MenuItem>
       </MenuPopup>
     </Menu>
+  );
+}
+
+/** The brand, edition label, and mode-menu chevron; also measured by `SidebarBrandWidthProbe`. */
+function SidebarBrandMark({ onBackdrop }: { onBackdrop: boolean }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1 px-1">
+      <span className="flex min-w-0 flex-col items-start">
+        <span className="flex items-center gap-1 text-sm leading-3.5 font-medium tracking-tight">
+          <T3Wordmark aria-label="T3" className="h-2.5 w-auto shrink-0" />
+          <span className={onBackdrop ? "text-white/70" : "text-muted-foreground"}>Code</span>
+        </span>
+        <span
+          className={cn(
+            "max-w-full truncate text-3xs leading-3 tracking-tight",
+            onBackdrop ? "text-white/70" : "text-muted-foreground",
+          )}
+        >
+          {APP_EDITION_LABEL}
+        </span>
+      </span>
+      <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
+    </span>
   );
 }
 
@@ -165,12 +210,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const isOnUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
-  const { environments } = useEnvironments();
-  // The page reads every connected server, so one of them offering pull requests is enough for
-  // the link to lead somewhere.
-  const pullRequestsSupported = environments.some(
-    (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
-  );
+  const pullRequestsSupported = usePullRequestsSupported();
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);

@@ -4,6 +4,7 @@ import {
   decodeScanCache,
   dedupeWithinFile,
   encodeScanCache,
+  makeScanCacheWriter,
   pruneScanCache,
   type CachedFile,
   type ScanCache,
@@ -25,7 +26,7 @@ function record(overrides: Partial<UsageRecord> = {}): UsageRecord {
       reasoningTokens: 0,
     },
     reportedCostUsd: null,
-    fast: false,
+    speed: "standard",
     dedupeKey: "msg_1:",
     ...overrides,
   };
@@ -62,7 +63,7 @@ describe("scan cache round trip", () => {
       [
         "/a.jsonl",
         100,
-        [record(), record({ dedupeKey: "msg_2:", model: "claude-opus-5-5", fast: true })],
+        [record(), record({ dedupeKey: "msg_2:", model: "claude-opus-5-5", speed: "fast" })],
       ],
       ["/b.jsonl", 200, [record({ sessionId: "session-b", reportedCostUsd: 1.5 })]],
     ]);
@@ -80,11 +81,14 @@ describe("scan cache round trip", () => {
       size: 80,
       mtimeMs: 400,
       provider: "codex",
-      records: [record({ provider: "codex", model: "gpt-5.2-codex", dedupeKey: null })],
+      records: [
+        record({ provider: "codex", model: "gpt-6-astra", dedupeKey: null, speed: "ultrafast" }),
+      ],
       tailRecords: [],
       position: position({
         codexState: {
-          model: "gpt-5.2-codex",
+          model: "gpt-6-astra",
+          speed: "ultrafast",
           sessionId: "session-c",
           origin: "t3",
           lastUsageSignature: '{"input_tokens":1}',
@@ -130,8 +134,8 @@ describe("scan cache round trip", () => {
     expect(decodeScanCache(JSON.parse(JSON.stringify(poisoned))).has("/a.jsonl")).toBe(false);
   });
 
-  it("drops an entry whose fast flag is not 0 or 1", () => {
-    const encoded = encodeScanCache(cacheWith([["/a.jsonl", 100, [record({ fast: true })]]]));
+  it("drops an entry whose speed is not a known index", () => {
+    const encoded = encodeScanCache(cacheWith([["/a.jsonl", 100, [record({ speed: "fast" })]]]));
     const row = encoded.files["/a.jsonl"]!.r[0]!;
     const poisoned = {
       ...encoded,
@@ -141,11 +145,31 @@ describe("scan cache round trip", () => {
     expect(decodeScanCache(JSON.parse(JSON.stringify(poisoned))).has("/a.jsonl")).toBe(false);
   });
 
-  it("rejects a document from the previous cache version", () => {
+  it("rejects a document from before records carried a speed", () => {
     const encoded = encodeScanCache(cacheWith([["/a.jsonl", 100, [record()]]]));
     const previous = { ...encoded, version: 4 };
 
     expect(decodeScanCache(JSON.parse(JSON.stringify(previous))).size).toBe(0);
+  });
+
+  it("rewrites only changed entries and still restores the whole cache", () => {
+    const write = makeScanCacheWriter();
+    const cache = cacheWith([
+      ["/a.jsonl", 100, [record()]],
+      ["/b.jsonl", 200, [record({ sessionId: "session-b" })]],
+    ]);
+    const sources = { "claude\u0000/projects": { dir: "/projects", volumeId: "1:2" } };
+    expect(decodeScanCache(JSON.parse(write(cache, { sources })))).toEqual(cache);
+
+    // The replacement adds intern entries; /a's memoised indexes must hold.
+    cache.set("/b.jsonl", {
+      ...cache.get("/b.jsonl")!,
+      size: 30,
+      records: [record({ sessionId: "session-c", model: "claude-opus-5-5", dedupeKey: "msg_3:" })],
+    });
+    const document = JSON.parse(write(cache, { sources }));
+    expect(decodeScanCache(document)).toEqual(cache);
+    expect(document.sources).toEqual(sources);
   });
 
   it("interns repeated model and session strings", () => {
@@ -246,21 +270,35 @@ describe("dedupeWithinFile", () => {
   });
 });
 
-it("round-trips both source provenance and Claude fast mode", () => {
-  const cache = cacheWith([["/fast.jsonl", 100, [record({ origin: "t3", fast: true })]]]);
-  expect(decodeScanCache(JSON.parse(JSON.stringify(encodeScanCache(cache))))).toEqual(cache);
-});
-it("rejects either incompatible version-four row layout", () => {
-  const encoded = encodeScanCache(cacheWith([["/a.jsonl", 100, [record()]]]));
-  for (const oldValue of ["t3", 1]) {
-    const row = encoded.files["/a.jsonl"]!.r[0]!;
-    const old = {
-      ...encoded,
-      version: 4,
-      files: {
-        "/a.jsonl": { ...encoded.files["/a.jsonl"]!, r: [[...row.slice(0, 10), oldValue]] },
-      },
-    };
-    expect(decodeScanCache(old).size).toBe(0);
-  }
+describe("legacy scan cache documents", () => {
+  const encoded = encodeScanCache(cacheWith([["/a.jsonl", 100, [record({ origin: "t3" })]]]));
+  const row = encoded.files["/a.jsonl"]!.r[0]!;
+  const withRows = (version: number, rows: ReadonlyArray<ReadonlyArray<unknown>>) => ({
+    ...encoded,
+    version,
+    files: { "/a.jsonl": { ...encoded.files["/a.jsonl"]!, r: rows } },
+  });
+
+  it("round-trips both the speed tier and the transcript origin", () => {
+    const cache = cacheWith([["/fast.jsonl", 100, [record({ origin: "t3", speed: "fast" })]]]);
+    expect(decodeScanCache(JSON.parse(JSON.stringify(encodeScanCache(cache))))).toEqual(cache);
+  });
+
+  it("reads After Dark v5 rows, which stored a fast bit and the origin", () => {
+    const decoded = decodeScanCache(withRows(5, [[...row.slice(0, 10), 1, "terminal"]]));
+    expect(decoded.get("/a.jsonl")?.records).toEqual([
+      record({ origin: "terminal", speed: "fast" }),
+    ]);
+  });
+
+  it("reads upstream v5 rows, which stored a speed index and no origin", () => {
+    const decoded = decodeScanCache(withRows(5, [[...row.slice(0, 10), 0]]));
+    expect(decoded.get("/a.jsonl")?.records).toEqual([record({ origin: "unknown" })]);
+  });
+
+  it("rejects either incompatible version-four row layout", () => {
+    for (const oldValue of ["t3", 1]) {
+      expect(decodeScanCache(withRows(4, [[...row.slice(0, 10), oldValue]])).size).toBe(0);
+    }
+  });
 });

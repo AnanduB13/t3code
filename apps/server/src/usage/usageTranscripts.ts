@@ -8,6 +8,13 @@
  */
 import type { UsageOrigin, UsageProviderKind, UsageTokenTotals } from "@t3tools/contracts";
 
+/**
+ * Billing speed of a request. Faster speeds bill at a model-specific premium.
+ * Claude fast mode and Codex `priority` are `fast`; Codex `ultrafast` is its
+ * own, more expensive tier.
+ */
+export type UsageSpeed = "standard" | "fast" | "ultrafast";
+
 export interface UsageRecord {
   readonly provider: UsageProviderKind;
   readonly origin: UsageOrigin;
@@ -21,11 +28,8 @@ export interface UsageRecord {
   readonly sessionId: string;
   readonly totals: UsageTokenTotals;
   readonly reportedCostUsd: number | null;
-  /**
-   * Whether the request ran in fast mode, which bills at a model-specific
-   * multiple of the standard rate. Only Claude Code records this.
-   */
-  readonly fast: boolean;
+  /** Only Claude Code and Codex record a speed; other providers are `standard`. */
+  readonly speed: UsageSpeed;
   /**
    * Key for cross-file de-duplication, or `null` when the record is inherently
    * unique and needs no dedup.
@@ -56,16 +60,6 @@ function usageOrigin(value: unknown): UsageOrigin {
   if (value.startsWith("t3code_")) return "t3";
   if (value === "codex-tui" || value.includes("cli")) return "terminal";
   return "unknown";
-}
-
-export function addTotals(a: UsageTokenTotals, b: UsageTokenTotals): UsageTokenTotals {
-  return {
-    uncachedInputTokens: a.uncachedInputTokens + b.uncachedInputTokens,
-    cachedInputTokens: a.cachedInputTokens + b.cachedInputTokens,
-    cacheCreationTokens: a.cacheCreationTokens + b.cacheCreationTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    reasoningTokens: a.reasoningTokens + b.reasoningTokens,
-  };
 }
 
 export function totalTokens(totals: UsageTokenTotals): number {
@@ -168,7 +162,7 @@ export function parseClaudeRecord(parsed: unknown): UsageRecord | null {
       reasoningTokens: 0,
     },
     reportedCostUsd: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
-    fast: usageRecord["speed"] === "fast",
+    speed: usageRecord["speed"] === "fast" ? "fast" : "standard",
     dedupeKey,
   };
 }
@@ -180,12 +174,14 @@ export function parseClaudeRecord(parsed: unknown): UsageRecord | null {
 /**
  * Rolling state for a single Codex rollout file.
  *
- * Codex `token_count` events carry no model, so the model is carried forward
- * from the most recent `turn_context`. Sessions that switch models mid-run
- * attribute correctly from the switch onward.
+ * Codex `token_count` events carry no model or service tier, so both are
+ * carried forward: the model from the most recent `turn_context`, the tier from
+ * the most recent `thread_settings_applied`. Sessions that switch either
+ * mid-run attribute correctly from the switch onward.
  */
 export interface CodexScanState {
   model: string;
+  speed: UsageSpeed;
   sessionId: string;
   origin: UsageOrigin;
   lastUsageSignature: string | null;
@@ -198,6 +194,7 @@ export interface CodexScanState {
 export function initialCodexScanState(): CodexScanState {
   return {
     model: "",
+    speed: "standard",
     sessionId: "",
     origin: "unknown",
     lastUsageSignature: null,
@@ -277,6 +274,14 @@ export function parseCodexRecord(parsed: unknown, state: CodexScanState): UsageR
     return null;
   }
 
+  if (payloadType === "thread_settings_applied") {
+    const settings = payloadRecord["thread_settings"];
+    if (typeof settings === "object" && settings !== null) {
+      state.speed = codexSpeed((settings as Record<string, unknown>)["service_tier"]);
+    }
+    return null;
+  }
+
   if (payloadType !== "token_count") return null;
 
   const info = payloadRecord["info"];
@@ -336,11 +341,22 @@ export function parseCodexRecord(parsed: unknown, state: CodexScanState): UsageR
     totals,
     // Codex does not report cost in the rollout.
     reportedCostUsd: null,
-    fast: false,
+    speed: state.speed,
     // Events surviving the fork-copy suppression above are unique to this
     // rollout, so they need no global dedup.
     dedupeKey: null,
   };
+}
+
+/**
+ * Maps a Codex `service_tier` to its billing speed. Codex omits the field when
+ * no tier was requested, which bills as standard, as do `default` and
+ * `standard`. `fast` is accepted as an alias of `priority`.
+ */
+function codexSpeed(serviceTier: unknown): UsageSpeed {
+  if (serviceTier === "priority" || serviceTier === "fast") return "fast";
+  if (serviceTier === "ultrafast") return "ultrafast";
+  return "standard";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -471,7 +487,7 @@ export function parseGrokRecord(parsed: unknown): readonly UsageRecord[] {
         sessionId,
         totals: grokTotalsToUsage(topLevel),
         reportedCostUsd: grokCostTicksToUsd(topLevel.costUsdTicks),
-        fast: false,
+        speed: "standard",
         // No prompt id means we cannot tell two same-second updates apart.
         dedupeKey: promptId === null ? null : `${sessionId}:${promptId}:grok`,
       },
@@ -519,7 +535,7 @@ export function parseGrokRecord(parsed: unknown): readonly UsageRecord[] {
       sessionId,
       totals,
       reportedCostUsd,
-      fast: false,
+      speed: "standard",
       dedupeKey: promptId === null ? null : `${sessionId}:${promptId}:${entry.model}`,
     });
   }

@@ -6,8 +6,8 @@ import {
   ScheduledJobInput,
   ScheduledJobRun,
   ScheduledJobError,
+  type OrchestrationV2RunStatus,
   type ScheduledJobsSnapshot,
-  type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Cron from "effect/Cron";
@@ -19,11 +19,10 @@ import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import type { ProjectionTurnState } from "../persistence/Services/ProjectionTurns.ts";
+import * as SqlClient from "effect/sql/SqlClient";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
+import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
 
 /** Intervals are anchored at each dispatch; cron expressions use the job's explicit timezone. */
 export function nextScheduledRun(schedule: string, timezone: string, after: string): string {
@@ -36,11 +35,39 @@ export function nextScheduledRun(schedule: string, timezone: string, after: stri
     if (!Number.isSafeInteger(duration) || duration < 60_000 || duration > 366 * 86_400_000) {
       throw new Error("Use an interval between one minute and 366 days.");
     }
+    // @effect-diagnostics-next-line globalDate:off
     return new Date(Date.parse(after) + duration).toISOString();
   }
   if (schedule.trim().split(/\s+/).length !== 5)
     throw new Error("Use a five-field cron schedule or an interval such as every 2h.");
+  // @effect-diagnostics-next-line globalDate:off
   return Cron.next(Cron.parseUnsafe(schedule, timezone), new Date(after)).toISOString();
+}
+
+const scheduledMessageId = (runId: string) => MessageId.make(`scheduled-message-${runId}`);
+
+/** A scheduled run's result once its orchestration run exists. */
+export function scheduledRunState(
+  status: OrchestrationV2RunStatus,
+  lastError: string | null,
+): Pick<ScheduledJobRun, "state" | "message"> {
+  switch (status) {
+    case "completed":
+      return { state: "completed", message: null };
+    case "failed":
+      return { state: "failed", message: lastError };
+    case "interrupted":
+    case "cancelled":
+    case "rolled_back":
+      return { state: "interrupted", message: null };
+    case "running":
+    case "waiting":
+      return { state: "running", message: null };
+    case "preparing":
+    case "queued":
+    case "starting":
+      return { state: "started", message: null };
+  }
 }
 
 const StoredRun = Schema.Struct({ ...ScheduledJobRun.fields, job: ScheduledJob });
@@ -56,8 +83,9 @@ const failure = (error: unknown) =>
 
 export const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const engine = yield* OrchestrationEngineService;
-  const queries = yield* ProjectionSnapshotQuery;
+  const threadLaunch = yield* ThreadLaunchService;
+  const threads = yield* ThreadManagementService;
+  const projects = yield* ProjectStoreV2;
   const crypto = yield* Crypto.Crypto;
   const mutex = yield* Semaphore.make(1);
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -93,7 +121,7 @@ export const make = Effect.gen(function* () {
   const validateProject = Effect.fn("ScheduledJobs.validateProject")(function* (
     input: ScheduledJobInput,
   ) {
-    const project = yield* queries.getProjectShellById(input.projectId);
+    const project = yield* projects.get(input.projectId).pipe(Effect.mapError(failure));
     if (Option.isNone(project))
       return yield* new ScheduledJobError({
         message: "Choose an existing project on this computer.",
@@ -101,33 +129,22 @@ export const make = Effect.gen(function* () {
   });
   const runState = Effect.fn("ScheduledJobs.runState")(function* (
     run: StoredRun,
-  ): Effect.fn.Return<ScheduledJobRun, SqlError> {
+  ): Effect.fn.Return<ScheduledJobRun> {
     const { job: _job, ...summary } = run;
     if (run.state !== "started") return summary;
-    // Follow the scheduled prompt's turn, including archived threads. A later
-    // conversation turn or a stopped idle session must not rewrite this run's result.
-    const rows = yield* sql<{
-      deletedAt: string | null;
-      status: OrchestrationSessionStatus | null;
-      message: string | null;
-      state: ProjectionTurnState | null;
-    }>`SELECT t.deleted_at AS "deletedAt", s.status, s.last_error AS message, r.state
-       FROM projection_threads t
-       LEFT JOIN projection_thread_sessions s ON s.thread_id = t.thread_id
-       LEFT JOIN projection_turns r ON r.thread_id = t.thread_id
-         AND r.pending_message_id = ${`scheduled-message-${run.id}`}
-       WHERE t.thread_id = ${run.threadId}
-       ORDER BY r.requested_at DESC LIMIT 1`;
-    const row = rows[0];
-    if (!row || row.deletedAt !== null)
-      return { ...summary, state: "interrupted", message: "The run’s thread was removed." };
-    if (row.state === "completed" || row.state === "interrupted")
-      return { ...summary, state: row.state };
-    if (row.state === "error" || row.status === "error")
-      return { ...summary, state: "failed", message: row.message };
-    if (row.status === "interrupted" || row.status === "stopped")
-      return { ...summary, state: "interrupted" };
-    return { ...summary, state: row.state ?? "started" };
+    // Follow the scheduled prompt's run, including archived threads. A later
+    // conversation turn must not rewrite this run's result.
+    const removed = { ...summary, state: "interrupted" as const, message: "The run’s thread was removed." };
+    const shell = yield* threads.getThreadShell(run.threadId).pipe(Effect.orElseSucceed(() => null));
+    if (shell === null || shell.deletedAt !== null) return removed;
+    const records = yield* threads
+      .getThreadRecords(run.threadId, ["runs"])
+      .pipe(Effect.orElseSucceed(() => null));
+    if (records === null) return removed;
+    const messageId = scheduledMessageId(run.id);
+    const scheduledRun = records.runs.find((candidate) => candidate.userMessageId === messageId);
+    if (scheduledRun === undefined) return summary;
+    return { ...summary, ...scheduledRunState(scheduledRun.status, shell.lastError ?? null) };
   });
   const isBusy = Effect.fn("ScheduledJobs.isBusy")(function* (id: string) {
     for (const run of yield* readRuns(id)) {
@@ -140,8 +157,7 @@ export const make = Effect.gen(function* () {
   const launch = Effect.fn("ScheduledJobs.launch")(function* (run: StoredRun) {
     const outcome = yield* Effect.gen(function* () {
       yield* validateProject(run.job);
-      yield* engine.dispatch({
-        type: "thread.create",
+      yield* threadLaunch.launch({
         commandId: CommandId.make(`scheduled-create-${run.id}`),
         threadId: run.threadId,
         projectId: run.job.projectId,
@@ -149,24 +165,14 @@ export const make = Effect.gen(function* () {
         modelSelection: run.job.modelSelection,
         runtimeMode: run.job.runtimeMode,
         interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-        createdAt: run.createdAt,
-      });
-      yield* engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make(`scheduled-start-${run.id}`),
-        threadId: run.threadId,
-        modelSelection: run.job.modelSelection,
-        runtimeMode: run.job.runtimeMode,
-        interactionMode: "default",
-        createdAt: run.createdAt,
-        message: {
-          messageId: MessageId.make(`scheduled-message-${run.id}`),
-          role: "user",
+        workspaceStrategy: { type: "root" },
+        initialMessage: {
+          messageId: scheduledMessageId(run.id),
           text: run.job.prompt,
           attachments: [],
         },
+        createdBy: "user",
+        creationSource: "server",
       });
     }).pipe(Effect.result);
     const updated: StoredRun =

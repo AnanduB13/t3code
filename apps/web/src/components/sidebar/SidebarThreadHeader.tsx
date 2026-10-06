@@ -31,7 +31,10 @@ export interface SidebarThreadHeaderProps {
   hasProjects: boolean;
   /** The project scope combobox, rendered as the first icon of the group. */
   projectScope: ReactNode;
+  /** False in chats mode, where threads are not scoped by project. */
   showProjectScope: boolean;
+  /** Chats mode's picker for the environment that stores new chats. */
+  chatStorage?: ReactNode;
   onNewProject: () => void;
   /** Receives the click so Shift+click can skip the project picker. */
   onNewThread: (event: ReactMouseEvent) => void;
@@ -55,6 +58,7 @@ export function SidebarThreadHeader({
   hasProjects,
   projectScope,
   showProjectScope,
+  chatStorage,
   onNewProject,
   onNewThread,
   newThreadDisabled,
@@ -126,10 +130,11 @@ export function SidebarThreadHeader({
           hover states, and a background well reads far louder on themed
           palettes than on the base light and dark ones. */}
       <div className="flex shrink-0 items-center">
+        {chatStorage}
         {hasProjects ? (
           <>
             {showProjectScope ? projectScope : null}
-            <SidebarHeaderIconButton label="New project" onClick={onNewProject}>
+            <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
               <FolderPlusIcon />
             </SidebarHeaderIconButton>
           </>

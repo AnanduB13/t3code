@@ -153,146 +153,41 @@
   ],
   "packageOverrides": [
     {
-      "repositoryUrl": "https://github.com/Microsoft/onnxruntime",
-      "sourceUrl": "https://github.com/microsoft/onnxruntime/blob/v1.21.0/LICENSE",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Microsoft Corporation"]
-      }
-    },
-    {
-      "name": "guid-typescript",
-      "version": "1.0.9",
-      "sourceUrl": "https://github.com/NicolasDeveloper/guid-typescript",
-      "generatedNotice": {
-        "licenseId": "ISC",
-        "copyrights": ["Copyright (c) Nicolas Silva dos Santos"],
-        "preamble": [
-          "guid-typescript is published under ISC in its package.json. Author: Nicolas Silva dos Santos (NicolasDeveloper)."
-        ]
-      }
-    },
-    {
-      "repositoryUrl": "https://github.com/lovell/sharp-libvips",
-      "version": "1.2.4",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/v1.2.4",
+      "name": "@bufbuild/protobuf",
+      "version": "1.10.0",
       "generatedNotices": [
         {
-          "licenseId": "LGPL-3.0-or-later",
-          "preamble": [
-            "Prebuilt libvips and dependencies. Source versions and build scripts: https://github.com/lovell/sharp-libvips/tree/v1.2.4\nUpstream third-party notices: https://github.com/lovell/sharp-libvips/blob/v1.2.4/THIRD-PARTY-NOTICES.md",
-            "# Third-party notices\n\nThis software contains third-party libraries\nused under the terms of the following licences:\n\n| Library       | Used under the terms of                                                                                   |\n|---------------|-----------------------------------------------------------------------------------------------------------|\n| aom           | BSD 2-Clause + [Alliance for Open Media Patent License 1.0](https://aomedia.org/license/patent-license/)  |\n| cairo         | Mozilla Public License 2.0                                                                                |\n| cgif          | MIT Licence                                                                                               |\n| expat         | MIT Licence                                                                                               |\n| fontconfig    | [fontconfig Licence](https://gitlab.freedesktop.org/fontconfig/fontconfig/blob/main/COPYING) (BSD-like)   |\n| freetype      | [freetype Licence](https://git.savannah.gnu.org/cgit/freetype/freetype2.git/tree/docs/FTL.TXT) (BSD-like) |\n| fribidi       | LGPLv3                                                                                                    |\n| glib          | LGPLv3                                                                                                    |\n| harfbuzz      | MIT Licence                                                                                               |\n| highway       | Apache-2.0 License, BSD 3-Clause                                                                          |\n| lcms          | MIT Licence                                                                                               |\n| libarchive    | BSD 2-Clause                                                                                              |\n| libexif       | LGPLv3                                                                                                    |\n| libffi        | MIT Licence                                                                                               |\n| libheif       | LGPLv3                                                                                                    |\n| libimagequant | [BSD 2-Clause](https://github.com/lovell/libimagequant/blob/main/COPYRIGHT)                               |\n| libnsgif      | MIT Licence                                                                                               |\n| libpng        | [libpng License](https://github.com/pnggroup/libpng/blob/master/LICENSE)                                  |\n| librsvg       | LGPLv3                                                                                                    |\n| libspng       | [BSD 2-Clause, libpng License](https://github.com/randy408/libspng/blob/master/LICENSE)                   |\n| libtiff       | [libtiff License](https://gitlab.com/libtiff/libtiff/blob/master/LICENSE.md) (BSD-like)                   |\n| libvips       | LGPLv3                                                                                                    |\n| libwebp       | New BSD License                                                                                           |\n| libxml2       | MIT Licence                                                                                               |\n| mozjpeg       | [zlib License, IJG License, BSD-3-Clause](https://github.com/mozilla/mozjpeg/blob/master/LICENSE.md)      |\n| pango         | LGPLv3                                                                                                    |\n| pixman        | MIT Licence                                                                                               |\n| proxy-libintl | LGPLv3                                                                                                    |\n| zlib-ng       | [zlib Licence](https://github.com/zlib-ng/zlib-ng/blob/develop/LICENSE.md)                                |\n\nUse of libraries under the terms of the LGPLv3 is via the\n\"any later version\" clause of the LGPLv2 or LGPLv2.1.\n\nPlease report any errors or omissions via\nhttps://github.com/lovell/sharp-libvips/issues/new"
-          ]
+          "licenseId": "Apache-2.0",
+          "copyrights": ["Copyright 2021-2024 Buf Technologies, Inc."]
         },
         {
-          "licenseId": "GPL-3.0-or-later",
-          "preamble": [
-            "The GNU GPL terms below are incorporated by reference into the LGPL version 3. This does not change the package license from LGPL-3.0-or-later."
-          ]
+          "licenseId": "BSD-3-Clause",
+          "copyrights": ["Copyright 2008 Google Inc. All rights reserved."]
         }
       ]
     },
     {
-      "name": "@nut-tree-fork/default-clipboard-provider",
-      "version": "4.2.6",
-      "sourceUrl": "https://github.com/nut-tree/nut.js",
+      "name": "@connectrpc/connect",
+      "version": "1.7.0",
       "generatedNotice": {
         "licenseId": "Apache-2.0",
-        "preamble": [
-          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
-        ]
+        "copyrights": ["Copyright 2021-2024 The Connect Authors"]
       }
     },
     {
-      "name": "@nut-tree-fork/libnut",
-      "version": "4.2.6",
-      "sourceUrl": "https://github.com/nut-tree/nut.js",
+      "name": "@connectrpc/connect-node",
+      "version": "1.7.0",
       "generatedNotice": {
         "licenseId": "Apache-2.0",
-        "preamble": [
-          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
-        ]
+        "copyrights": ["Copyright 2021-2024 The Connect Authors"]
       }
     },
     {
-      "name": "@nut-tree-fork/provider-interfaces",
-      "version": "4.2.6",
-      "sourceUrl": "https://github.com/nut-tree/nut.js",
+      "name": "@connectrpc/connect-web",
+      "version": "1.7.0",
       "generatedNotice": {
         "licenseId": "Apache-2.0",
-        "preamble": [
-          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
-        ]
-      }
-    },
-    {
-      "name": "@nut-tree-fork/shared",
-      "version": "4.2.6",
-      "sourceUrl": "https://github.com/nut-tree/nut.js",
-      "generatedNotice": {
-        "licenseId": "Apache-2.0",
-        "preamble": [
-          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
-        ]
-      }
-    },
-    {
-      "name": "exif-parser",
-      "version": "0.1.12",
-      "license": "MIT"
-    },
-    {
-      "name": "readable-web-to-node-stream",
-      "version": "3.0.4",
-      "sourceUrl": "https://github.com/Borewit/readable-web-to-node-stream",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2019 Borewit"]
-      }
-    },
-    {
-      "name": "@tokenizer/token",
-      "version": "0.3.0",
-      "sourceUrl": "https://github.com/Borewit/tokenizer-token",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2020 Borewit"]
-      }
-    },
-    {
-      "name": "tr46",
-      "version": "0.0.3",
-      "sourceUrl": "https://github.com/jsdom/tr46/blob/main/LICENSE.md",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Sebastian Mayr"]
-      }
-    },
-    {
-      "name": "buffer-equal",
-      "version": "0.0.1",
-      "sourceUrl": "https://github.com/inspect-js/buffer-equal/blob/master/LICENSE",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2012 James Halliday and contributors"]
-      }
-    },
-    {
-      "name": "parse-bmfont-ascii",
-      "version": "1.0.6",
-      "sourceUrl": "https://github.com/mattdesl/parse-bmfont-ascii/blob/master/LICENSE.md",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015 Matt DesLauriers"]
-      }
-    },
-    {
-      "name": "omggif",
-      "version": "1.0.10",
-      "sourceUrl": "https://github.com/deanm/omggif/blob/master/omggif.js",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Dean McNamee <dean@gmail.com>, 2013."]
+        "copyrights": ["Copyright 2021-2024 The Connect Authors"]
       }
     },
     {
@@ -615,6 +510,264 @@
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2025 opencode"]
+      }
+    },
+    {
+      "repositoryUrl": "https://github.com/anomalyco/opencode",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 opencode"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "noxcturnal",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-linux-x64-gnu",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-darwin-x64",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-linux-arm64-gnu",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-darwin-arm64",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-linux-arm64-musl",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-linux-x64-musl",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-win32-arm64-msvc",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@noxcturnal/noxcturnal-win32-x64-msvc",
+      "sourceUrl": "https://github.com/expo/noxcturnal",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "fastdom",
+      "sourceUrl": "https://github.com/wilsonpage/fastdom",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2016 Wilson Page"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "strictdom",
+      "sourceUrl": "https://github.com/wilsonpage/strictdom",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2013 Wilson Page"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "khroma",
+      "sourceUrl": "https://github.com/fabiospampinato/khroma",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"]
+      }
+    },
+    {
+      "repositoryUrl": "https://github.com/Microsoft/onnxruntime",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime/blob/v1.21.0/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Microsoft Corporation"]
+      }
+    },
+    {
+      "name": "guid-typescript",
+      "version": "1.0.9",
+      "sourceUrl": "https://github.com/NicolasDeveloper/guid-typescript",
+      "generatedNotice": {
+        "licenseId": "ISC",
+        "copyrights": ["Copyright (c) Nicolas Silva dos Santos"],
+        "preamble": [
+          "guid-typescript is published under ISC in its package.json. Author: Nicolas Silva dos Santos (NicolasDeveloper)."
+        ]
+      }
+    },
+    {
+      "repositoryUrl": "https://github.com/lovell/sharp-libvips",
+      "version": "1.2.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/v1.2.4",
+      "generatedNotices": [
+        {
+          "licenseId": "LGPL-3.0-or-later",
+          "preamble": [
+            "Prebuilt libvips and dependencies. Source versions and build scripts: https://github.com/lovell/sharp-libvips/tree/v1.2.4\nUpstream third-party notices: https://github.com/lovell/sharp-libvips/blob/v1.2.4/THIRD-PARTY-NOTICES.md",
+            "# Third-party notices\n\nThis software contains third-party libraries\nused under the terms of the following licences:\n\n| Library       | Used under the terms of                                                                                   |\n|---------------|-----------------------------------------------------------------------------------------------------------|\n| aom           | BSD 2-Clause + [Alliance for Open Media Patent License 1.0](https://aomedia.org/license/patent-license/)  |\n| cairo         | Mozilla Public License 2.0                                                                                |\n| cgif          | MIT Licence                                                                                               |\n| expat         | MIT Licence                                                                                               |\n| fontconfig    | [fontconfig Licence](https://gitlab.freedesktop.org/fontconfig/fontconfig/blob/main/COPYING) (BSD-like)   |\n| freetype      | [freetype Licence](https://git.savannah.gnu.org/cgit/freetype/freetype2.git/tree/docs/FTL.TXT) (BSD-like) |\n| fribidi       | LGPLv3                                                                                                    |\n| glib          | LGPLv3                                                                                                    |\n| harfbuzz      | MIT Licence                                                                                               |\n| highway       | Apache-2.0 License, BSD 3-Clause                                                                          |\n| lcms          | MIT Licence                                                                                               |\n| libarchive    | BSD 2-Clause                                                                                              |\n| libexif       | LGPLv3                                                                                                    |\n| libffi        | MIT Licence                                                                                               |\n| libheif       | LGPLv3                                                                                                    |\n| libimagequant | [BSD 2-Clause](https://github.com/lovell/libimagequant/blob/main/COPYRIGHT)                               |\n| libnsgif      | MIT Licence                                                                                               |\n| libpng        | [libpng License](https://github.com/pnggroup/libpng/blob/master/LICENSE)                                  |\n| librsvg       | LGPLv3                                                                                                    |\n| libspng       | [BSD 2-Clause, libpng License](https://github.com/randy408/libspng/blob/master/LICENSE)                   |\n| libtiff       | [libtiff License](https://gitlab.com/libtiff/libtiff/blob/master/LICENSE.md) (BSD-like)                   |\n| libvips       | LGPLv3                                                                                                    |\n| libwebp       | New BSD License                                                                                           |\n| libxml2       | MIT Licence                                                                                               |\n| mozjpeg       | [zlib License, IJG License, BSD-3-Clause](https://github.com/mozilla/mozjpeg/blob/master/LICENSE.md)      |\n| pango         | LGPLv3                                                                                                    |\n| pixman        | MIT Licence                                                                                               |\n| proxy-libintl | LGPLv3                                                                                                    |\n| zlib-ng       | [zlib Licence](https://github.com/zlib-ng/zlib-ng/blob/develop/LICENSE.md)                                |\n\nUse of libraries under the terms of the LGPLv3 is via the\n\"any later version\" clause of the LGPLv2 or LGPLv2.1.\n\nPlease report any errors or omissions via\nhttps://github.com/lovell/sharp-libvips/issues/new"
+          ]
+        },
+        {
+          "licenseId": "GPL-3.0-or-later",
+          "preamble": [
+            "The GNU GPL terms below are incorporated by reference into the LGPL version 3. This does not change the package license from LGPL-3.0-or-later."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "@nut-tree-fork/default-clipboard-provider",
+      "version": "4.2.6",
+      "sourceUrl": "https://github.com/nut-tree/nut.js",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "preamble": [
+          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
+        ]
+      }
+    },
+    {
+      "name": "@nut-tree-fork/libnut",
+      "version": "4.2.6",
+      "sourceUrl": "https://github.com/nut-tree/nut.js",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "preamble": [
+          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
+        ]
+      }
+    },
+    {
+      "name": "@nut-tree-fork/provider-interfaces",
+      "version": "4.2.6",
+      "sourceUrl": "https://github.com/nut-tree/nut.js",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "preamble": [
+          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
+        ]
+      }
+    },
+    {
+      "name": "@nut-tree-fork/shared",
+      "version": "4.2.6",
+      "sourceUrl": "https://github.com/nut-tree/nut.js",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "preamble": [
+          "Author: dry Software UG (haftungsbeschränkt), https://dry.software. This package declares Apache-2.0 in its published package.json."
+        ]
+      }
+    },
+    {
+      "name": "exif-parser",
+      "version": "0.1.12",
+      "license": "MIT"
+    },
+    {
+      "name": "readable-web-to-node-stream",
+      "version": "3.0.4",
+      "sourceUrl": "https://github.com/Borewit/readable-web-to-node-stream",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2019 Borewit"]
+      }
+    },
+    {
+      "name": "@tokenizer/token",
+      "version": "0.3.0",
+      "sourceUrl": "https://github.com/Borewit/tokenizer-token",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2020 Borewit"]
+      }
+    },
+    {
+      "name": "tr46",
+      "version": "0.0.3",
+      "sourceUrl": "https://github.com/jsdom/tr46/blob/main/LICENSE.md",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Sebastian Mayr"]
+      }
+    },
+    {
+      "name": "buffer-equal",
+      "version": "0.0.1",
+      "sourceUrl": "https://github.com/inspect-js/buffer-equal/blob/master/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2012 James Halliday and contributors"]
+      }
+    },
+    {
+      "name": "parse-bmfont-ascii",
+      "version": "1.0.6",
+      "sourceUrl": "https://github.com/mattdesl/parse-bmfont-ascii/blob/master/LICENSE.md",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2015 Matt DesLauriers"]
+      }
+    },
+    {
+      "name": "omggif",
+      "version": "1.0.10",
+      "sourceUrl": "https://github.com/deanm/omggif/blob/master/omggif.js",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Dean McNamee <dean@gmail.com>, 2013."]
       }
     }
   ]

@@ -1,4 +1,4 @@
-import type { OrchestrationQueuedMessage } from "@t3tools/contracts";
+import type { QueuedPrompt } from "@t3tools/client-runtime/state/queued-prompts";
 import {
   formatComposerContextReference,
   replaceComposerContextReferences,
@@ -9,8 +9,8 @@ import { randomUUID } from "../../lib/utils";
 
 /** Prepare draft context while keeping the exact server text for compare-and-remove. */
 export function prepareQueuedMessageContext(
-  message: OrchestrationQueuedMessage,
-): { message: OrchestrationQueuedMessage; expectedText: string } | null {
+  message: QueuedPrompt,
+): { message: QueuedPrompt; expectedText: string } | null {
   const context = resolveUserMessageContext(message);
   if (
     context.records.some(

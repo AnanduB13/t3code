@@ -1,5 +1,5 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { projectThreadAwareness, type AgentAwarenessPhase } from "@t3tools/shared/agentAwareness";
+import { projectThreadAwarenessV2, type AgentAwarenessPhase } from "@t3tools/shared/agentAwareness";
 
 export interface AndroidChatNotification {
   readonly key: string;
@@ -7,8 +7,10 @@ export interface AndroidChatNotification {
   readonly body: string;
   readonly deepLink: string;
   readonly phase: AgentAwarenessPhase;
-  readonly turnId: string | null;
+  /** The run this state belongs to; the native monitor keys Stop dismissal on it. */
+  readonly runId: string | null;
   readonly ongoing: boolean;
+  /** Plan step counts for the native progress card. V2 shells carry none, so they stay 0. */
   readonly completedSteps: number;
   readonly totalSteps: number;
 }
@@ -17,26 +19,22 @@ export function projectAndroidChatNotification(
   thread: EnvironmentThreadShell,
 ): AndroidChatNotification | null {
   if (thread.archivedAt) return null;
-  const activity = projectThreadAwareness({
+  const activity = projectThreadAwarenessV2({
     environmentId: thread.environmentId,
     project: { title: "" },
-    thread,
+    thread: thread.source,
   });
   if (!activity) return null;
-  const ongoing = activity.phase === "running" || activity.phase === "starting";
-  const progress = ongoing ? thread.planProgress : null;
   return {
     key: JSON.stringify([thread.environmentId, thread.id]),
     title: thread.title,
-    body: progress
-      ? `${progress.completedSteps}/${progress.totalSteps} steps · ${progress.step}`
-      : activity.headline,
+    body: activity.headline,
     deepLink: activity.deepLink,
     phase: activity.phase,
-    turnId: thread.latestTurn?.turnId ?? null,
-    ongoing,
-    completedSteps: progress?.completedSteps ?? 0,
-    totalSteps: progress?.totalSteps ?? 0,
+    runId: thread.latestRun?.runId ?? null,
+    ongoing: activity.phase === "running" || activity.phase === "starting",
+    completedSteps: 0,
+    totalSteps: 0,
   };
 }
 
@@ -46,11 +44,11 @@ export function shouldAlertAndroidChat(
   next: AndroidChatNotification,
 ): boolean {
   if (!previous || next.ongoing || next.phase === "stale") return false;
-  // A checkpoint can attach or remove a turn ID after the session has already
-  // finished. Only two known, different IDs prove that another run completed.
+  // A run ID can appear or disappear around the same finished state. Only two
+  // known, different IDs prove that another run completed.
   return (
     previous.phase !== next.phase ||
-    (previous.turnId !== null && next.turnId !== null && previous.turnId !== next.turnId)
+    (previous.runId !== null && next.runId !== null && previous.runId !== next.runId)
   );
 }
 

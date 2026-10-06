@@ -1,4 +1,4 @@
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { RunId, ScopedThreadRef } from "@t3tools/contracts";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { isWindowsAbsolutePath, normalizeProjectPathForComparison } from "@t3tools/shared/path";
 
@@ -17,7 +17,7 @@ interface OpenDiffFilePrimaryActionInput {
 /** Routes changed images to the file preview and other selections to the turn diff. */
 export function openTurnDiffAction(input: {
   readonly threadRef: ScopedThreadRef;
-  readonly turnId: TurnId;
+  readonly runId: RunId;
   readonly filePath?: string;
   readonly workspaceRoot: string | undefined;
   readonly repositoryRoot: string | undefined;
@@ -34,7 +34,7 @@ export function openTurnDiffAction(input: {
     return;
   }
 
-  useDiffPanelStore.getState().selectTurn(input.threadRef, input.turnId, input.filePath);
+  useDiffPanelStore.getState().selectTurn(input.threadRef, input.runId, input.filePath);
   useRightPanelStore.getState().open(input.threadRef, "diff");
 }
 

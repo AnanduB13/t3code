@@ -17,8 +17,8 @@ import {
   type PreviewAutomationSnapshot,
   type PreviewAutomationStatus,
   type PreviewTabId,
+  VisualEvidenceCaptureError,
 } from "@t3tools/contracts";
-import { VisualEvidenceCaptureError } from "@t3tools/contracts";
 
 import {
   parseAttachmentUuid,
@@ -30,8 +30,12 @@ import { resolveAttachmentRelativePath } from "../../../attachmentPaths.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
-import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "./tools.ts";
-import { PreviewEvidenceToolkit } from "./tools.ts";
+import {
+  PreviewEvidenceToolkit,
+  PreviewSnapshotToolkit,
+  PreviewStandardToolkit,
+  PreviewToolkit,
+} from "./tools.ts";
 import { VisualEvidence } from "../../../visualEvidence/VisualEvidence.ts";
 
 /**
@@ -63,7 +67,7 @@ const invoke = Effect.fn("PreviewToolkit.invoke")(function* <A>(
   import("@t3tools/contracts").PreviewAutomationError,
   McpInvocationContext.McpInvocationContext | PreviewAutomationBroker.PreviewAutomationBroker
 > {
-  const scope = yield* McpInvocationContext.requirePreviewCapability();
+  const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
   let targetTabId = tabId;
   const result = yield* broker.invoke<A>({
@@ -221,7 +225,7 @@ const handlers = {
     invokeTargeted<PreviewAutomationRecordingStatus>("recordingStart", input ?? {}),
   preview_recording_stop: (input) =>
     Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.requireMcpCapability("preview");
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
       const { tabId, ...operationInput } = input;
       const response = yield* invoke<unknown>(
         "recordingStop",
@@ -229,23 +233,23 @@ const handlers = {
         PREVIEW_RECORDING_STOP_TIMEOUT_MS,
         tabId,
       );
-      const artifact = yield* claimPreviewRecording(scope.threadId, response.result);
+      const artifact = yield* claimPreviewRecording(scope.thread.threadId, response.result);
       return { ...artifact, ...(response.toolIcon ? { toolIcon: response.toolIcon } : {}) };
     }),
 } satisfies Parameters<typeof PreviewToolkit.toLayer>[0];
 
 const { preview_snapshot, ...standardHandlers } = handlers;
 
-export const PreviewStandardToolkitHandlersLive = PreviewStandardToolkit.toLayer(standardHandlers);
+export const layerStandard = PreviewStandardToolkit.toLayer(standardHandlers);
 
-export const PreviewSnapshotToolkitHandlersLive = PreviewSnapshotToolkit.toLayer({
+export const layerSnapshot = PreviewSnapshotToolkit.toLayer({
   preview_snapshot,
 });
 
-export const PreviewEvidenceToolkitHandlersLive = PreviewEvidenceToolkit.toLayer({
+export const layerEvidence = PreviewEvidenceToolkit.toLayer({
   preview_capture_evidence: (input) =>
     Effect.gen(function* () {
-      const invocation = yield* McpInvocationContext.requirePreviewCapability().pipe(
+      const invocation = yield* McpInvocationContext.requireThreadMcpCapability("preview").pipe(
         Effect.mapError(
           () =>
             new VisualEvidenceCaptureError({
@@ -255,8 +259,6 @@ export const PreviewEvidenceToolkitHandlersLive = PreviewEvidenceToolkit.toLayer
         ),
       );
       const visualEvidence = yield* VisualEvidence;
-      return yield* visualEvidence.capture(invocation.threadId, input);
+      return yield* visualEvidence.capture(invocation.thread.threadId, input);
     }),
 });
-
-export const PreviewToolkitHandlersLive = PreviewToolkit.toLayer(handlers);

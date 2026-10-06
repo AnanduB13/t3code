@@ -5,7 +5,7 @@ import type {
   ProviderUsageSnapshot,
   ProviderUsageWindow,
 } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Clock3Icon } from "lucide-react";
 
 import { providerUsageQuery } from "../../state/providerUsage";

@@ -144,7 +144,7 @@ export function ActivityCenter() {
           >
             Notifications
             {unreadCount > 0 ? (
-              <span className="rounded-full bg-info/15 px-1.5 font-mono text-[10px] text-info tabular-nums">
+              <span className="rounded-full bg-info/15 px-1.5 font-mono text-3xs text-info tabular-nums">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             ) : null}
@@ -162,7 +162,7 @@ export function ActivityCenter() {
           >
             Running
             {running.length > 0 ? (
-              <span className="rounded-full bg-info/15 px-1.5 font-mono text-[10px] text-info tabular-nums">
+              <span className="rounded-full bg-info/15 px-1.5 font-mono text-3xs text-info tabular-nums">
                 {running.length > 99 ? "99+" : running.length}
               </span>
             ) : null}
@@ -172,7 +172,7 @@ export function ActivityCenter() {
         {view === "notifications" ? (
           <section aria-label="Task completion notifications">
             <div className="flex h-9 items-center justify-between border-b border-border/50 px-3">
-              <span className="text-[11px] font-medium text-muted-foreground">
+              <span className="text-2xs font-medium text-muted-foreground">
                 {notifications.length === 0
                   ? "No task completions"
                   : `${notifications.length} task ${notifications.length === 1 ? "completion" : "completions"}`}
@@ -181,7 +181,7 @@ export function ActivityCenter() {
                 <button
                   type="button"
                   onClick={markAllRead}
-                  className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="flex items-center gap-1 rounded px-1.5 py-1 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   <CheckCheckIcon className="size-3" />
                   Mark all read
@@ -218,11 +218,11 @@ export function ActivityCenter() {
                         <span className="min-w-0 flex-1 truncate text-xs font-medium">
                           {notification.thread.title}
                         </span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                        <span className="shrink-0 text-3xs text-muted-foreground/70">
                           {formatRelativeTimeLabel(notification.completedAt)}
                         </span>
                       </span>
-                      <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground/75">
+                      <span className="mt-0.5 flex items-center gap-1.5 text-2xs text-muted-foreground/75">
                         <span className="min-w-0 truncate">
                           {contextLabel(notification.thread)}
                         </span>
@@ -267,13 +267,11 @@ export function ActivityCenter() {
                         <span className="block truncate text-xs font-medium text-foreground">
                           {entry.thread.title}
                         </span>
-                        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-2xs text-muted-foreground">
                           <LoaderCircleIcon className="size-3 shrink-0 text-info" />
-                          <span className="truncate">
-                            {entry.thread.planProgress?.step ?? entry.status}
-                          </span>
+                          <span className="truncate">{entry.status}</span>
                         </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                        <span className="mt-0.5 flex items-center gap-1.5 text-3xs text-muted-foreground/70">
                           <span className="min-w-0 truncate">{contextLabel(entry.thread)}</span>
                           <span aria-hidden>·</span>
                           <span className="shrink-0">

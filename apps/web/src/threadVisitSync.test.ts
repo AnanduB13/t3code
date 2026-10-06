@@ -4,10 +4,11 @@ import { createThreadVisitSync, type ThreadVisit } from "./threadVisitSync";
 
 const early = "2026-09-01T10:00:00.000Z";
 const completed = "2026-09-01T10:05:00.000Z";
-const thread = (lastVisitedAt: string | null, environment = "env") => ({
+// `undefined` stands for a server that predates visit tracking.
+const thread = (lastVisitedAt: string | null | undefined, environment = "env") => ({
   id: ThreadId.make("thread"),
   environmentId: EnvironmentId.make(environment),
-  lastVisitedAt,
+  ...(lastVisitedAt === undefined ? {} : { lastVisitedAt }),
 });
 function client(send: (visit: ThreadVisit) => Promise<boolean> = async () => true) {
   const local: Record<string, string | undefined> = {};
@@ -87,5 +88,16 @@ describe("shared thread visits", () => {
       { threadKey: "env:thread", visitedAt: completed },
       { threadKey: "env:thread", visitedAt: unreadAt, markUnread: true },
     ]);
+  });
+
+  it("leaves local markers alone on servers without visit tracking", async () => {
+    const send = vi.fn(async () => false);
+    const { sync, local } = client(send);
+    local["env:thread"] = completed;
+    sync.update([thread(undefined)]);
+    sync.visit({ threadKey: "env:thread", visitedAt: completed });
+    await Promise.resolve();
+    expect(send).not.toHaveBeenCalled();
+    expect(local["env:thread"]).toBe(completed);
   });
 });

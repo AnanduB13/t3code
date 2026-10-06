@@ -26,7 +26,7 @@ import {
 } from "@t3tools/contracts";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useShallow } from "zustand/react/shallow";
 
 import {
@@ -61,7 +61,7 @@ import {
 } from "~/browser/browserDefaults";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
-import { isLatestTurnSettled } from "~/session-logic";
+import { isLatestRunSettled } from "~/session-logic";
 import { useThreadShells } from "~/state/entities";
 import { isElectron } from "~/env";
 import { useEnvironments } from "~/state/environments";
@@ -101,6 +101,7 @@ import {
   resolvePreviewAutomationTarget,
 } from "./previewAutomationTarget";
 import { resolveHostWaitBudgetMs, waitForHostReadiness } from "./previewAutomationHostBudget";
+import { runPreviewClickKeepingHostFocus } from "./previewClickFocus";
 import { isPreviewViewportReady } from "./previewViewportReadiness";
 import { shouldRollbackPreviewViewport } from "./previewViewportRollback";
 
@@ -295,7 +296,7 @@ export function PreviewAutomationHosts() {
     for (const thread of threadShells) {
       const threadRef = scopeThreadRef(thread.environmentId, thread.id);
       const threadKey = scopedThreadKey(threadRef);
-      const settled = isLatestTurnSettled(thread.latestTurn, thread.session);
+      const settled = isLatestRunSettled(thread.latestRun, thread.runtime);
       next.set(threadKey, settled);
       if (previous.get(threadKey) !== false || !settled) continue;
 
@@ -728,9 +729,11 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "click": {
             const ready = await requireReadyTab();
-            return await ready.bridge.automation.click(
-              ready.runtimeTabId,
-              request.input as Parameters<typeof ready.bridge.automation.click>[1],
+            return await runPreviewClickKeepingHostFocus(ready.runtimeTabId, () =>
+              ready.bridge.automation.click(
+                ready.runtimeTabId,
+                request.input as Parameters<typeof ready.bridge.automation.click>[1],
+              ),
             );
           }
           case "type": {

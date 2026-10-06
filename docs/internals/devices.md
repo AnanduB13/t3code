@@ -60,8 +60,8 @@ a shim directory to the provider's PATH. The CLI installs on the environment
 server even when that server cannot run simulators. Hosts start on demand.
 
 That environment is fixed when the provider subprocess spawns, so
-[`prepareMcpSession`](../../apps/server/src/provider/Layers/ProviderService.ts)
-installs the local CLI only when device support and agent access have both been
+[`prepareMcpSession`](../../apps/server/src/orchestration-v2/ProviderSessionManager.ts)
+starts agent-device only when device support and agent access have both been
 enabled and the session has the `device` capability. Remote device hosts are
 supported even when the environment server cannot run a simulator. Starting it later from `device_open` would leave the
 already-running agent without the CLI.

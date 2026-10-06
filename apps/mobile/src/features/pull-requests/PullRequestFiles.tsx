@@ -72,7 +72,9 @@ export function PullRequestFiles({
         data={file?.lines ?? []}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
-          !query.isPending ? <PrNotice>No text changes to display in this file.</PrNotice> : null
+          !query.isPending ? (
+            <PrNotice>No text changes to display in this file.</PrNotice>
+          ) : undefined
         }
         renderItem={({ item }) => (
           <Pressable

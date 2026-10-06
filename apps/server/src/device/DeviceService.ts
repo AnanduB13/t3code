@@ -52,14 +52,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import * as ServerSettings from "../serverSettings.ts";
 import { isLocalSshDeviceHost, remoteSshDeviceHosts } from "./localSshDeviceHost.ts";
@@ -191,9 +191,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
   installTool?: (tool: "hub" | "agent") => Effect.Effect<unknown, DeviceError>,
 ) {
   const settings = yield* ServerSettings.ServerSettingsService;
-  const projectionQuery = yield* Effect.serviceOption(
-    ProjectionSnapshotQuery.ProjectionSnapshotQuery,
-  );
+  const projections = yield* Effect.serviceOption(ProjectionStore.ProjectionStoreV2);
   const agentAccessAllowed = Effect.fn("DeviceService.agentAccessAllowed")(
     function* (threadId: ThreadId | undefined) {
       const value = yield* settings.getSettings;
@@ -202,12 +200,9 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
         (entry) => entry.enableAgentDeviceAccess !== undefined,
       );
       if (!threadId || !overridden) return value.enableAgentDeviceAccess;
-      if (Option.isNone(projectionQuery)) return false;
-      const thread = yield* projectionQuery.value.getThreadShellById(threadId);
-      return (
-        Option.isSome(thread) &&
-        resolveProjectSettings(value, thread.value.projectId).settings.enableAgentDeviceAccess
-      );
+      if (Option.isNone(projections)) return false;
+      const thread = yield* projections.value.getThread(threadId);
+      return resolveProjectSettings(value, thread.projectId).settings.enableAgentDeviceAccess;
     },
     Effect.orElseSucceed(() => false),
   );

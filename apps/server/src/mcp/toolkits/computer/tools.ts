@@ -15,7 +15,7 @@ import {
   ComputerUseTypeTextInput,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/unstable/ai";
+import { Tool, Toolkit } from "effect/ai";
 
 import * as ComputerUseBroker from "../../ComputerUseBroker.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";

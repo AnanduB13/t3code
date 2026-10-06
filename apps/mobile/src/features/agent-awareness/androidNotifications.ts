@@ -6,6 +6,7 @@ interface AndroidAgentNotifications {
   isConfigured?(): boolean;
   configure(deviceId: string, userId: string, scheme: string, ongoingEnabled: boolean): void;
   clear(): void;
+  setThreadOnScreen?(path: string | null): void;
   openLiveUpdateSettings?(): boolean;
   showShowcaseActivity?(scheme: string, data: Record<string, string>): void;
 }
@@ -45,6 +46,11 @@ export function showAndroidShowcaseAgentActivity(data: Record<string, string>): 
 
 export function clearAndroidAgentNotifications(): void {
   native?.clear?.();
+}
+
+/** Tells the FCM handler which thread route is on screen so its alerts stay quiet. */
+export function setAndroidThreadOnScreen(path: string | null): void {
+  native?.setThreadOnScreen?.(path);
 }
 
 export function supportsAndroidLiveUpdateSettings(): boolean {

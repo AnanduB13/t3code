@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
-import * as Migrator from "effect/unstable/sql/Migrator";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as Migrator from "effect/sql/Migrator";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import AfterDarkCompatibility from "./Migrations/044_AfterDarkUpstreamCompatibility.ts";
 import ClearAutomaticProjectModelDefaults from "./Migrations/044_ClearAutomaticProjectModelDefaults.ts";
@@ -56,6 +56,19 @@ const repairLegacyMainCompatibility = Effect.gen(function* () {
   }
 });
 
+/** Records which V1 queued prompts were re-queued in V2, so each imports once. */
+const legacyQueueImports = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS after_dark_legacy_queue_imports (
+      message_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      imported_at TEXT NOT NULL,
+      error TEXT
+    )
+  `;
+});
+
 const run = Migrator.make({});
 
 /** Runs fork additions separately, including repairs for old shared migration IDs. */
@@ -72,6 +85,7 @@ export const runAfterDarkMigrations = (throughUpstreamId?: number) =>
             "5_QueuedMessageHold": addQueuedMessageHold,
             "6_RepairLegacyMainCompatibility": repairLegacyMainCompatibility,
             "7_ScheduledJobs": ScheduledJobs,
+            "8_LegacyQueueImports": legacyQueueImports,
           }
         : {}),
     }),

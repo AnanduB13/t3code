@@ -1,5 +1,5 @@
 import type { ComputerUseActionResult, ComputerUseAppState } from "@t3tools/contracts";
-import { McpSchema } from "effect/unstable/ai";
+import { McpSchema } from "effect/ai";
 
 /** Keeps PNG bytes out of JSON and gives the model one readable accessibility tree. */
 export function computerUseToolResult(result: ComputerUseAppState | ComputerUseActionResult) {

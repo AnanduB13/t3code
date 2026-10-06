@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
+import { resolveThreadActivityStatus } from "./ActivityCenter.logic";
 import { isThreadCompletionUnread } from "./ThreadCompletionNotifications.logic";
 
 export type ProjectScopeActivity = {
@@ -17,13 +18,7 @@ function physicalProjectKey(environmentId: string, projectId: string): string {
 }
 
 function isThreadRunning(thread: EnvironmentThreadShell): boolean {
-  return (
-    thread.latestTurn?.state === "running" ||
-    thread.session?.status === "starting" ||
-    thread.session?.status === "running" ||
-    thread.backgroundLiveness === "working" ||
-    thread.backgroundLiveness === "monitoring"
-  );
+  return resolveThreadActivityStatus(thread) !== null;
 }
 
 export function buildProjectActivityByPhysicalKey(input: {

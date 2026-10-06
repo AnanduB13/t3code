@@ -8,7 +8,7 @@ import {
   RefreshCwIcon,
   ScanLineIcon,
 } from "lucide-react";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { useActiveEnvironmentId, useThreadShells } from "../../state/entities";
 import { cn } from "../../lib/utils";

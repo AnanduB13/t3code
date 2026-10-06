@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { ServerConfig } from "@t3tools/contracts";
 import { withLegacyUsageLimits } from "@t3tools/shared/usageLimits";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";

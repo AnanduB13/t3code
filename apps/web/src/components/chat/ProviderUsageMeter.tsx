@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProviderInstanceId, ProviderUsageWindow } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { GaugeIcon } from "lucide-react";
 
 import { providerUsageQuery } from "../../state/providerUsage";

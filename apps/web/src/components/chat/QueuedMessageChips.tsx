@@ -30,7 +30,8 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import type { MessageId, OrchestrationQueuedMessage } from "@t3tools/contracts";
+import type { QueuedPrompt } from "@t3tools/client-runtime/state/queued-prompts";
+import type { MessageId } from "@t3tools/contracts";
 
 import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialog";
 import { Button } from "../ui/button";
@@ -39,7 +40,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 /** Queues longer than this collapse into a single summary row until expanded. */
 const QUEUE_COLLAPSE_THRESHOLD = 3;
 
-function queuedMessageLabel(message: OrchestrationQueuedMessage): string {
+function queuedMessageLabel(message: QueuedPrompt): string {
   return message.text.length > 0
     ? message.text
     : message.attachments.map((attachment) => attachment.name).join(", ");
@@ -61,7 +62,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   onUpdate,
   onReorder,
 }: {
-  readonly queuedMessages: ReadonlyArray<OrchestrationQueuedMessage>;
+  readonly queuedMessages: ReadonlyArray<QueuedPrompt>;
   readonly attachmentUrlById?: ReadonlyMap<string, string>;
   readonly steerDisabled?: boolean;
   readonly onSteer: (messageId: MessageId, messageIds?: ReadonlyArray<MessageId>) => void;
@@ -101,7 +102,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
     onReorder(arrayMove([...messageIds], fromIndex, toIndex));
   };
 
-  const saveEdit = (queuedMessage: OrchestrationQueuedMessage) => {
+  const saveEdit = (queuedMessage: QueuedPrompt) => {
     if (draftText.trim().length === 0 && queuedMessage.attachments.length === 0) return;
     onUpdate(queuedMessage.messageId, draftText);
     setEditingId(null);

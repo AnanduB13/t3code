@@ -1,7 +1,7 @@
 import { act, createElement } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import type { Preferences } from "../../persistence/mobile-preferences";
 
 const state = vi.hoisted(() => ({
@@ -14,18 +14,10 @@ const state = vi.hoisted(() => ({
   workspace: { environments: [] },
   configs: new Map(),
   live: new Set(["server-a"]),
-  omitTurn: false,
+  omitRun: false,
   thread: {
-    environmentId: "server-a",
-    id: "chat-a",
-    title: "Fix login",
-    archivedAt: null,
-    updatedAt: "2026-09-30T10:00:00Z",
-    modelSelection: { model: "test" },
     hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    latestTurn: { turnId: "turn-a", state: "running" },
-    planProgress: { completedSteps: 0, totalSteps: 2, step: "Working" },
+    run: { id: "run-a", status: "running" as "running" | "completed" },
   },
   preferencesAtom: {},
   schedule: vi.fn(async () => "notification"),
@@ -51,16 +43,36 @@ vi.mock("@effect/atom-react", () => ({
     atom === state.preferencesAtom ? AsyncResult.success(state.preferences) : state.live,
 }));
 vi.mock("../../state/preferences", () => ({ mobilePreferencesAtom: state.preferencesAtom }));
-vi.mock("../../state/entities", () => ({
-  useThreadShells: () => [
-    {
-      ...state.thread,
-      latestTurn: state.omitTurn ? null : state.thread.latestTurn,
-      session: state.omitTurn ? { status: "ready" } : null,
+vi.mock("../../state/entities", async () => {
+  const { presentThreadShell } = await import("@t3tools/client-runtime/state/shell");
+  const { EnvironmentId, RunId, RuntimeRequestId, ThreadId } = await import("@t3tools/contracts");
+  const DateTime = await import("effect/DateTime");
+  const { makeRawThreadShell } = await import("../../test-fixtures");
+  const now = DateTime.makeUnsafe("2026-09-30T10:00:00Z");
+  return {
+    useThreadShells: () => {
+      const { run, hasPendingApprovals } = state.thread;
+      const runId = state.omitRun ? null : RunId.make(run.id);
+      return [
+        presentThreadShell(
+          EnvironmentId.make("server-a"),
+          makeRawThreadShell({
+            id: ThreadId.make("chat-a"),
+            title: "Fix login",
+            updatedAt: now,
+            latestRunId: runId,
+            activeRunId: run.status === "running" ? runId : null,
+            status: run.status,
+            pendingRuntimeRequest: hasPendingApprovals
+              ? { id: RuntimeRequestId.make("approval"), kind: "command", createdAt: now }
+              : null,
+          }),
+        ),
+      ];
     },
-  ],
-  useServerConfigs: () => state.configs,
-}));
+    useServerConfigs: () => state.configs,
+  };
+});
 vi.mock("../../state/workspace", () => ({ useWorkspaceState: () => state.workspace }));
 vi.mock("../../state/shell", () => ({ environmentShell: {} }));
 vi.mock("../../connection/catalog", () => ({ environmentCatalog: {} }));
@@ -82,7 +94,7 @@ async function render() {
   });
 }
 async function complete() {
-  state.thread.latestTurn.state = "completed";
+  state.thread.run.status = "completed";
   await render();
 }
 beforeEach(() => {
@@ -96,11 +108,9 @@ beforeEach(() => {
   state.registration = "unknown";
   state.pushSupported = false;
   state.managed.accountId = null;
-  state.thread.latestTurn.state = "running";
-  state.thread.latestTurn.turnId = "turn-a";
+  state.thread.run = { id: "run-a", status: "running" };
   state.thread.hasPendingApprovals = false;
-  state.thread.planProgress.completedSteps = 0;
-  state.omitTurn = false;
+  state.omitRun = false;
 });
 
 it.each(["disabled", "resumed", "cloud", "unmounted"])(
@@ -111,11 +121,11 @@ it.each(["disabled", "resumed", "cloud", "unmounted"])(
     await render();
     await complete();
     expect(state.schedule).toHaveBeenCalledTimes(1);
-    state.thread.latestTurn = { turnId: "turn-b", state: "running" };
+    state.thread.run = { id: "run-b", status: "running" };
     await render();
     await complete();
     if (condition === "disabled") state.preferences = { directChatNotificationsEnabled: false };
-    if (condition === "resumed") state.thread.latestTurn = { turnId: "turn-c", state: "running" };
+    if (condition === "resumed") state.thread.run = { id: "run-c", status: "running" };
     if (condition === "cloud") {
       state.pushSupported = true;
       state.managed.accountId = "account";
@@ -149,11 +159,11 @@ it("keeps one queued completion when its checkpoint arrives before delivery", as
   state.schedule.mockImplementationOnce(() => pending.promise);
   await render();
   await complete();
-  state.thread.latestTurn = { turnId: "turn-b", state: "running" };
+  state.thread.run = { id: "run-b", status: "running" };
   await render();
-  state.omitTurn = true;
+  state.omitRun = true;
   await render();
-  state.omitTurn = false;
+  state.omitRun = false;
   await complete();
   await act(async () => pending.resolve("notification"));
   expect(state.schedule).toHaveBeenCalledTimes(2);
@@ -168,7 +178,6 @@ it.each(["android", "ios"])(
   async (platform) => {
     state.platform.OS = platform;
     await render();
-    state.thread.planProgress.completedSteps = 2;
     await render();
     expect(state.schedule).not.toHaveBeenCalled();
     await complete();
@@ -183,11 +192,8 @@ it.each(["android", "ios"])(
       },
       trigger: platform === "android" ? { channelId: "t3-chat-alerts" } : null,
     });
-    const handler = state.handler.mock.calls[0]?.[0];
-    expect(await handler.handleNotification()).toMatchObject({
-      shouldShowBanner: true,
-      shouldShowList: true,
-    });
+    // Foreground presentation stays with the app-wide notification handler.
+    expect(state.handler).not.toHaveBeenCalled();
   },
 );
 it.each(["disabled", "denied", "historical"])(
@@ -195,7 +201,7 @@ it.each(["disabled", "denied", "historical"])(
   async (condition) => {
     if (condition === "disabled") state.preferences = { directChatNotificationsEnabled: false };
     if (condition === "denied") state.permission = false;
-    if (condition === "historical") state.thread.latestTurn.state = "completed";
+    if (condition === "historical") state.thread.run.status = "completed";
     await render();
     await complete();
     expect(state.schedule).not.toHaveBeenCalled();
@@ -220,7 +226,7 @@ it("respects turning alerts off and back on without replaying old work", async (
   state.preferences = { directChatNotificationsEnabled: true };
   await render();
   expect(state.schedule).not.toHaveBeenCalled();
-  state.thread.latestTurn = { turnId: "turn-b", state: "running" };
+  state.thread.run = { id: "run-b", status: "running" };
   await render();
   await complete();
   expect(state.schedule).toHaveBeenCalledTimes(1);

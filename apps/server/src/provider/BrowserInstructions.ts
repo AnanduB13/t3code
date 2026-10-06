@@ -1,4 +1,4 @@
-const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
+export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## T3 Code collaborative browser
 

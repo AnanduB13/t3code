@@ -11,10 +11,11 @@ not sign in this T3 Code provider.
 
 ## Set up Antigravity
 
-On web or desktop, open **Settings** > **Providers**, select the device that runs your project,
-then select **Antigravity**. On mobile, open **Settings** > **Environments**, expand the
-environment, then choose **Set up Antigravity**. An existing setup shows **Manage Antigravity**.
-The model picker can open setup for the selected environment too.
+On web or desktop, open **Settings > Providers**, choose the environment that runs
+your project, and enable Antigravity. Install its runtime there, then choose
+**Sign in** and complete the browser sign-in. Wait for T3 Code to confirm
+account access and load models before starting a thread. Once the runtime is installed,
+you can also sign in from **Settings > Provider accounts** in the mobile app.
 
 1. Choose **Enable Antigravity**. Antigravity is off by default.
 2. Choose **Install Antigravity**. T3 Code downloads the official runtime from Google to that
@@ -34,10 +35,11 @@ on an older server, update that environment first.
 Google returns to a `127.0.0.1` address on the device running your browser. If that is the same
 machine as the T3 Code environment, sign-in can finish directly.
 
-On a phone or another computer, the final page will usually fail to load. This is expected.
-Copy the full address from the browser, including everything after `?`, and paste it into the
-return URL field in T3 Code. Choose **Continue** on web or desktop, or **Complete sign-in** on
-mobile. Do not change the address to your server's hostname.
+Copy the full return address, including everything after `?`, into the return URL
+field in the client where you started sign-in, then choose
+**Continue**. Keep the original address; do not replace it with the server's
+hostname. Only that T3 Code sign-in session can finish the attempt. If it expires,
+retry sign-in and use the new link.
 
 Return to the same T3 Code client and environment where you started sign-in. Another client
 can see that sign-in is in progress, but cannot complete that attempt. The setup screen shows
@@ -124,25 +126,9 @@ takes precedence, followed by `.agents/skills` and then `.agent/skills`.
 Skills for every project go in `~/.gemini/config/skills` or `~/.gemini/antigravity-cli/skills`.
 Antigravity does not read `~/.agents/skills` unless the project itself is your home directory.
 
-Antigravity reads and edits workspace files through T3 Code. File writes follow the selected
-permission mode. It accepts supported images, PDFs, text files, and audio directly. Native input
-limits are 1 MiB per text file, 10 MiB per image, 20 MiB per audio clip, and 50 MiB total per
-message. PDFs, text, and audio that exceed their native limits or the remaining budget use file
-paths for the agent to inspect. ZIP archives and videos also use paths and do not count toward
-the native budget. A video path does not enable native video input. Unsupported image formats
-are rejected. Native limits can be lower than the general upload limit.
-
-When the agent offers **Allow for this thread** on a shell or web tool, T3 Code shows Google's
-prompt injection warning next to that choice. Untrusted content could re-run the same action
-without asking again.
-
-Antigravity can ask you to choose from a fixed set of answers. Select one of the offered
-choices. These questions do not accept custom text and still appear in **Full access** mode.
-See [Permission modes](./permission-modes.md) for tool approvals.
-
-T3 Code keeps thread history and file diffs. Antigravity does not support conversation rewind,
-so reverting a thread or editing and resubmitting an earlier turn is unavailable. Send a
-follow-up message or start a new thread instead.
+Antigravity receives images directly. Every other attachment, including PDFs,
+text, audio, archives, and videos, is passed as a saved file path for the agent
+to inspect with its tools. A video path does not enable native video input.
 
 ### Subagents
 
@@ -164,11 +150,11 @@ Each Antigravity provider instance has its own Google sign-in on its environment
 **Add provider** in web or desktop provider settings to create a separate instance for another
 account. To replace an instance's account, sign out first, then sign in again.
 
-| Action                                                                           | Result                                                                                                                        |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Disable Antigravity                                                              | Stops the instance's sessions. Keeps Google sign-in, thread history, and files.                                               |
-| Sign out of Google                                                               | Stops the instance's sessions and removes its saved Google credentials. Keeps thread history and files.                       |
-| Remove downloaded runtime on web or desktop, or Remove managed install on mobile | Removes the runtime shared by Antigravity instances on that environment. Keeps Google credentials, thread history, and files. |
+| Action                    | Effect                                                            |
+| ------------------------- | ----------------------------------------------------------------- |
+| Disable                   | Stops the instance's sessions and keeps its Google sign-in.       |
+| Sign out                  | Stops the instance's sessions and removes its saved Google login. |
+| Remove downloaded runtime | Removes the shared installation and keeps Google credentials.     |
 
 Send `/logout` by itself in an Antigravity thread to sign out that provider instance. This has
 the same effect as **Sign out of Google**, including stopping its other sessions.
@@ -183,9 +169,9 @@ Google controls account eligibility, models, and usage limits. T3 Code does not 
 paid-plan tier or remaining subscription quota. See Google's [Antigravity plans][plans] and
 [personal Google sign-in guide][google-setup].
 
-An environment restart keeps your Google sign-in. The provider shows the saved account until a
-session, refresh, or sign-out reports something new. A cached account or model list does not prove
-current access; Antigravity checks saved credentials when a session starts.
+To check access and reload models, use **Refresh provider status** in web or desktop
+provider settings, or **Refresh models** in mobile thread settings. If asked to
+sign in again, use provider settings on web or desktop, or **Provider accounts** on mobile.
 
 To check account access and reload models on web or desktop, open **Settings** > **Providers**
 and select the circular arrow beside **Checked** at the top of the page. Its tooltip says

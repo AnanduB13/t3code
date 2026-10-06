@@ -16,15 +16,15 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as CodexClient from "effect-codex-app-server/client";
 
 import { expandHomePath } from "../pathExpansion.ts";
-import { buildCodexInitializeParams } from "./Layers/CodexProvider.ts";
-import { codexSessionAppServerArgs } from "./Layers/codexLaunchArgs.ts";
+import { buildCodexInitializeParams } from "./CodexProvider.ts";
+import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import { resolveClaudeHomePath } from "./Drivers/ClaudeHome.ts";
 
 export interface ProviderUsageReader {

@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
+import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -16,10 +16,10 @@ const THREAD_REF = scopeThreadRef(
 );
 
 describe("openTurnDiffAction", () => {
-  const turnId = TurnId.make("turn-1");
+  const runId = RunId.make("run-1");
   const input = {
     threadRef: THREAD_REF,
-    turnId,
+    runId,
     workspaceRoot: "/repo/frontend",
     repositoryRoot: "/repo",
   };
@@ -50,7 +50,7 @@ describe("openTurnDiffAction", () => {
     ).toMatchObject({ isOpen: true, activeSurfaceId: "diff" });
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toMatchObject({ kind: "turn", turnId, filePath: "frontend/app.ts" });
+    ).toMatchObject({ kind: "turn", turnId: runId, filePath: "frontend/app.ts" });
   });
 
   it("opens the full turn diff without a file selection", () => {
@@ -62,13 +62,13 @@ describe("openTurnDiffAction", () => {
     ).toMatchObject({ isOpen: true, activeSurfaceId: "diff" });
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toMatchObject({ kind: "turn", turnId, filePath: null });
+    ).toMatchObject({ kind: "turn", turnId: runId, filePath: null });
   });
 });
 
 describe("openDiffFilePrimaryAction", () => {
   beforeEach(() => {
-    useRightPanelStore.setState({ byThreadKey: {} });
+    useRightPanelStore.setState({ byThreadKey: {}, threadPanelVisibilityByThreadKey: {} });
   });
 
   it("opens diff files in the thread file viewer", () => {

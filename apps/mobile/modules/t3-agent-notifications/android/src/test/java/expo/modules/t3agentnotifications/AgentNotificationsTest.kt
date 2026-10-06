@@ -49,6 +49,8 @@ class AgentNotificationsTest {
     )
     AgentNotifications.clear(context)
     AgentNotifications.configure(context, "device", "user", "t3code-dev", true)
+    // The fixtures alert for this thread; a resumed app is showing it.
+    AgentNotifications.setThreadOnScreen("/threads/environment/thread")
   }
 
   private fun update(alertId: String, active: Boolean) = mapOf(
@@ -60,23 +62,27 @@ class AgentNotificationsTest {
     "activity_body" to "Test thread · Working",
     "activity_path" to "/threads/environment/thread",
     "alert_id" to alertId,
+    "alert_group" to "environment/thread",
     "alert_title" to "Test thread",
     "alert_body" to "Done: Test project",
     "alert_path" to "/threads/environment/thread",
   )
 
-  private fun activity(id: String, active: Boolean) = update(id, active) - "alert_id"
-
   @Test
   fun alertHistoryEvictsOnlyTheOldestEntryAfterCapacity() {
     lifecycle.currentState = Lifecycle.State.RESUMED
     for (id in 0..64) AgentNotifications.receive(context, update("alert-$id", false))
-    manager.cancelAll()
     lifecycle.currentState = Lifecycle.State.CREATED
     for (id in 1..64) AgentNotifications.receive(context, update("alert-$id", false))
     assertTrue(manager.activeNotifications.isEmpty())
     AgentNotifications.receive(context, update("alert-0", false))
     assertEquals("alert-0".hashCode(), manager.activeNotifications.single().id)
+  }
+
+  @Test
+  fun alertsStackByThreadGroup() {
+    AgentNotifications.receive(context, update("grouped", false))
+    assertEquals("environment/thread", manager.activeNotifications.single().notification.group)
   }
 
   @Test
@@ -90,11 +96,18 @@ class AgentNotificationsTest {
   }
 
   @Test
-  fun foregroundCompletionAlertsWhileToolProgressStaysQuiet() {
+  fun foregroundAlertsForThreadsThatAreNotOnScreen() {
+    lifecycle.currentState = Lifecycle.State.RESUMED
+    AgentNotifications.setThreadOnScreen("/threads/environment/other")
+    AgentNotifications.receive(context, update("elsewhere", false))
+    assertEquals("t3-agent-alert", manager.activeNotifications.single().tag)
+  }
+
+  @Test
+  fun foregroundSuppressesAlertsWhileOngoingActivityStillUpdatesAndClears() {
     lifecycle.currentState = Lifecycle.State.RESUMED
 
-    AgentNotifications.receive(context, activity("tool-started", true))
-    AgentNotifications.receive(context, activity("tool-finished", true))
+    AgentNotifications.receive(context, update("attention", true))
 
     val ongoing = manager.activeNotifications.single()
     assertEquals("t3-agent-activity", ongoing.tag)
@@ -103,13 +116,13 @@ class AgentNotificationsTest {
 
     AgentNotifications.receive(context, update("completion", false))
 
-    assertEquals("t3-agent-alert", manager.activeNotifications.single().tag)
+    assertTrue(manager.activeNotifications.isEmpty())
   }
 
   @Test
   fun backgroundCompletionAlertsAndClearsOngoingActivity() {
     lifecycle.currentState = Lifecycle.State.RESUMED
-    AgentNotifications.receive(context, activity("running", true))
+    AgentNotifications.receive(context, update("running", true))
     lifecycle.currentState = Lifecycle.State.CREATED
 
     AgentNotifications.receive(context, update("completion", false))
@@ -121,15 +134,13 @@ class AgentNotificationsTest {
   }
 
   @Test
-  fun retryOfForegroundAlertDoesNotAppearAfterBackgrounding() {
+  fun retryOfForegroundSuppressedAlertDoesNotAppearAfterBackgrounding() {
     lifecycle.currentState = Lifecycle.State.RESUMED
-    val completion = update("foreground-completion", false)
-    AgentNotifications.receive(context, completion)
-    assertEquals(1, manager.activeNotifications.size)
-    manager.cancelAll()
+    val suppressed = update("foreground-completion", false)
+    AgentNotifications.receive(context, suppressed)
     lifecycle.currentState = Lifecycle.State.CREATED
 
-    AgentNotifications.receive(context, completion)
+    AgentNotifications.receive(context, suppressed)
 
     assertTrue(manager.activeNotifications.isEmpty())
 
@@ -139,16 +150,29 @@ class AgentNotificationsTest {
   }
 
   @Test
-  fun returningToForegroundShowsNewAlertsWithoutRemovingPreviousOnes() {
+  fun returningToForegroundSuppressesNewAlertsWithoutRemovingPreviousOnes() {
     AgentNotifications.receive(context, update("background-completion", false))
     lifecycle.currentState = Lifecycle.State.RESUMED
 
     AgentNotifications.receive(context, update("foreground-completion", false))
 
-    assertEquals(
-      setOf("background-completion".hashCode(), "foreground-completion".hashCode()),
-      manager.activeNotifications.map { it.id }.toSet()
-    )
+    assertEquals("background-completion".hashCode(), manager.activeNotifications.single().id)
+  }
+
+  @Test
+  fun repeatedThreadAlertsHaveOneSilentSummaryAndClearTogether() {
+    AgentNotifications.receive(context, update("first", false) + ("alert_group" to "thread-group"))
+    AgentNotifications.receive(context, update("second", false) + ("alert_group" to "thread-group"))
+
+    val summary = manager.activeNotifications.single {
+      it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
+    }
+    assertEquals("thread-group", summary.notification.group)
+    assertEquals(3, manager.activeNotifications.size)
+    assertEquals(null, summary.notification.sound)
+
+    AgentNotifications.clear(context)
+    assertTrue(manager.activeNotifications.isEmpty())
   }
 
   @Test
@@ -173,7 +197,7 @@ class AgentNotificationsTest {
   }
 
   @Test
-  fun foregroundGroupCannotAppearAgainOnBackgroundRetry() {
+  fun foregroundGroupForOtherThreadsAlertsOnceAcrossBackgroundRetry() {
     val grouped = update("group-attention", true) + mapOf(
       "alert_title" to "2 agents need attention",
       "alert_body" to "First thread, Second thread",
@@ -181,11 +205,13 @@ class AgentNotificationsTest {
     )
     lifecycle.currentState = Lifecycle.State.RESUMED
     AgentNotifications.receive(context, grouped)
-    manager.cancel("t3-agent-alert", "group-attention".hashCode())
+    assertEquals(1, manager.activeNotifications.count { it.tag == "t3-agent-alert" })
     lifecycle.currentState = Lifecycle.State.CREATED
     AgentNotifications.receive(context, grouped)
 
-    assertEquals("t3-agent-activity", manager.activeNotifications.single().tag)
+    assertEquals(2, manager.activeNotifications.size)
+    assertEquals(1, manager.activeNotifications.count { it.tag == "t3-agent-activity" })
+    assertEquals(1, manager.activeNotifications.count { it.tag == "t3-agent-alert" })
   }
 
   @Test
@@ -227,7 +253,7 @@ class AgentNotificationsTest {
       )
     AgentNotifications.receive(
       context,
-      activity("attention", true) +
+      update("attention", true) +
         lines.mapIndexed { index, line -> "activity_line_$index" to line }.toMap()
     )
     val card = manager.activeNotifications.single().notification
@@ -244,7 +270,7 @@ class AgentNotificationsTest {
     val expiresAt = System.currentTimeMillis() + 2 * 60 * 60 * 1000L
     AgentNotifications.receive(
       context,
-      activity("work", true) + ("activity_expires_at" to expiresAt.toString())
+      update("work", true) + ("activity_expires_at" to expiresAt.toString())
     )
     val card = manager.activeNotifications.single().notification
     assertTimeout(card, 119 * 60 * 1000L..120 * 60 * 1000L)
@@ -254,7 +280,7 @@ class AgentNotificationsTest {
   fun finishedCardIsRetainedSilentlyWithoutOngoingFlagAndExpiresAtTheOriginalDeadline() {
     lifecycle.currentState = Lifecycle.State.RESUMED
     val expiresAt = System.currentTimeMillis() + 15 * 60 * 1000L
-    val finished = activity("finished", false) + mapOf(
+    val finished = update("finished", false) + mapOf(
       "activity_title" to "Agent work failed",
       "activity_body" to "Failed: Test thread · Project",
       "activity_expires_at" to expiresAt.toString(),
@@ -274,15 +300,15 @@ class AgentNotificationsTest {
   @Test
   fun dismissalIncludesFinishedReplaysAndANewRunRearmsTheCard() {
     lifecycle.currentState = Lifecycle.State.RESUMED
-    AgentNotifications.receive(context, activity("work", true))
+    AgentNotifications.receive(context, update("work", true))
     AgentNotifications.dismiss(context)
     val finished =
-      activity("finished", false) +
+      update("finished", false) +
         ("activity_expires_at" to (System.currentTimeMillis() + 900000).toString())
     AgentNotifications.receive(context, finished)
     AgentNotifications.receive(context, finished)
     assertTrue(manager.activeNotifications.isEmpty())
-    AgentNotifications.receive(context, activity("new-work", true))
+    AgentNotifications.receive(context, update("new-work", true))
     assertEquals("t3-agent-activity", manager.activeNotifications.single().tag)
     AgentNotifications.configure(context, "device", "user", "t3code-dev", false)
     assertTrue(manager.activeNotifications.isEmpty())
@@ -296,18 +322,18 @@ class AgentNotificationsTest {
       context,
       update("older-alert", false) + ("updated_at" to (now - 1000).toString())
     )
-    assertEquals(3, manager.activeNotifications.size)
+    assertEquals(4, manager.activeNotifications.size)
     assertEquals(1, manager.activeNotifications.count { it.tag == "t3-agent-activity" })
     shadowOf(manager).setNotificationsEnabled(false)
     AgentNotifications.receive(context, update("revoked-permission", true))
-    assertEquals(3, manager.activeNotifications.size)
+    assertEquals(4, manager.activeNotifications.size)
   }
 
   @Test
   fun severalThreadsListEveryRowWithItsStatusAndActionsFollowThePriorityThread() {
     lifecycle.currentState = Lifecycle.State.RESUMED
     val title = "A long thread title that should wrap rather than disappear"
-    val data = activity("attention", true) + mapOf(
+    val data = update("attention", true) + mapOf(
       "activity_line_0" to "Approval	$title	Project",
       "activity_line_1" to "Working	Another thread	Other project",
       "activity_phase" to "waiting_for_approval",
@@ -360,7 +386,7 @@ class AgentNotificationsTest {
       for ((title, updatedAt) in listOf("Original" to now - 1200000L, "Renamed" to now)) {
         AgentNotifications.receive(
           context,
-          activity("waiting", true) + mapOf(
+          update("waiting", true) + mapOf(
             "activity_line_0" to "$status\t$title\tProject",
             "activity_phase" to phase,
             "activity_since" to updatedAt.toString()
@@ -377,7 +403,7 @@ class AgentNotificationsTest {
   @Test
   fun aSingleThreadUsesItsTitleAndNeverShowsAProgressBar() {
     lifecycle.currentState = Lifecycle.State.RESUMED
-    val data = activity("work", true) + mapOf(
+    val data = update("work", true) + mapOf(
       "activity_line_0" to "Working	Update dashboard	Project",
       "activity_phase" to "running",
     )
@@ -428,7 +454,7 @@ class AgentNotificationsTest {
     lifecycle.currentState = Lifecycle.State.RESUMED
     AgentNotifications.receive(
       context,
-      activity("input", true) + mapOf(
+      update("input", true) + mapOf(
         "activity_line_0" to "Input	Choose an icon	Project",
       )
     )
@@ -442,7 +468,7 @@ class AgentNotificationsTest {
   @Test
   fun multipleAgentsUseTheChipCountAndFinishedThreadsRemainInTheSummary() {
     lifecycle.currentState = Lifecycle.State.RESUMED
-    val data = activity("multiple", true) + mapOf(
+    val data = update("multiple", true) + mapOf(
       "activity_line_0" to "Working	Build feature	Project",
       "activity_line_1" to "Done	Write tests	Project",
       "activity_phase" to "running",
@@ -503,17 +529,18 @@ class AgentNotificationsTest {
     val expiresAt = System.currentTimeMillis() + 900000
     AgentNotifications.receive(
       context,
-      activity("done", false) + ("activity_expires_at" to expiresAt.toString())
+      update("done", false) + ("activity_expires_at" to expiresAt.toString())
     )
     val oldExpiry = alarms.scheduledAlarms.single().operation!!
-    AgentNotifications.receive(context, activity("next-run", true))
+    AgentNotifications.receive(context, update("next-run", true))
     assertEquals(1, alarms.scheduledAlarms.size)
     val receiver = AgentActivityExpiryReceiver()
     receiver.onReceive(context, shadowOf(oldExpiry).savedIntent)
     AgentNotifications.expire(context, expiresAt + 60_000)
     assertEquals(1, manager.activeNotifications.count { it.tag == "t3-agent-activity" })
     AgentNotifications.expire(context, expiresAt + 2 * 60 * 60 * 1000L)
-    assertTrue(manager.activeNotifications.all { it.tag == "t3-agent-alert" })
+    assertEquals(2, manager.activeNotifications.count { it.tag == "t3-agent-alert" })
+    assertTrue(manager.activeNotifications.none { it.tag == "t3-agent-activity" })
     assertTrue(alarms.scheduledAlarms.isEmpty())
   }
 
@@ -521,17 +548,17 @@ class AgentNotificationsTest {
   @Config(sdk = [24, 25])
   fun legacyExpiryIsCancelledOnDismissDisableAndSignOut() {
     val alarms = shadowOf(context.getSystemService(AlarmManager::class.java))
-    AgentNotifications.receive(context, activity("work", true))
+    AgentNotifications.receive(context, update("work", true))
     AgentNotifications.dismiss(context)
     assertTrue(alarms.scheduledAlarms.isEmpty())
     AgentNotifications.configure(context, "device", "user", "t3code-dev", false)
     AgentNotifications.configure(context, "device", "user", "t3code-dev", true)
-    AgentNotifications.receive(context, activity("work", true))
+    AgentNotifications.receive(context, update("work", true))
     assertEquals(1, alarms.scheduledAlarms.size)
     AgentNotifications.configure(context, "device", "user", "t3code-dev", false)
     assertTrue(alarms.scheduledAlarms.isEmpty())
     AgentNotifications.configure(context, "device", "user", "t3code-dev", true)
-    AgentNotifications.receive(context, activity("work", true))
+    AgentNotifications.receive(context, update("work", true))
     AgentNotifications.clear(context)
     assertTrue(alarms.scheduledAlarms.isEmpty())
     assertTrue(manager.activeNotifications.isEmpty())
@@ -569,13 +596,13 @@ class AgentNotificationsTest {
   @Test
   fun liveUpdateChipChangesWithActivityAndClearsOnCompletion() {
     lifecycle.currentState = Lifecycle.State.RESUMED
-    AgentNotifications.receive(context, activity("work", true))
+    AgentNotifications.receive(context, update("work", true))
     assertEquals(
       "Active",
       manager.activeNotifications.single().notification.extras
         .getString(NotificationCompat.EXTRA_SHORT_CRITICAL_TEXT)
     )
-    AgentNotifications.receive(context, activity("input", true) + ("activity_chip" to "Review"))
+    AgentNotifications.receive(context, update("input", true) + ("activity_chip" to "Review"))
     val activeCard = manager.activeNotifications.single().notification
     assertEquals(
       "Review",
@@ -585,7 +612,7 @@ class AgentNotificationsTest {
 
     AgentNotifications.receive(
       context,
-      activity("done", false) + mapOf(
+      update("done", false) + mapOf(
         "activity_chip" to "Review",
         "activity_expires_at" to (System.currentTimeMillis() + 900000).toString()
       )
@@ -599,7 +626,7 @@ class AgentNotificationsTest {
   @Test
   fun blankTitleCannotMakeAnActivityIneligibleForPromotion() {
     lifecycle.currentState = Lifecycle.State.RESUMED
-    AgentNotifications.receive(context, activity("work", true) + ("activity_title" to "  "))
+    AgentNotifications.receive(context, update("work", true) + ("activity_title" to "  "))
     assertEquals(
       "Agent activity",
       manager.activeNotifications.single().notification.extras.getString(Notification.EXTRA_TITLE)

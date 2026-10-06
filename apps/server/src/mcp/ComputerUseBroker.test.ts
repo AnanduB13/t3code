@@ -19,12 +19,15 @@ import * as ComputerUseBroker from "./ComputerUseBroker.ts";
 
 const scope = {
   environmentId: EnvironmentId.make("environment-computer-use"),
-  threadId: ThreadId.make("thread-computer-use"),
-  providerSessionId: "provider-session-computer-use",
-  providerInstanceId: ProviderInstanceId.make("codex"),
+  requestNamespace: "provider-session-computer-use",
+  thread: {
+    threadId: ThreadId.make("thread-computer-use"),
+    providerSessionId: "provider-session-computer-use",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
   capabilities: new Set(["computerUse"] as const),
   issuedAt: 1,
-  expiresAt: Number.MAX_SAFE_INTEGER,
 };
 
 const device = (deviceId: string, label: string): ComputerUseDevice => ({

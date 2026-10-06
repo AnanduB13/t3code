@@ -170,7 +170,9 @@ function PullRequestList({
         </View>
       }
       ListEmptyComponent={
-        !result.isPending && !result.error ? <PrNotice>No pull requests found.</PrNotice> : null
+        !result.isPending && !result.error ? (
+          <PrNotice>No pull requests found.</PrNotice>
+        ) : undefined
       }
       renderItem={({ item }) => (
         <View className="gap-2 rounded-2xl border border-border bg-card p-4">

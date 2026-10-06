@@ -13,8 +13,8 @@ function thread(
   input: {
     id?: string;
     projectId?: string;
-    turnId?: string;
-    state?: "requested" | "running" | "completed";
+    runId?: string;
+    status?: "queued" | "running" | "completed";
     completedAt?: string | null;
     archivedAt?: string | null;
   } = {},
@@ -25,14 +25,14 @@ function thread(
     projectId: input.projectId ?? "project-1",
     archivedAt: input.archivedAt ?? null,
     deletedAt: null,
-    latestTurn: {
-      turnId: input.turnId ?? "turn-1",
-      state: input.state ?? "running",
+    latestRun: {
+      runId: input.runId ?? "run-1",
+      status: input.status ?? "running",
       requestedAt: "2026-08-23T10:00:00.000Z",
       startedAt: "2026-08-23T10:00:01.000Z",
       completedAt:
         input.completedAt === undefined
-          ? input.state === "completed"
+          ? input.status === "completed"
             ? "2026-08-23T10:05:00.000Z"
             : null
           : input.completedAt,
@@ -66,7 +66,7 @@ describe("thread completion notifications", () => {
 
   it("emits a live running-to-completed edge once", () => {
     const previous = snapshotThreadCompletions([thread()]);
-    const completed = thread({ state: "completed" });
+    const completed = thread({ status: "completed" });
 
     expect(findNewlyCompletedThreads(previous, [completed])).toEqual([completed]);
     expect(findNewlyCompletedThreads(snapshotThreadCompletions([completed]), [completed])).toEqual(
@@ -75,12 +75,12 @@ describe("thread completion notifications", () => {
   });
 
   it("does not replay completed history when a thread first appears", () => {
-    expect(findNewlyCompletedThreads(new Map(), [thread({ state: "completed" })])).toEqual([]);
+    expect(findNewlyCompletedThreads(new Map(), [thread({ status: "completed" })])).toEqual([]);
   });
 
-  it("detects a newly completed turn even when render updates are batched", () => {
-    const previous = snapshotThreadCompletions([thread({ state: "completed" })]);
-    const next = thread({ turnId: "turn-2", state: "completed" });
+  it("detects a newly completed run even when render updates are batched", () => {
+    const previous = snapshotThreadCompletions([thread({ status: "completed" })]);
+    const next = thread({ runId: "run-2", status: "completed" });
     expect(findNewlyCompletedThreads(previous, [next])).toEqual([next]);
   });
 
@@ -111,8 +111,8 @@ describe("thread completion notifications", () => {
 
 describe("mode unread aggregation", () => {
   it("only counts completed, unvisited threads in the requested project kind", () => {
-    const chat = thread({ id: "chat", projectId: "general", state: "completed" });
-    const project = thread({ id: "project", state: "completed" });
+    const chat = thread({ id: "chat", projectId: "general", status: "completed" });
+    const project = thread({ id: "project", status: "completed" });
     const visits = {
       "environment-1:chat": "2026-08-23T10:00:00.000Z",
       "environment-1:project": "2026-08-23T10:06:00.000Z",
@@ -137,7 +137,7 @@ describe("mode unread aggregation", () => {
   it("ignores archived completions", () => {
     expect(
       hasUnseenCompletionInProjectKind({
-        threads: [thread({ state: "completed", archivedAt: "2026-08-23T10:06:00.000Z" })],
+        threads: [thread({ status: "completed", archivedAt: "2026-08-23T10:06:00.000Z" })],
         lastVisitedAtByThreadKey: {
           "environment-1:thread-1": "2026-08-23T10:00:00.000Z",
         },

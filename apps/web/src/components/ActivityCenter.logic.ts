@@ -1,4 +1,9 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import {
+  resolveThreadWorkingStartedAt,
+  threadRuntimeIsActive,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/models";
+import { isLatestTurnCompleted } from "@t3tools/client-runtime/state/thread-settled";
 
 import { isThreadCompletionUnread } from "./ThreadCompletionNotifications.logic";
 
@@ -28,8 +33,8 @@ export function buildCompletionNotifications(input: {
 }): readonly ActivityCenterNotification[] {
   return input.threads
     .flatMap((thread): ActivityCenterNotification[] => {
-      const completedAt = thread.latestTurn?.completedAt;
-      if (thread.archivedAt !== null || thread.latestTurn?.state !== "completed" || !completedAt) {
+      const completedAt = thread.latestRun?.completedAt;
+      if (thread.archivedAt !== null || !isLatestTurnCompleted(thread.latestRun) || !completedAt) {
         return [];
       }
       const unread = isThreadCompletionUnread(thread, input.lastVisitedAtByThreadKey);
@@ -49,33 +54,40 @@ export function buildCompletionNotifications(input: {
     );
 }
 
+/**
+ * What a thread is doing right now, or null when it is idle. A run in progress
+ * is "Working"; after the run settles, background work that will wake the
+ * agent reads as "Monitoring" when only watch loops remain and "Background
+ * work" otherwise. Commands left running (a dev server) do not count.
+ */
+export function resolveThreadActivityStatus(
+  thread: Pick<EnvironmentThreadShell, "runtime" | "pendingBackgroundTasks">,
+): ActivityCenterRunningThread["status"] | null {
+  if (threadRuntimeIsActive(thread.runtime)) return "Working";
+  if (thread.runtime?.status !== "idle") return null;
+  const holding = thread.pendingBackgroundTasks.filter((task) => task.kind !== "command");
+  if (holding.length === 0) return null;
+  return holding.every((task) => task.kind === "monitor") ? "Monitoring" : "Background work";
+}
+
 export function buildRunningThreads(
   threads: readonly EnvironmentThreadShell[],
 ): readonly ActivityCenterRunningThread[] {
   return threads
     .flatMap((thread): ActivityCenterRunningThread[] => {
       if (thread.archivedAt !== null) return [];
-      const foregroundRunning =
-        thread.latestTurn?.state === "running" ||
-        thread.session?.status === "starting" ||
-        thread.session?.status === "running";
-      const status = foregroundRunning
-        ? "Working"
-        : thread.backgroundLiveness === "working"
-          ? "Background work"
-          : thread.backgroundLiveness === "monitoring"
-            ? "Monitoring"
-            : null;
+      const status = resolveThreadActivityStatus(thread);
       if (status === null) return [];
 
-      const unfinishedTurn =
-        thread.latestTurn !== null && thread.latestTurn.completedAt === null
-          ? thread.latestTurn
+      const unfinishedRun =
+        thread.latestRun !== null && thread.latestRun.completedAt === null
+          ? thread.latestRun
           : null;
       const startedAt = validTimestamp(
-        unfinishedTurn?.startedAt,
-        unfinishedTurn?.requestedAt,
-        thread.session?.updatedAt,
+        resolveThreadWorkingStartedAt(thread),
+        unfinishedRun?.startedAt,
+        unfinishedRun?.requestedAt,
+        thread.runtime?.updatedAt,
         thread.updatedAt,
       );
       return startedAt === null ? [] : [{ thread, startedAt, status }];

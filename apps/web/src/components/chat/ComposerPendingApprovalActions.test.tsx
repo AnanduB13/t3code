@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { ApprovalRequestId } from "@t3tools/contracts";
+import { RuntimeRequestId } from "@t3tools/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -11,7 +11,8 @@ describe("ComposerPendingApprovalActions", () => {
   it("keeps the main decisions visible and secondary decisions in the menu", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
-        requestId={ApprovalRequestId.make("approval-1")}
+        requestId={RuntimeRequestId.make("approval-1")}
+        canRespond
         isResponding={false}
         onRespondToApproval={async () => undefined}
       />,
@@ -26,7 +27,8 @@ describe("ComposerPendingApprovalActions", () => {
   it("keeps secondary provider labels out of the compact action row", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
-        requestId={ApprovalRequestId.make("approval-safari")}
+        requestId={RuntimeRequestId.make("approval-safari")}
+        canRespond
         isResponding={false}
         options={[
           { decision: "decline", label: "Decline" },
@@ -52,8 +54,9 @@ describe("ComposerPendingApprovalActions", () => {
       await act(() =>
         root.render(
           <ComposerPendingApprovalActions
-            requestId={ApprovalRequestId.make("approval-1")}
+            requestId={RuntimeRequestId.make("approval-1")}
             isResponding={false}
+            canRespond
             options={[
               { decision: "accept", label: "Allow once" },
               {
@@ -87,7 +90,8 @@ describe("ComposerPendingApprovalActions", () => {
   it("preserves provider labels for the main decisions", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
-        requestId={ApprovalRequestId.make("approval-1")}
+        requestId={RuntimeRequestId.make("approval-1")}
+        canRespond
         isResponding={false}
         options={[
           { decision: "accept", label: "Allow once" },

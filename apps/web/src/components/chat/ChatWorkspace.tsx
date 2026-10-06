@@ -21,8 +21,7 @@ import {
   type ChatWorkspaceAxis,
 } from "../../chatWorkspaceLayout";
 import { buildThreadRouteParams } from "../../threadRoutes";
-import { resolveThreadSyncPhase } from "../../threadSync";
-import { useThreadDetail, useThreadShell, useThreadStatus } from "../../state/entities";
+import { useThreadProjection, useThreadShell } from "../../state/entities";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import ChatView from "../ChatView";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
@@ -193,7 +192,7 @@ function ChatWorkspaceDivider(props: {
 
 type RoutePane = Pick<
   ComponentProps<typeof ChatView>,
-  "draftId" | "routeKind" | "threadSyncPhase" | "forceExpandedMobileComposer"
+  "draftId" | "routeKind" | "forceExpandedMobileComposer"
 > & { readonly chatViewKey?: string };
 
 const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
@@ -206,15 +205,9 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
   readonly onSetLayout: (count: number, columns: number) => void;
 }) {
   const shell = useThreadShell(props.threadRef);
-  const detail = useThreadDetail(props.threadRef);
-  const status = useThreadStatus(props.threadRef);
-  const threadSyncPhase = resolveThreadSyncPhase({
-    detailExists: detail !== null,
-    shellExists: shell !== null,
-    status,
-  });
+  const projection = useThreadProjection(props.threadRef);
 
-  if (!shell && !detail && props.routePane?.routeKind !== "draft") {
+  if (!shell && !projection && props.routePane?.routeKind !== "draft") {
     return (
       <div className="grid min-h-0 place-items-center bg-background p-6 text-center text-sm text-muted-foreground">
         This chat is unavailable. Select this pane, then choose another thread from the sidebar.
@@ -230,10 +223,7 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
         threadId={props.threadRef.threadId}
         {...(props.routePane?.routeKind === "draft" && props.routePane.draftId
           ? { routeKind: "draft" as const, draftId: props.routePane.draftId }
-          : {
-              routeKind: "server" as const,
-              threadSyncPhase: props.routePane?.threadSyncPhase ?? threadSyncPhase,
-            })}
+          : { routeKind: "server" as const })}
         forceExpandedMobileComposer={props.routePane?.forceExpandedMobileComposer ?? false}
         reserveTitleBarControlInset={props.reserveNativeControls}
         workspacePaneActive={props.active}

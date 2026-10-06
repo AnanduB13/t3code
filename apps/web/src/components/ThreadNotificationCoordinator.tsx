@@ -1,7 +1,8 @@
+import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { resolveThreadAwarenessPhase } from "@t3tools/shared/agentAwareness";
+import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import { resolveThreadAwarenessPhaseV2 } from "@t3tools/shared/agentAwareness";
 import * as Option from "effect/Option";
 import {
   CircleAlertIcon,
@@ -12,7 +13,7 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
-import { useEnvironments } from "../state/environments";
+import { useEnvironmentIds } from "../state/environments";
 import { environmentShell } from "../state/shell";
 import {
   hasDesktopNotifications,
@@ -25,7 +26,7 @@ import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 
 export function ThreadNotificationCoordinator() {
-  const { environments } = useEnvironments();
+  const environmentIds = useEnvironmentIds();
   const mode = useClientSettings((settings) => settings.notificationMode);
   const inAppNotificationsEnabled = useClientSettings(
     (settings) => settings.inAppNotificationsEnabled,
@@ -40,7 +41,7 @@ export function ThreadNotificationCoordinator() {
   }, []);
 
   useEffect(() => {
-    const activeIds = new Set(environments.map(({ environmentId }) => environmentId));
+    const activeIds = new Set(environmentIds);
     const count = pending.current.size;
     for (const [tag, { environmentId, notification }] of pending.current) {
       if (activeIds.has(environmentId)) continue;
@@ -48,7 +49,7 @@ export function ThreadNotificationCoordinator() {
       pending.current.delete(tag);
     }
     if (count !== pending.current.size) setNotificationBadge(pending.current.size);
-  }, [environments]);
+  }, [environmentIds]);
 
   useEffect(() => {
     const clear = () => {
@@ -79,13 +80,30 @@ export function ThreadNotificationCoordinator() {
 
   if (mode === "off" && !inAppNotificationsEnabled) return null;
 
-  return environments.map((environment) => (
+  return environmentIds.map((environmentId) => (
     <EnvironmentNotifications
-      key={environment.environmentId}
-      environmentId={environment.environmentId}
+      key={environmentId}
+      environmentId={environmentId}
       onNotification={onNotification}
     />
   ));
+}
+
+interface NotificationState {
+  readonly raw: OrchestrationV2ThreadShell;
+  readonly attention: string | null;
+  readonly completion: number | null;
+  readonly phase: ReturnType<typeof resolveThreadAwarenessPhaseV2>;
+}
+
+/** Phases whose completion must survive a reconnect so it still alerts once. */
+function isInFlightPhase(phase: NotificationState["phase"]): boolean {
+  return (
+    phase === "running" ||
+    phase === "starting" ||
+    phase === "waiting_for_approval" ||
+    phase === "waiting_for_input"
+  );
 }
 
 function EnvironmentNotifications({
@@ -96,7 +114,13 @@ function EnvironmentNotifications({
   onNotification: (environmentId: EnvironmentId, notification: Notification) => void;
 }) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
-  const latestShell = useRef(shell);
+  // The shell reducer keeps the thread list and unchanged thread objects
+  // stable, so this only rescans when a thread actually changed.
+  const threads =
+    shell.status === "live" && Option.isSome(shell.snapshot) ? shell.snapshot.value.threads : null;
+  // Read by a desktop alert that waited on a permission prompt, so it can
+  // drop itself if the thread moved on meanwhile.
+  const latestThreads = useRef(threads);
   const mode = useClientSettings((settings) => settings.notificationMode);
   const inAppNotificationsEnabled = useClientSettings(
     (settings) => settings.inAppNotificationsEnabled,
@@ -105,16 +129,7 @@ function EnvironmentNotifications({
   const { environmentId: activeEnvironmentId, threadId: activeThreadId } = useParams({
     strict: false,
   });
-  const previous = useRef(
-    new Map<
-      ThreadId,
-      {
-        attention: string | null;
-        completion: number | null;
-        phase: ReturnType<typeof resolveThreadAwarenessPhase>;
-      }
-    >(),
-  );
+  const previous = useRef(new Map<ThreadId, NotificationState>());
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -124,43 +139,43 @@ function EnvironmentNotifications({
   }, []);
 
   useEffect(() => {
-    latestShell.current = shell;
-    if (shell.status !== "live" || Option.isNone(shell.snapshot)) {
+    latestThreads.current = threads;
+    if (threads === null) {
       // Keep observed work across a reconnect so its completion is not lost.
       // Settled threads establish a fresh baseline instead of replaying history.
       for (const [id, state] of previous.current) {
-        if (
-          state.phase !== "running" &&
-          state.phase !== "starting" &&
-          state.phase !== "waiting_for_approval" &&
-          state.phase !== "waiting_for_input"
-        )
-          previous.current.delete(id);
+        if (!isInFlightPhase(state.phase)) previous.current.delete(id);
       }
       return;
     }
-    const next: typeof previous.current = new Map();
-    for (const thread of shell.snapshot.value.threads) {
+    const next = new Map<ThreadId, NotificationState>();
+    for (const rawThread of threads) {
+      if (rawThread.lineage.relationshipToParent === "subagent") continue;
+      const prior = previous.current.get(rawThread.id);
+      // The same object cannot produce a new notification.
+      if (prior?.raw === rawThread) {
+        next.set(rawThread.id, prior);
+        continue;
+      }
+      const thread = presentThreadShell(environmentId, rawThread);
+      const phase = resolveThreadAwarenessPhaseV2(rawThread);
       let status = resolveSidebarThreadStatus(thread);
-      if (status === "ready" && thread.latestTurn?.state === "error") status = "failed";
-      const prior = previous.current.get(thread.id);
-      const phase = resolveThreadAwarenessPhase(thread);
+      if (status === "ready" && thread.latestRun?.status === "failed") status = "failed";
       const attention =
-        status === "input" || status === "approval" || status === "failed"
-          ? `${thread.latestTurn?.turnId ?? ""}:${status}`
+        status === "input" || status === "approval" || status === "failed" || status === "limited"
+          ? `${thread.latestRun?.runId ?? ""}:${status}`
           : null;
-      // Some providers finish without a checkpoint-backed latestTurn. Their
-      // settled session is the completion signal; tool updates remain running.
-      const completedAt = Date.parse(
-        thread.latestTurn?.completedAt ??
-          (prior?.phase !== "completed" ? thread.session?.updatedAt : undefined) ??
-          "",
-      );
+      const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
+      // Alert when the whole agent run is done: commands left running (a dev
+      // server) read as ready, while wakes, subagents, and monitors keep it going.
       const completion =
-        phase === "completed" && Number.isFinite(completedAt)
+        status === "ready" &&
+        phase === "completed" &&
+        thread.latestRun?.status === "completed" &&
+        Number.isFinite(completedAt)
           ? completedAt
           : (prior?.completion ?? null);
-      next.set(thread.id, { attention, completion, phase });
+      next.set(thread.id, { raw: rawThread, attention, completion, phase });
       if (!prior || thread.archivedAt !== null) continue;
       const kind =
         attention && attention !== prior.attention
@@ -174,9 +189,11 @@ function EnvironmentNotifications({
           ? "Thread completed"
           : status === "approval"
             ? "Approval needed"
-            : status === "failed"
-              ? "Thread failed"
-              : "Input needed";
+            : status === "limited"
+              ? "Usage limit reached"
+              : status === "failed"
+                ? "Thread failed"
+                : "Input needed";
       if (hasNotificationSound(mode)) {
         void playNotificationSound(kind, () =>
           hasNotificationSound(getClientSettings().notificationMode),
@@ -216,6 +233,7 @@ function EnvironmentNotifications({
             },
           },
         });
+        // Completions also keep their system alert while a toast shows.
         if (kind !== "completion") continue;
       }
       if (
@@ -224,28 +242,26 @@ function EnvironmentNotifications({
         typeof Notification === "undefined"
       )
         continue;
+      const runId = rawThread.latestRunId;
+      const runCompletedAt = thread.latestRun?.completedAt ?? null;
       const showNotification = async () => {
         // Electron's Notification API delivers native macOS/Windows/Linux
         // alerts. Browser permission prompts must stay in the Settings gesture.
         if (window.desktopBridge && Notification.permission === "default") {
           await Notification.requestPermission();
         }
-        const currentShell = latestShell.current;
-        const currentThread =
-          currentShell.status === "live" && Option.isSome(currentShell.snapshot)
-            ? currentShell.snapshot.value.threads.find(({ id }) => id === thread.id)
-            : undefined;
+        const currentRaw = latestThreads.current?.find(({ id }) => id === thread.id);
+        const current = currentRaw ? presentThreadShell(environmentId, currentRaw) : undefined;
         if (
           Notification.permission !== "granted" ||
           !mounted.current ||
           !hasDesktopNotifications(getClientSettings().notificationMode) ||
-          !currentThread ||
-          currentThread.archivedAt !== null ||
-          resolveThreadAwarenessPhase(currentThread) !== phase ||
-          currentThread.latestTurn?.turnId !== thread.latestTurn?.turnId ||
-          (kind === "completion" &&
-            (currentThread.latestTurn?.completedAt ?? currentThread.session?.updatedAt) !==
-              (thread.latestTurn?.completedAt ?? thread.session?.updatedAt))
+          !currentRaw ||
+          !current ||
+          current.archivedAt !== null ||
+          resolveThreadAwarenessPhaseV2(currentRaw) !== phase ||
+          currentRaw.latestRunId !== runId ||
+          (kind === "completion" && (current.latestRun?.completedAt ?? null) !== runCompletedAt)
         )
           return;
         const notification = new Notification(title, {
@@ -276,7 +292,7 @@ function EnvironmentNotifications({
     mode,
     navigate,
     onNotification,
-    shell,
+    threads,
   ]);
 
   return null;

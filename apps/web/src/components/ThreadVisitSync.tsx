@@ -6,12 +6,18 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { createThreadVisitSync, subscribeThreadVisits } from "../threadVisitSync";
 import { useUiStateStore } from "../uiStateStore";
 
+/**
+ * Keeps this client's read markers and the server's shared `lastVisitedAt` in
+ * step: local visits and mark-unread actions dispatch `thread.visit` /
+ * `thread.mark-unread`, and server markers mirror back into the local store
+ * that the Activity Center and completion surfaces read.
+ */
 export function ThreadVisitSync() {
   const threads = useThreadShells();
-  const updateMetadata = useAtomCommand(
-    threadEnvironment.updateMetadata,
-    "sync thread read status",
-  );
+  const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
+  const markThreadUnread = useAtomCommand(threadEnvironment.markUnread, {
+    reportFailure: false,
+  });
   const sync = useMemo(
     () =>
       createThreadVisitSync({
@@ -27,18 +33,19 @@ export function ThreadVisitSync() {
         send: async ({ threadKey, visitedAt, markUnread }) => {
           const threadRef = parseScopedThreadKey(threadKey);
           if (!threadRef) return false;
-          const result = await updateMetadata({
-            environmentId: threadRef.environmentId,
-            input: {
-              threadId: threadRef.threadId,
-              lastVisitedAt: visitedAt,
-              ...(markUnread ? { markUnread } : {}),
-            },
-          });
+          const result = markUnread
+            ? await markThreadUnread({
+                environmentId: threadRef.environmentId,
+                input: { threadId: threadRef.threadId },
+              })
+            : await visitThread({
+                environmentId: threadRef.environmentId,
+                input: { threadId: threadRef.threadId, visitedAt },
+              });
           return result._tag === "Success";
         },
       }),
-    [updateMetadata],
+    [markThreadUnread, visitThread],
   );
   useLayoutEffect(() => subscribeThreadVisits(sync.visit), [sync]);
   useLayoutEffect(() => sync.update(threads), [sync, threads]);

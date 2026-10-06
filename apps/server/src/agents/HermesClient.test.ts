@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - the tests run a real local HTTP fixture server.
 import * as NodeAssert from "node:assert/strict";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeFSP from "node:fs/promises";

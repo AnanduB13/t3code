@@ -24,7 +24,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import type * as McpInvocationContext from "./McpInvocationContext.ts";
 
-type Scope = McpInvocationContext.McpInvocationScope;
+type Scope = McpInvocationContext.McpThreadInvocationScope;
 
 interface Connection {
   readonly host: ComputerUseHost;
@@ -48,12 +48,12 @@ interface State {
 }
 
 const selectionKey = (scope: Scope) =>
-  `${scope.environmentId}\u0000${scope.providerInstanceId}\u0000${scope.providerSessionId}`;
+  `${scope.environmentId}\u0000${scope.thread.providerInstanceId}\u0000${scope.thread.providerSessionId}`;
 const scopeFields = (scope: Scope) => ({
   environmentId: scope.environmentId,
-  threadId: scope.threadId,
-  providerSessionId: scope.providerSessionId,
-  providerInstanceId: scope.providerInstanceId,
+  threadId: scope.thread.threadId,
+  providerSessionId: scope.thread.providerSessionId,
+  providerInstanceId: scope.thread.providerInstanceId,
 });
 
 export class ComputerUseBroker extends Context.Service<
@@ -276,7 +276,7 @@ export const make = Effect.gen(function* () {
     const offered = yield* Queue.offer(connection.queue, {
       type: "request",
       connectionId: connection.connectionId,
-      request: { requestId, threadId: scope.threadId, operation, input, timeoutMs },
+      request: { requestId, threadId: scope.thread.threadId, operation, input, timeoutMs },
     });
     if (!offered) {
       yield* cleanup;

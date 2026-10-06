@@ -2,7 +2,7 @@ package expo.modules.t3nativecontrols
 
 import org.json.JSONArray
 
-/** Tracks Stop monitoring per turn, so other chats finishing cannot restart it. Main thread only. */
+/** Tracks Stop monitoring per run, so other chats finishing cannot restart it. Main thread only. */
 internal class ChatMonitorSessions {
   private val dismissed = mutableSetOf<String>()
 
@@ -19,6 +19,6 @@ internal class ChatMonitorSessions {
   fun clear() = dismissed.clear()
 
   companion object {
-    fun key(chat: Map<String, Any?>): String = JSONArray(listOf(chat["key"], chat["turnId"])).toString()
+    fun key(chat: Map<String, Any?>): String = JSONArray(listOf(chat["key"], chat["runId"])).toString()
   }
 }

@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import * as Effect from "effect/Effect";
 import * as Notifications from "expo-notifications";
 import { useEffect, useState } from "react";

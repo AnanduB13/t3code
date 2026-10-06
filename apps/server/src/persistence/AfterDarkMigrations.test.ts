@@ -1,29 +1,13 @@
 import { assert, it } from "@effect/vitest";
-import { MessageId, ThreadId, type OrchestrationMessageContext } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
-import { runMigrations } from "./Migrations.ts";
+import { migrationManifest, runMigrations } from "./Migrations.ts";
 import compatibility from "./Migrations/044_AfterDarkUpstreamCompatibility.ts";
 import lastVisited from "./Migrations/045_ProjectionThreadLastVisitedAt.ts";
-import { ProjectionQueuedMessageRepositoryLive } from "./Layers/ProjectionQueuedMessages.ts";
-import { ProjectionQueuedMessageRepository } from "./Services/ProjectionQueuedMessages.ts";
 
 const now = "2026-09-01T00:00:00.000Z";
-const context: OrchestrationMessageContext = {
-  version: 1,
-  records: [
-    {
-      version: 1,
-      contextId: "skill_review" as OrchestrationMessageContext["records"][number]["contextId"],
-      kind: "skill",
-      label: "$review",
-      name: "review",
-    },
-  ],
-};
 
 it.effect("upgrades the old After Dark ledger without losing queues, read state, or pins", () =>
   Effect.gen(function* () {
@@ -70,10 +54,10 @@ it.effect("upgrades the old After Dark ledger without losing queues, read state,
       yield* sql`SELECT migration_id FROM after_dark_migrations ORDER BY migration_id`;
     assert.deepEqual(
       forkLedger,
-      [1, 2, 3, 4, 5, 6, 7].map((migration_id) => ({ migration_id })),
+      [1, 2, 3, 4, 5, 6, 7, 8].map((migration_id) => ({ migration_id })),
     );
     const latest = yield* sql`SELECT MAX(migration_id) AS id FROM effect_sql_migrations`;
-    assert.deepEqual(latest, [{ id: 54 }]);
+    assert.deepEqual(latest, [{ id: migrationManifest.at(-1)?.[0] }]);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
@@ -127,46 +111,54 @@ it.effect("adds fork state to an existing OG database without replaying upstream
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
-it.effect("persists queued context and Stop holds while editing and reordering prompts", () =>
+it.effect("migrates the deployed After Dark ledger through orchestration V2", () =>
   Effect.gen(function* () {
-    yield* runMigrations();
-    const queues = yield* ProjectionQueuedMessageRepository;
-    const threadId = ThreadId.make("thread-1");
-    const messageId = MessageId.make("queued-1");
-    yield* queues.upsert({
-      messageId,
-      threadId,
-      text: "Review",
-      attachments: [],
-      context,
-      modelSelection: null,
-      sourceProposedPlanThreadId: null,
-      sourceProposedPlanId: null,
-      queuedAt: now,
-    });
-    yield* queues.updateText({
-      threadId,
-      messageId,
-      text: "Review carefully",
-      holdUntilUserAction: true,
-    });
-    yield* queues.reorder({ threadId, messageIds: [messageId] });
-    const rows = yield* queues.listByThreadId({ threadId });
-    assert.deepEqual(rows[0]?.context, context);
-    assert.equal(rows[0]?.holdUntilUserAction, true);
-    assert.equal(rows[0]?.text, "Review carefully");
-    yield* queues.updateText({
-      threadId,
-      messageId,
-      text: "Review now",
-      holdUntilUserAction: false,
-    });
-    assert.equal((yield* queues.listByThreadId({ threadId }))[0]?.holdUntilUserAction, false);
-  }).pipe(
-    Effect.provide(
-      ProjectionQueuedMessageRepositoryLive.pipe(
-        Layer.provideMerge(NodeSqliteClient.layer({ filename: ":memory:" })),
+    const sql = yield* SqlClient.SqlClient;
+    // The live After Dark ledger: fork names at 41-45 and 54, fork ledger rows 1-7.
+    yield* runMigrations({ toMigrationInclusive: 54 });
+    yield* sql`DELETE FROM after_dark_migrations WHERE migration_id >= 8`;
+    yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id BETWEEN 41 AND 45 OR migration_id = 54`;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES
+      (41, 'ProjectionQueuedMessages'), (42, 'EnsureProjectionThreadsPinned'),
+      (43, 'ProjectionQueuedMessagePosition'), (44, 'AfterDarkUpstreamCompatibility'),
+      (45, 'ProjectionThreadLastVisitedAt'), (54, 'AfterDarkMainCompatibility')`;
+    yield* sql`INSERT INTO projection_threads
+      (thread_id, project_id, title, model_selection_json, created_at, updated_at, pinned_at, last_visited_at)
+      VALUES ('thread-1', 'project-1', 'Keep this chat', '{"instanceId":"codex","model":"gpt-5.4"}', ${now}, ${now}, ${now}, ${now})`;
+    yield* sql`INSERT INTO projection_queued_messages
+      (message_id, thread_id, text, attachments_json, queued_at, queue_position)
+      VALUES ('queued-1', 'thread-1', 'Keep this prompt', '[]', ${now}, 0)`;
+
+    const executed = yield* runMigrations();
+    assert.deepEqual(
+      executed.map(([id]) => id),
+      migrationManifest.filter(([id]) => id >= 55).map(([id]) => id),
+    );
+    assert.deepEqual(yield* runMigrations(), []);
+
+    const tables = new Set(
+      (yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table'`).map(
+        (row) => row.name,
       ),
-    ),
-  ),
+    );
+    for (const table of [
+      "orchestration_v2_projection_threads",
+      "scheduled_tasks",
+      "scheduled_jobs",
+      "scheduled_job_runs",
+      "after_dark_legacy_queue_imports",
+      "projection_queued_messages",
+    ]) {
+      assert.ok(tables.has(table), table);
+    }
+    assert.deepEqual(yield* sql`SELECT last_visited_at, pinned_at FROM projection_threads`, [
+      { last_visited_at: now, pinned_at: now },
+    ]);
+    const threadColumns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;
+    assert.ok(threadColumns.some((column) => column.name === "auto_settle_disabled_at"));
+    assert.deepEqual(
+      yield* sql`SELECT migration_id FROM after_dark_migrations ORDER BY migration_id`,
+      [1, 2, 3, 4, 5, 6, 7, 8].map((migration_id) => ({ migration_id })),
+    );
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

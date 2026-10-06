@@ -10,8 +10,7 @@ vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("../../hooks/useMediaQuery", () => ({ useIsMobile: () => false }));
 vi.mock("../../state/entities", () => ({
   useThreadShell: () => ({}),
-  useThreadDetail: () => ({}),
-  useThreadStatus: () => "ready",
+  useThreadProjection: () => ({}),
 }));
 vi.mock("../DiffWorkerPoolProvider", () => ({
   DiffWorkerPoolProvider: ({ children }: { children: ReactNode }) => children,

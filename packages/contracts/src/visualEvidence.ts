@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { ChatImageAttachment } from "./orchestration.ts";
+import { ChatImageAttachment } from "./chatAttachment.ts";
 import { BrowserNavigationTarget } from "./previewAutomation.ts";
 
 export const VisualEvidenceCaptureMode = Schema.Literals(["full-page", "element"]);

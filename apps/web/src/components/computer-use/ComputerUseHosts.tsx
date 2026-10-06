@@ -7,7 +7,7 @@ import type {
   ComputerUseRequest,
   EnvironmentId,
 } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { createSerializedAbortableExecutor } from "@t3tools/shared/serializedAbortableExecutor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

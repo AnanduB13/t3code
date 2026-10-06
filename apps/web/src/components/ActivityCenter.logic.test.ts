@@ -6,15 +6,16 @@ import { buildCompletionNotifications, buildRunningThreads } from "./ActivityCen
 function thread(
   input: {
     readonly id?: string;
-    readonly state?: "running" | "completed" | "error";
+    readonly status?: "running" | "completed" | "failed";
     readonly requestedAt?: string;
     readonly completedAt?: string | null;
-    readonly sessionStatus?: "idle" | "starting" | "running" | "ready" | "error";
-    readonly backgroundLiveness?: "working" | "monitoring" | null;
+    readonly runtimeStatus?: "idle" | "starting" | "running" | "completed" | "failed";
+    readonly background?: ReadonlyArray<"subagent" | "monitor" | "command">;
     readonly archivedAt?: string | null;
   } = {},
 ): EnvironmentThreadShell {
-  const state = input.state ?? "completed";
+  const status = input.status ?? "completed";
+  const runtimeStatus = input.runtimeStatus ?? (status === "running" ? "running" : undefined);
   return {
     environmentId: "environment-1",
     id: input.id ?? "thread-1",
@@ -22,32 +23,34 @@ function thread(
     title: input.id ?? "Thread",
     updatedAt: "2026-08-25T10:00:00.000Z",
     archivedAt: input.archivedAt ?? null,
-    latestTurn: {
-      turnId: `turn-${input.id ?? "1"}`,
-      state,
+    latestRun: {
+      runId: `run-${input.id ?? "1"}`,
+      status,
       requestedAt: input.requestedAt ?? "2026-08-25T10:00:00.000Z",
       startedAt: "2026-08-25T10:00:01.000Z",
       completedAt:
         input.completedAt === undefined
-          ? state === "completed"
+          ? status === "completed"
             ? "2026-08-25T10:05:00.000Z"
             : null
           : input.completedAt,
       assistantMessageId: null,
     },
-    session:
-      input.sessionStatus === undefined
+    runtime:
+      runtimeStatus === undefined
         ? null
         : {
-            threadId: input.id ?? "thread-1",
-            status: input.sessionStatus,
-            providerName: "codex",
-            runtimeMode: "full-access",
-            activeTurnId: null,
+            status: runtimeStatus,
+            activeRunId: runtimeStatus === "running" ? `run-${input.id ?? "1"}` : null,
+            providerInstanceId: "codex",
+            providerName: null,
             lastError: null,
             updatedAt: "2026-08-25T10:00:02.000Z",
           },
-    backgroundLiveness: input.backgroundLiveness ?? null,
+    pendingBackgroundTasks: (input.background ?? []).map((kind, index) => ({
+      taskId: `task-${index}`,
+      kind,
+    })),
   } as unknown as EnvironmentThreadShell;
 }
 
@@ -56,7 +59,7 @@ describe("activity center completion notifications", () => {
     const older = thread({ id: "older", completedAt: "2026-08-25T10:05:00.000Z" });
     const newer = thread({ id: "newer", completedAt: "2026-08-25T11:05:00.000Z" });
     const notifications = buildCompletionNotifications({
-      threads: [older, newer, thread({ id: "working", state: "running" })],
+      threads: [older, newer, thread({ id: "working", status: "running" })],
       lastVisitedAtByThreadKey: {
         "environment-1:older": "2026-08-25T10:05:00.000Z",
         "environment-1:newer": "2026-08-25T11:00:00.000Z",
@@ -78,19 +81,20 @@ describe("activity center completion notifications", () => {
 });
 
 describe("activity center running threads", () => {
-  it("includes foreground turns, projected sessions, and background work", () => {
+  it("includes foreground runs, starting runtimes, and background work", () => {
     const running = buildRunningThreads([
-      thread({ id: "turn", state: "running", requestedAt: "2026-08-25T12:00:00.000Z" }),
-      thread({ id: "session", state: "completed", sessionStatus: "starting" }),
-      thread({ id: "agent", state: "completed", backgroundLiveness: "working" }),
-      thread({ id: "watch", state: "completed", backgroundLiveness: "monitoring" }),
-      thread({ id: "idle", state: "completed", sessionStatus: "ready" }),
+      thread({ id: "run", status: "running", requestedAt: "2026-08-25T12:00:00.000Z" }),
+      thread({ id: "starting", runtimeStatus: "starting" }),
+      thread({ id: "agent", runtimeStatus: "idle", background: ["subagent", "monitor"] }),
+      thread({ id: "watch", runtimeStatus: "idle", background: ["monitor"] }),
+      thread({ id: "dev-server", runtimeStatus: "completed", background: ["command"] }),
+      thread({ id: "idle", runtimeStatus: "completed" }),
     ]);
 
     expect(new Map(running.map((entry) => [entry.thread.id, entry.status]))).toEqual(
       new Map([
-        ["turn", "Working"],
-        ["session", "Working"],
+        ["run", "Working"],
+        ["starting", "Working"],
         ["agent", "Background work"],
         ["watch", "Monitoring"],
       ]),
@@ -100,7 +104,7 @@ describe("activity center running threads", () => {
   it("ignores archived running threads", () => {
     expect(
       buildRunningThreads([
-        thread({ id: "archived", state: "running", archivedAt: "2026-08-25T12:00:00.000Z" }),
+        thread({ id: "archived", status: "running", archivedAt: "2026-08-25T12:00:00.000Z" }),
       ]),
     ).toEqual([]);
   });

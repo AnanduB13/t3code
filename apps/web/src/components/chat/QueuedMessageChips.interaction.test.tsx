@@ -1,6 +1,7 @@
 import { act, cloneElement, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
-import { MessageId, type OrchestrationQueuedMessage } from "@t3tools/contracts";
+import type { QueuedPrompt } from "@t3tools/client-runtime/state/queued-prompts";
+import { MessageId, RunId } from "@t3tools/contracts";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
 // Keep the selection interaction headless; the shared dialog owns portal/focus behavior.
@@ -28,8 +29,10 @@ afterEach(async () => {
 
 it("preselects only the clicked prompt, allows explicit additions, and cancels without sending", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  const queuedMessages: OrchestrationQueuedMessage[] = ["B", "C", "D"].map((id) => ({
+  const queuedMessages: QueuedPrompt[] = ["B", "C", "D"].map((id) => ({
     messageId: MessageId.make(id),
+    runId: RunId.make(`run-${id}`),
+    holdUntilUserAction: false,
     text: id,
     attachments: [],
     queuedAt: "2026-09-13T00:00:00Z",
@@ -83,14 +86,16 @@ it("preselects only the clicked prompt, allows explicit additions, and cancels w
 
 it("collapses long queues into a summary until the user expands them", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  const queued = (ids: string[]): OrchestrationQueuedMessage[] =>
+  const queued = (ids: string[]): QueuedPrompt[] =>
     ids.map((id) => ({
       messageId: MessageId.make(id),
+      runId: RunId.make(`run-${id}`),
+      holdUntilUserAction: false,
       text: `prompt ${id}`,
       attachments: [],
       queuedAt: "2026-09-13T00:00:00Z",
     }));
-  const render = (queuedMessages: OrchestrationQueuedMessage[]) => (
+  const render = (queuedMessages: QueuedPrompt[]) => (
     <QueuedMessageChips
       queuedMessages={queuedMessages}
       onSteer={vi.fn()}

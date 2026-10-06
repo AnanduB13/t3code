@@ -146,11 +146,12 @@ export function ThreadCompletionNotifications() {
     // become unread without turning old completed history into a backlog.
     const visits = useUiStateStore.getState().threadLastVisitedAtById;
     for (const thread of threads) {
-      const turn = thread.latestTurn;
-      if (turn === null || turn.state === "completed") continue;
+      const run = thread.latestRun;
+      if (run === null || run.status === "completed") continue;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-      if (visits[threadKey] === undefined) {
-        markThreadVisited(threadKey, turn.startedAt ?? turn.requestedAt);
+      const baseline = run.startedAt ?? run.requestedAt;
+      if (visits[threadKey] === undefined && baseline !== null) {
+        markThreadVisited(threadKey, baseline);
       }
     }
     if (previous === null) return;

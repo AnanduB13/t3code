@@ -2,9 +2,11 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { isLatestTurnCompleted } from "@t3tools/client-runtime/state/thread-settled";
 
+import { resolveThreadLastVisitedAt } from "./Sidebar.logic";
+
 export type ThreadCompletionSnapshot = ReadonlyMap<
   string,
-  { readonly turnId: string; readonly state: string }
+  { readonly runId: string; readonly status: string }
 >;
 
 type CloseableNotification = {
@@ -27,13 +29,13 @@ export function snapshotThreadCompletions(
 ): ThreadCompletionSnapshot {
   return new Map(
     threads.flatMap((thread) => {
-      const turn = thread.latestTurn;
-      return turn === null
+      const run = thread.latestRun;
+      return run === null
         ? []
         : [
             [
               scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-              { turnId: turn.turnId, state: turn.state },
+              { runId: run.runId, status: run.status },
             ] as const,
           ];
     }),
@@ -49,13 +51,13 @@ export function findNewlyCompletedThreads(
   threads: readonly EnvironmentThreadShell[],
 ): EnvironmentThreadShell[] {
   return threads.filter((thread) => {
-    const turn = thread.latestTurn;
-    if (turn?.state !== "completed") return false;
+    const run = thread.latestRun;
+    if (!isLatestTurnCompleted(run) || run === null) return false;
 
     const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
     const prior = previous.get(key);
     if (prior === undefined) return false;
-    return prior.turnId !== turn.turnId || prior.state !== "completed";
+    return prior.runId !== run.runId || prior.status !== "completed";
   });
 }
 
@@ -73,19 +75,24 @@ export function hasUnseenCompletionInProjectKind(input: {
 }
 
 /**
- * A completion is unread only when this client observed the thread before it
- * finished and has not visited the finished turn. Missing visit markers are
- * deliberately treated as read so connecting a new client does not turn the
- * entire thread history into a notification backlog.
+ * A completion is unread only when the thread was observed before it finished
+ * and the finished run has not been visited. The server's shared visit marker
+ * wins when the environment tracks visits; the local marker covers older
+ * servers. Missing markers are deliberately treated as read so connecting a
+ * new client does not turn the entire thread history into a notification
+ * backlog.
  */
 export function isThreadCompletionUnread(
-  thread: EnvironmentThreadShell,
+  thread: Pick<EnvironmentThreadShell, "environmentId" | "id" | "latestRun" | "lastVisitedAt">,
   lastVisitedAtByThreadKey: Readonly<Record<string, string>>,
 ): boolean {
-  const completedAt = thread.latestTurn?.completedAt;
-  if (!isLatestTurnCompleted(thread.latestTurn) || !completedAt) return false;
+  const completedAt = thread.latestRun?.completedAt;
+  if (!isLatestTurnCompleted(thread.latestRun) || !completedAt) return false;
   const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-  const lastVisitedAt = lastVisitedAtByThreadKey[threadKey];
+  const lastVisitedAt = resolveThreadLastVisitedAt(
+    thread.lastVisitedAt,
+    lastVisitedAtByThreadKey[threadKey],
+  );
   if (!lastVisitedAt) return false;
   const completedAtMs = Date.parse(completedAt);
   const lastVisitedAtMs = Date.parse(lastVisitedAt);

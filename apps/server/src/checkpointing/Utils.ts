@@ -1,31 +1,15 @@
-import * as Encoding from "effect/Encoding";
+import * as Base64Url from "effect/encoding/Base64Url";
 import { CheckpointRef, ProjectId, type ThreadId } from "@t3tools/contracts";
 
 const CHECKPOINT_REFS_PREFIX = "refs/t3/checkpoints";
 
 export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number): CheckpointRef {
   return CheckpointRef.make(
-    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/turn/${turnCount}`,
+    `${CHECKPOINT_REFS_PREFIX}/${Base64Url.encode(threadId)}/turn/${turnCount}`,
   );
 }
 
-/**
- * Snapshot taken immediately before the next turn starts.
- *
- * This must be distinct from the completed-turn ref. Other threads can mutate
- * a shared workspace between two turns of this thread, so the prior completed
- * checkpoint is not necessarily the correct baseline for the next turn.
- */
-export function checkpointBaselineRefForThreadTurn(
-  threadId: ThreadId,
-  turnCount: number,
-): CheckpointRef {
-  return CheckpointRef.make(
-    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/baseline/${turnCount}`,
-  );
-}
-
-export function resolveThreadWorkspaceCwd(input: {
+function resolveThreadWorkspaceCwd(input: {
   readonly thread: {
     readonly projectId: ProjectId;
     readonly worktreePath: string | null;

@@ -1,7 +1,10 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
-import { AsyncResult } from "effect/unstable/reactivity";
-import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { AsyncResult } from "effect/reactivity";
+import type {
+  EnvironmentProject,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import {
   GENERAL_CHATS_PROJECT_ID,
   GENERAL_CHATS_PROJECT_TITLE,
@@ -15,7 +18,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "rea
 import { Alert, Platform, useWindowDimensions } from "react-native";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useNavigationThreadShells } from "../../state/entities";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -41,7 +44,7 @@ export function HomeRouteScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const { homeMode, layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useProjects();
-  const threads = useThreadShells();
+  const threads = useNavigationThreadShells();
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
@@ -51,6 +54,20 @@ export function HomeRouteScreen() {
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const [pendingChatEnvironmentId, setPendingChatEnvironmentId] = useState<EnvironmentId | null>(
     null,
+  );
+  const handleNewThreadOnBranch = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      navigation.navigate("NewTaskSheet", {
+        screen: "NewTaskDraft",
+        params: {
+          environmentId: String(thread.environmentId),
+          projectId: String(thread.projectId),
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+        },
+      });
+    },
+    [navigation],
   );
 
   useEffect(() => {
@@ -335,17 +352,7 @@ export function HomeRouteScreen() {
           onSelectThread={handleSelectThread}
           onSelectPendingTask={openPendingTask}
           onDeletePendingTask={confirmDeletePendingTask}
-          onNewThreadOnBranch={(thread) => {
-            navigation.navigate("NewTaskSheet", {
-              screen: "NewTaskDraft",
-              params: {
-                environmentId: String(thread.environmentId),
-                projectId: String(thread.projectId),
-                branch: thread.branch,
-                worktreePath: thread.worktreePath,
-              },
-            });
-          }}
+          onNewThreadOnBranch={handleNewThreadOnBranch}
           onNewThreadInProject={(project) => {
             if (project.id === GENERAL_CHATS_PROJECT_ID) {
               openGeneralChatDraft(project);

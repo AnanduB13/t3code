@@ -10,13 +10,14 @@ function thread(input: {
   readonly id: string;
   readonly environmentId?: string;
   readonly projectId?: string;
-  readonly state?: "running" | "completed";
+  readonly status?: "running" | "completed";
   readonly completedAt?: string | null;
-  readonly sessionStatus?: "starting" | "running" | "ready";
-  readonly backgroundLiveness?: "working" | "monitoring" | null;
+  readonly runtimeStatus?: "idle" | "starting" | "running" | "completed";
+  readonly background?: ReadonlyArray<"subagent" | "monitor" | "command">;
   readonly archivedAt?: string | null;
 }): EnvironmentThreadShell {
-  const state = input.state ?? "completed";
+  const status = input.status ?? "completed";
+  const runtimeStatus = input.runtimeStatus ?? (status === "running" ? "running" : undefined);
   return {
     environmentId: input.environmentId ?? "environment-1",
     id: input.id,
@@ -24,32 +25,34 @@ function thread(input: {
     title: input.id,
     updatedAt: "2026-08-25T10:00:00.000Z",
     archivedAt: input.archivedAt ?? null,
-    latestTurn: {
-      turnId: `turn-${input.id}`,
-      state,
+    latestRun: {
+      runId: `run-${input.id}`,
+      status,
       requestedAt: "2026-08-25T10:00:00.000Z",
       startedAt: "2026-08-25T10:00:01.000Z",
       completedAt:
         input.completedAt === undefined
-          ? state === "completed"
+          ? status === "completed"
             ? "2026-08-25T10:05:00.000Z"
             : null
           : input.completedAt,
       assistantMessageId: null,
     },
-    session:
-      input.sessionStatus === undefined
+    runtime:
+      runtimeStatus === undefined
         ? null
         : {
-            threadId: input.id,
-            status: input.sessionStatus,
-            providerName: "codex",
-            runtimeMode: "full-access",
-            activeTurnId: null,
+            status: runtimeStatus,
+            activeRunId: null,
+            providerInstanceId: "codex",
+            providerName: null,
             lastError: null,
             updatedAt: "2026-08-25T10:00:02.000Z",
           },
-    backgroundLiveness: input.backgroundLiveness ?? null,
+    pendingBackgroundTasks: (input.background ?? []).map((kind, index) => ({
+      taskId: `task-${index}`,
+      kind,
+    })),
   } as unknown as EnvironmentThreadShell;
 }
 
@@ -57,10 +60,10 @@ describe("project scope activity", () => {
   it("counts every form of live work per physical project", () => {
     const activity = buildProjectActivityByPhysicalKey({
       threads: [
-        thread({ id: "turn", state: "running" }),
-        thread({ id: "session", sessionStatus: "starting" }),
-        thread({ id: "background", backgroundLiveness: "working" }),
-        thread({ id: "monitor", backgroundLiveness: "monitoring" }),
+        thread({ id: "run", status: "running" }),
+        thread({ id: "starting", runtimeStatus: "starting" }),
+        thread({ id: "background", runtimeStatus: "idle", background: ["subagent"] }),
+        thread({ id: "monitor", runtimeStatus: "idle", background: ["monitor"] }),
       ],
       lastVisitedAtByThreadKey: {},
     });
@@ -75,7 +78,7 @@ describe("project scope activity", () => {
       threads: [
         unread,
         read,
-        thread({ id: "archived", state: "running", archivedAt: "2026-08-25T11:00:00Z" }),
+        thread({ id: "archived", status: "running", archivedAt: "2026-08-25T11:00:00Z" }),
       ],
       lastVisitedAtByThreadKey: {
         "environment-1:unread": "2026-08-25T10:04:00.000Z",
@@ -92,7 +95,7 @@ describe("project scope activity", () => {
   it("combines physical projects that belong to one logical project", () => {
     const activity = buildProjectActivityByPhysicalKey({
       threads: [
-        thread({ id: "local", state: "running" }),
+        thread({ id: "local", status: "running" }),
         thread({
           id: "remote",
           environmentId: "environment-2",

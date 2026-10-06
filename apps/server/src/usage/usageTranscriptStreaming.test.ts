@@ -123,7 +123,7 @@ describe("large usage records", () => {
           reasoningTokens: 0,
         },
         reportedCostUsd: 0.25,
-        fast: true,
+        speed: "fast",
         dedupeKey: "m1:r-m1",
       },
     ]);
