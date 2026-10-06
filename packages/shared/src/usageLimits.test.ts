@@ -29,6 +29,8 @@ import {
   remainingPercent,
   isChatGptUsageLimitError,
   usesChatGptSharing,
+  selectComposerUsageWindow,
+  composerUsageWindowLabel,
 } from "./usageLimits.ts";
 
 const now = Date.parse("2026-09-03T12:00:00.000Z");
@@ -41,6 +43,135 @@ const window = {
   windowDurationMins: 300,
   resetsAt: "2026-09-03T14:00:00.000Z",
 } as const;
+
+describe("composer usage window", () => {
+  const weekly = {
+    ...window,
+    id: "secondary",
+    kind: "weekly",
+    label: "Weekly",
+    windowDurationMins: 10_080,
+  } as const;
+  const limits = (windows: readonly (typeof window | typeof weekly)[]) => ({
+    checkedAt: "2026-09-03T12:00:00.000Z",
+    windows,
+  });
+
+  it("tracks Claude's five-hour session when weekly usage arrives first", () => {
+    const claude = {
+      driver: ProviderDriverKind.make("claudeAgent"),
+      usageLimits: limits([weekly, window]),
+    };
+    expect(selectComposerUsageWindow(claude)).toBe(window);
+    expect(composerUsageWindowLabel(claude, window)).toBe("5-hour session");
+  });
+
+  it("tracks Codex weekly usage rather than its session", () => {
+    const codex = {
+      driver: ProviderDriverKind.make("codex"),
+      usageLimits: limits([window, weekly]),
+    };
+    expect(selectComposerUsageWindow(codex)).toBe(weekly);
+    expect(composerUsageWindowLabel(codex, weekly)).toBe("Weekly");
+  });
+
+  it.each(["opencode", "grok", "cursor", "antigravity"])(
+    "prefers a reported five-hour window for %s regardless of window order",
+    (driver) => {
+      const session = { ...window, id: "rolling", label: "Rolling limit" };
+      const provider = {
+        driver: ProviderDriverKind.make(driver),
+        usageLimits: { ...limits([]), windows: [weekly, session] },
+      };
+      expect(selectComposerUsageWindow(provider)).toBe(session);
+      expect(composerUsageWindowLabel(provider, session)).toBe("5-hour session");
+    },
+  );
+
+  it("recognizes five_hour without duration metadata for another harness", () => {
+    const session = { ...window, windowDurationMins: undefined };
+    const provider = {
+      driver: ProviderDriverKind.make("opencode"),
+      usageLimits: { ...limits([]), windows: [weekly, session] },
+    };
+    expect(selectComposerUsageWindow(provider)).toBe(session);
+    expect(composerUsageWindowLabel(provider, session)).toBe("5-hour session");
+  });
+
+  it("ignores a model-specific Codex weekly even if it arrives first", () => {
+    const main = { ...weekly, id: "default:secondary", usedPercent: 60 };
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("codex"),
+        usageLimits: {
+          ...limits([]),
+          windows: [
+            { ...weekly, id: "spark:secondary", label: "Spark · weekly", usedPercent: 10 },
+            main,
+          ],
+        },
+      }),
+    ).toBe(main);
+  });
+
+  it("recognizes a weekly-only Codex allowance in the primary position", () => {
+    const primary = { ...weekly, id: "primary", label: "Primary limit" };
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("codex"),
+        usageLimits: { ...limits([]), windows: [primary] },
+      }),
+    ).toBe(primary);
+  });
+
+  it("does not substitute another period or a model allowance for the requested window", () => {
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("codex"),
+        usageLimits: limits([window]),
+      }),
+    ).toBeNull();
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("claudeAgent"),
+        usageLimits: limits([weekly]),
+      }),
+    ).toBeNull();
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("codex"),
+        usageLimits: { ...limits([]), windows: [{ ...weekly, id: "spark:secondary" }] },
+      }),
+    ).toBeNull();
+  });
+
+  it("hides unsupported accounts and keeps the last limits when a refresh fails", () => {
+    expect(selectComposerUsageWindow(null)).toBeNull();
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("codex"),
+        usageLimits: { ...limits([weekly]), unavailable: { reason: "unsupported" } },
+      }),
+    ).toBeNull();
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("codex"),
+        usageLimits: { ...limits([weekly]), unavailable: { reason: "probeFailed" } },
+      }),
+    ).toBe(weekly);
+  });
+
+  it("uses Cursor's overall quota rather than one of its component pools", () => {
+    const pool = { ...window, kind: "other", windowDurationMins: undefined } as const;
+    const overall = { ...pool, id: "totalPercentUsed", label: "Overall" };
+    expect(
+      selectComposerUsageWindow({
+        driver: ProviderDriverKind.make("cursor"),
+        usageLimits: { ...limits([]), windows: [{ ...pool, id: "apiPercentUsed" }, overall] },
+      }),
+    ).toBe(overall);
+  });
+});
 
 function provider(overrides: Partial<ServerProvider>): ServerProvider {
   return {

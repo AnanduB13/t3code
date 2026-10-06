@@ -26,6 +26,58 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
+/** Prefer a reported five-hour quota; Codex always tracks its account-wide week. */
+export function selectComposerUsageWindow(
+  provider: Pick<ServerProvider, "driver" | "usageLimits"> | null | undefined,
+): ServerProviderUsageWindow | null {
+  const limits = provider?.usageLimits;
+  if (!limits || limits.unavailable?.reason === "unsupported") return null;
+  const windows = limits.windows.filter((window) => Number.isFinite(window.usedPercent));
+  if (provider?.driver === "claudeAgent") {
+    return (
+      windows.find((window) => window.id === "five_hour") ??
+      windows.find((window) => window.windowDurationMins === 300) ??
+      windows.find((window) => window.kind === "session") ??
+      null
+    );
+  }
+  if (provider?.driver === "codex") {
+    const mainWindows = windows.filter(
+      (window) =>
+        !window.id.includes(":") ||
+        window.id.startsWith("default:") ||
+        window.id.startsWith("codex:"),
+    );
+    return (
+      mainWindows.find((window) => window.windowDurationMins === 10_080) ??
+      mainWindows.find((window) => window.label.trim().toLowerCase() === "weekly") ??
+      mainWindows.find((window) => window.kind === "weekly") ??
+      null
+    );
+  }
+  return (
+    windows.find((window) => window.id === "five_hour") ??
+    windows.find((window) => window.windowDurationMins === 300) ??
+    windows.find((window) => window.id === "totalPercentUsed") ??
+    windows[0] ??
+    null
+  );
+}
+
+export function composerUsageWindowLabel(
+  provider: Pick<ServerProvider, "driver">,
+  window: ServerProviderUsageWindow,
+): string {
+  if (provider.driver === "codex") return "Weekly";
+  if (
+    provider.driver === "claudeAgent" ||
+    window.id === "five_hour" ||
+    window.windowDurationMins === 300
+  )
+    return "5-hour session";
+  return window.label;
+}
+
 export const CHATGPT_USAGE_URL = "https://chatgpt.com/#settings/Usage";
 const CHATGPT_USAGE_LIMIT_CODE = "subscription_sharing_usage_limit_exceeded";
 

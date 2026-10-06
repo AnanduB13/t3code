@@ -1,11 +1,14 @@
 import type {
   EnvironmentId,
   ServerProvider,
+  ServerConfig,
+  ProviderUsageResult,
   UsageSummary,
   UsageSummaryInput,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import type { AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, type AtomRegistry } from "effect/unstable/reactivity";
+import { withLegacyUsageLimits } from "@t3tools/shared/usageLimits";
 
 import { EnvironmentRpcUnavailableError } from "../rpc/client.ts";
 import type { createEnvironmentPresentationAtoms } from "./presentation.ts";
@@ -13,6 +16,31 @@ import { executeAtomQuery, runAtomCommand, squashAtomCommandFailure } from "./ru
 import type { createServerEnvironmentAtoms } from "./server.ts";
 
 const isEnvironmentRpcUnavailable = Schema.is(EnvironmentRpcUnavailableError);
+
+/** Stream current quotas; only mount the polling reader for older environments. */
+export function createUsageLimitProvidersAtom<E>(input: {
+  readonly configValueAtom: (environmentId: EnvironmentId) => Atom.Atom<ServerConfig | null>;
+  readonly legacyQuery: (
+    environmentId: EnvironmentId,
+  ) => Atom.Atom<AsyncResult.AsyncResult<ProviderUsageResult, E>>;
+}) {
+  return Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get): readonly ServerProvider[] => {
+      const config = get(input.configValueAtom(environmentId));
+      if (!config) return [];
+      if (
+        config.environment.capabilities.usageLimitSources === true ||
+        config.providers.some((provider) => provider.usageLimits !== undefined)
+      ) {
+        return config.providers;
+      }
+      const result = get(input.legacyQuery(environmentId));
+      return AsyncResult.isSuccess(result)
+        ? withLegacyUsageLimits(config.providers, result.value.providers)
+        : config.providers;
+    }).pipe(Atom.withLabel(`composer-usage-providers:${environmentId}`)),
+  );
+}
 
 /** Offer the Cursor Keychain prompt only where a working Cursor provider could use it. */
 export function needsCursorKeychainAccess(

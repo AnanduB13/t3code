@@ -5,6 +5,8 @@ import {
   UsageDay,
   USAGE_CONTRACT_VERSION,
   type ServerProvider,
+  type ServerConfig,
+  type ProviderUsageResult,
   type UsageSummary,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -18,6 +20,7 @@ import {
   needsCursorKeychainAccess,
   refreshUsage,
   refreshUsageLimits,
+  createUsageLimitProvidersAtom,
 } from "./usage.ts";
 
 const input = {
@@ -38,6 +41,127 @@ const summary: UsageSummary = {
 const registries: AtomRegistry.AtomRegistry[] = [];
 afterEach(() => {
   for (const registry of registries.splice(0)) registry.dispose();
+});
+
+describe("composer quota updates", () => {
+  const environmentId = EnvironmentId.make("composer-environment");
+  const otherId = EnvironmentId.make("other-environment");
+  const native: ServerProvider = {
+    instanceId: ProviderInstanceId.make("codex-work"),
+    driver: ProviderDriverKind.make("codex"),
+    enabled: true,
+    installed: true,
+    version: null,
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: "2026-09-05T12:00:00.000Z",
+    models: [],
+    slashCommands: [],
+    skills: [],
+  };
+  const config = (providers: readonly ServerProvider[], modern = false) =>
+    ({ providers, environment: { capabilities: { usageLimitSources: modern } } }) as ServerConfig;
+  const quota = (usedPercent: number): ServerProvider => ({
+    ...native,
+    usageLimits: {
+      checkedAt: native.checkedAt,
+      windows: [
+        {
+          id: "secondary",
+          kind: "weekly",
+          label: "Weekly",
+          usedPercent,
+          windowDurationMins: 10_080,
+        },
+      ],
+    },
+  });
+
+  function quotaHarness() {
+    const registry = AtomRegistry.make();
+    registries.push(registry);
+    const configs = Atom.family((_id: EnvironmentId) => Atom.make<ServerConfig | null>(null));
+    const legacy = Atom.make<AsyncResult.AsyncResult<ProviderUsageResult>>(AsyncResult.initial());
+    const legacyQuery = vi.fn(() => legacy);
+    const providers = createUsageLimitProvidersAtom({ configValueAtom: configs, legacyQuery });
+    registry.mount(providers(environmentId));
+    return { registry, configs, legacy, legacyQuery, providers };
+  }
+
+  it("updates immediately from streamed quotas, including exhaustion and reset", () => {
+    const { registry, configs, legacyQuery, providers } = quotaHarness();
+    const values: number[] = [];
+    registry.subscribe(providers(environmentId), (list) => {
+      const used = list[0]?.usageLimits?.windows[0]?.usedPercent;
+      if (used !== undefined) values.push(used);
+    });
+    for (const used of [20, 80, 100, 0]) {
+      registry.set(configs(environmentId), config([quota(used)]));
+      expect(registry.get(providers(environmentId))[0]?.usageLimits?.windows[0]?.usedPercent).toBe(
+        used,
+      );
+    }
+    expect(values).toEqual([20, 80, 100, 0]);
+    expect(legacyQuery).not.toHaveBeenCalled();
+    registry.set(configs(environmentId), null);
+    expect(registry.get(providers(environmentId))).toEqual([]);
+  });
+
+  it("does not poll a modern environment that has no quota for its account", () => {
+    const { registry, configs, legacyQuery, providers } = quotaHarness();
+    registry.set(configs(environmentId), config([native], true));
+    expect(registry.get(providers(environmentId))[0]?.usageLimits).toBeUndefined();
+    expect(legacyQuery).not.toHaveBeenCalled();
+  });
+
+  it("adapts legacy snapshots, then switches to streamed data when it becomes available", () => {
+    const { registry, configs, legacy, legacyQuery, providers } = quotaHarness();
+    registry.set(configs(environmentId), config([native]));
+    registry.set(
+      legacy,
+      AsyncResult.success({
+        providers: [
+          {
+            instanceId: native.instanceId,
+            provider: native.driver,
+            displayName: "Codex",
+            status: "available",
+            updatedAt: native.checkedAt,
+            windows: [
+              {
+                id: "default:secondary",
+                label: "Weekly",
+                usedPercent: 30,
+                remainingPercent: 70,
+                windowDurationMins: 10_080,
+              },
+            ],
+          },
+        ],
+        tokenUsage: { lifetimeTokens: 0, peakThreadTokens: 0, trackedThreads: 0, daily: [] },
+      }),
+    );
+    expect(registry.get(providers(environmentId))[0]?.usageLimits?.windows[0]?.usedPercent).toBe(
+      30,
+    );
+    expect(legacyQuery).toHaveBeenCalledWith(environmentId);
+    registry.set(configs(environmentId), config([quota(60)]));
+    registry.set(legacy, AsyncResult.initial());
+    expect(registry.get(providers(environmentId))[0]?.usageLimits?.windows[0]?.usedPercent).toBe(
+      60,
+    );
+  });
+
+  it("keeps the same instance's quotas separate between environments", () => {
+    const { registry, configs, providers } = quotaHarness();
+    registry.mount(providers(otherId));
+    registry.set(configs(environmentId), config([quota(20)]));
+    registry.set(configs(otherId), config([quota(80)]));
+    expect(registry.get(providers(environmentId))[0]?.usageLimits?.windows[0]?.usedPercent).toBe(
+      20,
+    );
+    expect(registry.get(providers(otherId))[0]?.usageLimits?.windows[0]?.usedPercent).toBe(80);
+  });
 });
 
 function harness(ids = ["a"]) {

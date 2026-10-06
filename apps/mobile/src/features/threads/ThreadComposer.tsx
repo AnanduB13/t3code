@@ -1,5 +1,4 @@
-import { AsyncResult } from "effect/unstable/reactivity";
-import { providerUsageQuery } from "../../state/provider-usage";
+import { usageLimitProvidersAtom } from "../../state/provider-usage";
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -13,7 +12,6 @@ import {
   type MessageId,
   type OrchestrationQueuedMessage,
   type ProviderInstanceId,
-  type ProviderUsageWindow,
   type ModelSelection,
   type OrchestrationThreadShell,
   type ProviderInteractionMode,
@@ -25,6 +23,8 @@ import {
   collectProviderUsageLimits,
   hasProviderUsageLimits,
   isUsageLimitsCommand,
+  composerUsageWindowLabel,
+  selectComposerUsageWindow,
 } from "@t3tools/shared/usageLimits";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { ReactNode } from "react";
@@ -227,34 +227,19 @@ const COMPOSER_ATTACHMENT_ENTERING =
 
 const AnimatedGlassSurface = Animated.createAnimatedComponent(GlassSurface);
 
-function preferredUsageWindow(
-  windows: ReadonlyArray<ProviderUsageWindow>,
-): ProviderUsageWindow | null {
-  return (
-    windows.find((window) => window.windowDurationMins === 10_080) ??
-    windows.find((window) => window.id === "seven_day") ??
-    windows[0] ??
-    null
-  );
-}
-
 const ProviderUsagePill = memo(function ProviderUsagePill(props: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
 }) {
-  const result = useAtomValue(
-    providerUsageQuery({ environmentId: props.environmentId, input: {} }),
-  );
-  if (!AsyncResult.isSuccess(result)) return null;
-
-  const provider = result.value.providers.find(
-    (candidate) => candidate.instanceId === props.instanceId && candidate.status === "available",
-  );
-  const usageWindow = provider ? preferredUsageWindow(provider.windows) : null;
+  const providers = useAtomValue(usageLimitProvidersAtom(props.environmentId));
+  const provider = providers.find((candidate) => candidate.instanceId === props.instanceId);
+  const usageWindow = selectComposerUsageWindow(provider);
   if (!provider || !usageWindow) return null;
 
-  const remaining = Math.round(Math.max(0, Math.min(100, usageWindow.remainingPercent)));
-  const used = Math.max(0, Math.min(100, usageWindow.usedPercent));
+  const remainingPercent = Math.max(0, Math.min(100, 100 - usageWindow.usedPercent));
+  const remaining = Math.round(remainingPercent);
+  const displayName = provider.displayName?.trim() || String(provider.instanceId);
+  const windowLabel = composerUsageWindowLabel(provider, usageWindow);
   const resetAt = usageWindow.resetsAt ? new Date(usageWindow.resetsAt) : null;
   const resetLabel =
     resetAt && Number.isFinite(resetAt.getTime())
@@ -264,12 +249,12 @@ const ProviderUsagePill = memo(function ProviderUsagePill(props: {
   return (
     <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}>
       <Pressable
-        accessibilityLabel={`${provider.displayName} plan usage: ${remaining}% remaining`}
+        accessibilityLabel={`${displayName} ${windowLabel.toLowerCase()} usage: ${remaining}% remaining`}
         accessibilityRole="button"
         onPress={() =>
           Alert.alert(
-            `${provider.displayName} usage`,
-            `${usageWindow.label}: ${remaining}% remaining${resetLabel}`,
+            `${displayName} usage`,
+            `${windowLabel}: ${remaining}% remaining${resetLabel}`,
           )
         }
         className="h-8 min-w-12 justify-center gap-1 rounded-full bg-subtle px-2.5 active:opacity-65"
@@ -280,13 +265,13 @@ const ProviderUsagePill = memo(function ProviderUsagePill(props: {
         <View className="h-1 overflow-hidden rounded-full bg-subtle-strong">
           <View
             className={
-              used >= 90
+              remainingPercent <= 10
                 ? "h-full bg-red-500"
-                : used >= 75
+                : remainingPercent <= 25
                   ? "h-full bg-amber-500"
                   : "h-full bg-primary"
             }
-            style={{ width: `${used}%` }}
+            style={{ width: `${remainingPercent}%` }}
           />
         </View>
       </Pressable>
