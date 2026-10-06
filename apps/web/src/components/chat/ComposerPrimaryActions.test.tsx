@@ -1,4 +1,6 @@
-import { createElement } from "react";
+// @vitest-environment jsdom
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -44,25 +46,61 @@ function renderPendingActions(isRunning: boolean) {
   );
 }
 
-function renderRunningActions(hasSendableContent: boolean) {
-  return renderToStaticMarkup(
-    createElement(ComposerPrimaryActions, {
-      compact: true,
-      pendingAction: null,
-      isRunning: true,
-      showPlanFollowUpPrompt: false,
-      promptHasText: hasSendableContent,
-      isSendBusy: false,
-      sendDisabledReason: null,
-      isConnecting: false,
-      isEnvironmentUnavailable: false,
-      isPreparingWorktree: false,
-      hasSendableContent,
-      onPreviousPendingQuestion: () => {},
-      onInterrupt: () => {},
-      onImplementPlanInNewThread: () => {},
-    }),
-  );
+let root: Root | undefined;
+let container: HTMLDivElement | undefined;
+
+async function renderRunningComposer(compact: boolean) {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  const queuedPrompts: string[] = [];
+  const onInterrupt = vi.fn();
+
+  function RunningComposer() {
+    const [prompt, setPrompt] = useState("");
+    const hasSendableContent = prompt.trim().length > 0;
+    return (
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          queuedPrompts.push(prompt);
+          setPrompt("");
+        }}
+      >
+        <textarea value={prompt} onInput={(event) => setPrompt(event.currentTarget.value)} />
+        <ComposerPrimaryActions
+          compact={compact}
+          pendingAction={null}
+          isRunning
+          showPlanFollowUpPrompt={false}
+          promptHasText={hasSendableContent}
+          isSendBusy={false}
+          sendDisabledReason={null}
+          isConnecting={false}
+          isEnvironmentUnavailable={false}
+          isPreparingWorktree={false}
+          hasSendableContent={hasSendableContent}
+          onPreviousPendingQuestion={() => {}}
+          onInterrupt={onInterrupt}
+          onImplementPlanInNewThread={() => {}}
+        />
+      </form>
+    );
+  }
+
+  await act(() => root!.render(<RunningComposer />));
+  const input = container.querySelector("textarea")!;
+  const typePrompt = async (prompt: string) => {
+    await act(() => {
+      input.value = prompt;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  const button = (label: string) =>
+    container!.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+
+  return { input, typePrompt, button, queuedPrompts, onInterrupt };
 }
 
 function renderSendButton(sendDisabledReason: string | null = null) {
@@ -86,7 +124,12 @@ function renderSendButton(sendDisabledReason: string | null = null) {
   );
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await act(() => root?.unmount());
+  root = undefined;
+  container?.remove();
+  container = undefined;
+  vi.unstubAllGlobals();
   stageArtworkState.mode = "none";
   stageArtworkState.variant = null;
 });
@@ -124,18 +167,51 @@ describe("ComposerPrimaryActions", () => {
     expect(markup).not.toContain("stage-nightly");
   });
 
-  it("renders a queue action alongside stop while running with a sendable draft", () => {
-    const markup = renderRunningActions(true);
+  it.each([true, false])(
+    "switches from stop to send and queues a typed prompt with compact=%s",
+    async (compact) => {
+      const { input, typePrompt, button, queuedPrompts, onInterrupt } =
+        await renderRunningComposer(compact);
 
-    expect(markup).toContain('aria-label="Stop generation"');
-    expect(markup).toContain('aria-label="Queue message"');
-    expect(markup).toContain('type="submit"');
-  });
+      expect(button("Stop generation")).not.toBeNull();
+      expect(button("Queue message")).toBeNull();
 
-  it("keeps stop as the only action while running with an empty composer", () => {
-    const markup = renderRunningActions(false);
+      await typePrompt("Follow up after the current task");
 
-    expect(markup).toContain('aria-label="Stop generation"');
-    expect(markup).not.toContain('aria-label="Queue message"');
+      expect(button("Stop generation")).toBeNull();
+      expect(button("Queue message")?.disabled).toBe(false);
+      await act(() => button("Queue message")!.click());
+
+      expect(queuedPrompts).toEqual(["Follow up after the current task"]);
+      expect(onInterrupt).not.toHaveBeenCalled();
+      expect(input.value).toBe("");
+      expect(button("Queue message")).toBeNull();
+      expect(button("Stop generation")).not.toBeNull();
+
+      await act(() => button("Stop generation")!.click());
+
+      expect(onInterrupt).toHaveBeenCalledOnce();
+      expect(queuedPrompts).toHaveLength(1);
+    },
+  );
+
+  it("restores stop when a running draft is erased or contains only whitespace", async () => {
+    const { typePrompt, button, queuedPrompts, onInterrupt } = await renderRunningComposer(true);
+
+    await typePrompt("A draft");
+    expect(button("Queue message")).not.toBeNull();
+
+    await typePrompt("   \n");
+    expect(button("Stop generation")).not.toBeNull();
+    expect(button("Queue message")).toBeNull();
+
+    await typePrompt("Another draft");
+    expect(button("Queue message")).not.toBeNull();
+
+    await typePrompt("");
+    expect(button("Stop generation")).not.toBeNull();
+    expect(button("Queue message")).toBeNull();
+    expect(queuedPrompts).toEqual([]);
+    expect(onInterrupt).not.toHaveBeenCalled();
   });
 });

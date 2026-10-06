@@ -265,16 +265,5 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     </button>
   );
 
-  if (!isRunning) {
-    return sendButton;
-  }
-
-  // While a turn runs, a sendable draft queues for the next tool boundary, so
-  // the send button stays next to Stop on every viewport.
-  return (
-    <>
-      {renderStopGenerationButton(false)}
-      {hasSendableContent ? sendButton : null}
-    </>
-  );
+  return isRunning && !hasSendableContent ? renderStopGenerationButton(false) : sendButton;
 });
