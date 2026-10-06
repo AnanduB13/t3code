@@ -1843,9 +1843,6 @@ export default function ChatView(props: ChatViewProps) {
     () => resolveTimelineIsAtEnd(legendListRef.current?.getState()) ?? isAtEndRef.current,
     [],
   );
-  // Whether the timeline's rows extend past the viewport above the composer.
-  // The composer only rests when there is reading space to give back.
-  const [timelineOverflows, setTimelineOverflows] = useState(false);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const fanoutStateAtom = draftFanoutStateAtom(routeThreadKey);
@@ -10045,7 +10042,6 @@ export default function ChatView(props: ChatViewProps) {
                 contentInsetEndAdjustment={composerTimelineInset}
                 liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
                 onIsAtEndChange={onIsAtEndChange}
-                onContentOverflowChange={setTimelineOverflows}
                 onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEnd}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 cancelPositionRestoreRef={cancelPositionRestoreRef}
@@ -10233,7 +10229,6 @@ export default function ChatView(props: ChatViewProps) {
                             onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                             getTimelineScrollableNode={getTimelineScrollableNode}
                             isTimelineAtLogicalEnd={isTimelineAtLogicalEnd}
-                            timelineOverflows={timelineOverflows}
                             onComposerOverlayHeightChange={publishComposerOverlayHeight}
                             onRestingChange={onComposerRestingChange}
                             promptRef={promptRef}

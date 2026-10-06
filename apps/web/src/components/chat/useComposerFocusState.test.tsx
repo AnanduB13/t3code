@@ -16,10 +16,7 @@ function ComposerProbe() {
     isResting = shouldUseRestingComposerLayout({
       isExistingThread: true,
       isMobileViewport: false,
-      isScrollCollapsed: state.isComposerScrollCollapsed,
       hasExpandedChrome: false,
-      hasMultilinePrompt: false,
-      timelineOverflows: true,
     });
   });
   return null;
@@ -53,21 +50,21 @@ afterEach(async () => {
 });
 
 describe("composer focus state", () => {
-  it("stays expanded when the composer loses focus", async () => {
+  it("keeps the compact frame when the composer gains or loses focus", async () => {
     await act(() => composer.setIsComposerFocused(true));
-    expect(isResting).toBe(false);
+    expect(isResting).toBe(true);
 
     // A tool disclosure takes focus away from the editor.
     await act(() => composer.setIsComposerFocused(false));
-    expect(isResting).toBe(false);
+    expect(isResting).toBe(true);
   });
 
-  it("can collapse again on the next scroll after returning to the end", async () => {
+  it("keeps the compact frame when scrolling and returning to the end", async () => {
     await act(() => composer.setIsComposerScrollCollapsed(true));
     expect(isResting).toBe(true);
 
     await act(() => composer.restoreAfterTimelineReachedEnd());
-    expect(isResting).toBe(false);
+    expect(isResting).toBe(true);
 
     await act(() => composer.setIsComposerScrollCollapsed(true));
     expect(isResting).toBe(true);
@@ -76,7 +73,7 @@ describe("composer focus state", () => {
   it("does not move focus into the composer when the timeline reaches the end", async () => {
     await act(() => composer.setIsComposerScrollCollapsed(true));
     await act(() => composer.restoreAfterTimelineReachedEnd());
-    expect(isResting).toBe(false);
+    expect(isResting).toBe(true);
     expect(composer.isComposerFocused).toBe(false);
   });
 });

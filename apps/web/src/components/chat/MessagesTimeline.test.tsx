@@ -440,7 +440,7 @@ describe("MessagesTimeline", () => {
     { toolLifecycleStatus: "completed", isAtEnd: true },
     { toolLifecycleStatus: "completed", isAtEnd: false },
   ] as const)(
-    "restores the composer after closing $toolLifecycleStatus tool output only at the end: $isAtEnd",
+    "keeps the composer compact after closing $toolLifecycleStatus tool output at end: $isAtEnd",
     async ({ toolLifecycleStatus, isAtEnd }) => {
       const frames = new Map<number, FrameRequestCallback>();
       let nextFrame = 0;
@@ -471,10 +471,7 @@ describe("MessagesTimeline", () => {
           isResting = shouldUseRestingComposerLayout({
             isExistingThread: true,
             isMobileViewport: false,
-            isScrollCollapsed: composer.isComposerScrollCollapsed,
             hasExpandedChrome: false,
-            hasMultilinePrompt: false,
-            timelineOverflows: true,
           });
         });
         return (
@@ -518,7 +515,8 @@ describe("MessagesTimeline", () => {
         await flushFrame();
         timelineIsAtEnd = isAtEnd;
         await flushFrame();
-        expect(isResting).toBe(!isAtEnd);
+        expect(isResting).toBe(true);
+        expect(composerState!.isComposerScrollCollapsed).toBe(!isAtEnd);
       } finally {
         await act(() => renderer?.unmount());
       }

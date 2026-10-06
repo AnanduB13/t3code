@@ -1429,8 +1429,6 @@ export interface ChatComposerProps {
   onRestingControlsVisibilityChange: (visible: boolean) => void;
   getTimelineScrollableNode: () => HTMLElement | null;
   isTimelineAtLogicalEnd: () => boolean;
-  /** Whether the timeline has more content than fits above the composer. */
-  timelineOverflows: boolean;
   onComposerOverlayHeightChange: (height: number) => void;
   /**
    * Whether the desktop resting layout is active. Reported from a layout
@@ -1554,7 +1552,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onRestingControlsVisibilityChange,
     getTimelineScrollableNode,
     isTimelineAtLogicalEnd,
-    timelineOverflows,
     onComposerOverlayHeightChange,
     onRestingChange,
     promptRef,
@@ -4757,14 +4754,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentUnavailable !== null ||
     composerSubmissionError !== null ||
     providerInputSubmissionError !== null ||
-    hasImageAttachmentAttention;
+    hasImageAttachmentAttention ||
+    // Focusing still reveals editable image attachments and controls that
+    // cannot fit in the context strip.
+    (isComposerFocused && (standaloneComposerImages.length > 0 || !restingControlsVisible));
   const isComposerResting = shouldUseRestingComposerLayout({
     isExistingThread: routeKind === "server" && activeThreadId !== null,
     isMobileViewport,
-    isScrollCollapsed: isComposerScrollCollapsed,
     hasExpandedChrome: composerHasExpandedChrome,
-    hasMultilinePrompt,
-    timelineOverflows,
   });
   const expandedComposerImages = isComposerResting
     ? standaloneComposerImages.filter((image) => pendingSnapShotIdSet.has(image.id))
@@ -5807,8 +5804,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const handleImplementPlanInNewThreadPrimaryAction = useCallback(() => {
     void onImplementPlanInNewThread();
   }, [onImplementPlanInNewThread]);
-  // The phone composer collapses when the editor loses focus. Desktop only
-  // rests on a timeline scroll, so losing focus there changes nothing.
+  // The phone composer collapses when the editor loses focus. Desktop uses
+  // the compact frame by default and grows with the prompt.
   const scheduleComposerCollapseCheck = useCallback(() => {
     if (!isMobileViewport || mobileComposerExpandInFlightRef.current) {
       return;
@@ -6825,14 +6822,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               <div
                 className={cn(
                   "relative",
-                  isComposerResting && "flex min-w-0 items-center gap-1",
+                  isComposerResting && "flex min-w-0 items-end gap-1",
                   isComposerResting &&
                     ((settings.contextWindowMeterEnabled && activeContextWindow) ||
                     reserveContextWindowMeter
-                      ? "pr-28"
+                      ? "pr-37"
                       : showComposerAttachAction
-                        ? "pr-20"
-                        : "pr-12"),
+                        ? "pr-29"
+                        : "pr-21"),
                 )}
               >
                 {previewFile ? (
@@ -6891,8 +6888,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     containerClassName={cn(isComposerResting && "min-w-0 flex-1")}
                     className={cn(
                       showMobilePendingAnswerActions && "max-sm:pb-12",
-                      isComposerResting &&
-                        "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
+                      isComposerResting && "my-0 min-h-8 py-0 leading-8",
                       isComposerApprovalState && "min-h-10",
                     )}
                     placeholderClassName={cn(
