@@ -513,6 +513,7 @@ import {
   hasEnvironmentReconnectWarningGraceElapsed,
   scheduleEnvironmentReconnectWarning,
   hasServerAcknowledgedLocalDispatch,
+  resolveComposerTurnDispatch,
   isBranchMismatchDismissedForSession,
   shouldShowBranchMismatchBanner,
   shouldShowPlanFollowUpPrompt,
@@ -912,11 +913,10 @@ function useLocalDispatchState(input: {
       setLocalDispatch((current) => {
         const active = serverAcknowledgedLocalDispatch ? null : current;
         if (active) {
+          // A follow-up sent while the first run starts keeps that run's
+          // baseline and message, so Sending lasts until the first run is live.
           const submissionIntent = options?.submissionIntent ?? active.submissionIntent;
-          return active.preparingWorktree === preparingWorktree &&
-            active.submissionIntent === submissionIntent
-            ? active
-            : { ...active, preparingWorktree, submissionIntent };
+          return { ...active, preparingWorktree, submissionIntent, dispatched: false };
         }
         return createLocalDispatchSnapshot(input.activeThread, {
           ...options,
@@ -926,13 +926,22 @@ function useLocalDispatchState(input: {
     },
     [input.activeThread, input.latestUserMessageId, serverAcknowledgedLocalDispatch],
   );
+  const markLocalDispatchDispatched = useCallback(() => {
+    setLocalDispatch((current) =>
+      current === null || current.dispatched ? current : { ...current, dispatched: true },
+    );
+  }, []);
 
   return {
     beginLocalDispatch,
+    markLocalDispatchDispatched,
     resetLocalDispatch,
     localDispatchStartedAt: activeLocalDispatch?.startedAt ?? null,
     isPreparingWorktree: activeLocalDispatch?.preparingWorktree ?? false,
+    /** Shows the turn as working from Enter until the server reports its run. */
     isSendBusy: activeLocalDispatch !== null,
+    /** Blocks another send only until the server has accepted this one. */
+    isSubmissionBusy: activeLocalDispatch !== null && !activeLocalDispatch.dispatched,
     backgroundSubmissionPending: activeLocalDispatch?.submissionIntent === "background",
   };
 }
@@ -3544,10 +3553,12 @@ export default function ChatView(props: ChatViewProps) {
   );
   const {
     beginLocalDispatch,
+    markLocalDispatchDispatched,
     resetLocalDispatch,
     localDispatchStartedAt,
     isPreparingWorktree: isLocallyPreparingWorktree,
     isSendBusy,
+    isSubmissionBusy,
     backgroundSubmissionPending,
   } = useLocalDispatchState({
     activeThread,
@@ -8466,7 +8477,7 @@ export default function ChatView(props: ChatViewProps) {
     };
     if (
       !activeThread ||
-      isSendBusy ||
+      isSubmissionBusy ||
       isConnecting ||
       isRevertingCheckpoint ||
       !clientSettingsHydrated ||
@@ -8960,7 +8971,7 @@ export default function ChatView(props: ChatViewProps) {
     );
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
-    const shouldQueueBehindActiveRun = phase === "running" && dispatchMode === "queue";
+    const turnDispatch = resolveComposerTurnDispatch({ dispatchMode, phase, hasHeldQueuedRuns });
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
@@ -9093,6 +9104,7 @@ export default function ChatView(props: ChatViewProps) {
       await dockStarted;
     }
     beginLocalDispatch({
+      messageId: messageIdForSend,
       preparingWorktree: multipleModelSelections !== null || Boolean(baseBranchForWorktree),
       // Only a draft has a background submission to hide behind its hero.
       submissionIntent:
@@ -9413,7 +9425,7 @@ export default function ChatView(props: ChatViewProps) {
             ...(attachment.source ? { source: attachment.source } : {}),
           },
     );
-    if (!shouldQueueBehindActiveRun) {
+    if (!turnDispatch.queuesBehindActiveRun) {
       // A sent turn returns to the live edge and anchors its new transcript
       // row. Queued input stays in the composer queue and must not move the
       // timeline away from the provider work already in flight.
@@ -9442,7 +9454,7 @@ export default function ChatView(props: ChatViewProps) {
         createdAt: messageCreatedAt,
         updatedAt: messageCreatedAt,
         streaming: false,
-        ...(shouldQueueBehindActiveRun
+        ...(turnDispatch.queuesBehindActiveRun
           ? { inputIntent: "queued_turn" as const }
           : phase === "running" && dispatchMode === "steer"
             ? { inputIntent: "steer" as const }
@@ -9620,7 +9632,7 @@ export default function ChatView(props: ChatViewProps) {
           titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
-          dispatchMode: sendBehindHeldQueue ? "queue" : dispatchMode,
+          dispatchMode: sendBehindHeldQueue ? "queue" : turnDispatch.dispatchMode,
           ...(bootstrap ? { bootstrap } : {}),
           createdAt: messageCreatedAt,
         },
@@ -9654,6 +9666,9 @@ export default function ChatView(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        // A bootstrap send keeps the composer busy until its new thread or
+        // worktree exists; sending again before then would bootstrap twice.
+        if (bootstrap === undefined) markLocalDispatchDispatched();
         // The turn is under way and will spend quota, so that thread's limits
         // snapshot is stale. Uploads may have outlasted a navigation, so only
         // the sending thread's panel clears.
@@ -11556,7 +11571,7 @@ export default function ChatView(props: ChatViewProps) {
                               phase={phase}
                               canInterrupt={canInterruptRunningThread}
                               isConnecting={isConnecting}
-                              isSendBusy={isSendBusy || isSavingQueuedEdit || isResuming}
+                              isSendBusy={isSubmissionBusy || isSavingQueuedEdit || isResuming}
                               canResume={resumableRunId !== null || hasHeldQueuedRuns}
                               isRevertingCheckpoint={isRevertingCheckpoint}
                               sendDisabledReason={

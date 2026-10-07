@@ -54,6 +54,7 @@ import { environmentThreadShells, environmentThreadDetails } from "../state/thre
 import { waitForAtomValue } from "../state/waitForAtomValue";
 import { filterTerminalContextsWithText, type TerminalContextDraft } from "../lib/terminalContext";
 import { stripInlineContextReferences } from "~/lib/composerContextReferences";
+import type { ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import { collapseExpandedComposerCursor, type ComposerSubmissionIntent } from "../composer-logic";
 import type { ReviewCommentContext } from "../reviewCommentContext";
@@ -1166,6 +1167,11 @@ export async function waitForRevertedMessage(
 
 export interface LocalDispatchSnapshot {
   acknowledged: boolean;
+  /**
+   * The server accepted the turn request. The composer can take the next
+   * prompt, which queues behind this one, while the run is still starting.
+   */
+  dispatched: boolean;
   messageId: MessageId | null;
   startedAt: string;
   preparingWorktree: boolean;
@@ -1192,6 +1198,7 @@ export function createLocalDispatchSnapshot(
   const runtime = activeThread?.runtime ?? null;
   return {
     acknowledged: false,
+    dispatched: false,
     messageId: options?.messageId ?? null,
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
@@ -1220,6 +1227,31 @@ export function deriveCommittedServerUserMessageIds(
       row.item.type === "user_message" ? [row.item.messageId] : [],
     ),
   );
+}
+
+/**
+ * How a composer send reaches the server, and whether it will wait in the
+ * queue. "auto" means the composer saw no running turn, but that phase can lag
+ * the server: a queued run may be starting, or a turn may have just begun.
+ * Sent as "queue", the server decides under the thread lock and starts the
+ * prompt only when nothing is active, rather than turning "auto" into a steer.
+ */
+export function resolveComposerTurnDispatch(input: {
+  readonly dispatchMode: ComposerDispatchMode;
+  readonly phase: SessionPhase;
+  /** Prompts held by Stop; a send resumes them and lines up behind them. */
+  readonly hasHeldQueuedRuns: boolean;
+}): {
+  readonly dispatchMode: Exclude<ComposerDispatchMode, "auto">;
+  readonly queuesBehindActiveRun: boolean;
+} {
+  const dispatchMode = input.dispatchMode === "auto" ? "queue" : input.dispatchMode;
+  return {
+    dispatchMode,
+    queuesBehindActiveRun:
+      dispatchMode === "queue" &&
+      (input.phase === "running" || input.phase === "connecting" || input.hasHeldQueuedRuns),
+  };
 }
 
 export function hasServerAcknowledgedLocalDispatch(input: {

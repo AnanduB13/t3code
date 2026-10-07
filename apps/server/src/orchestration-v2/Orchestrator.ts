@@ -1825,6 +1825,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
     }).pipe(Effect.catch((cause) => failQueuedRunStart(threadId, cause)));
 
+  /**
+   * Runs under the thread lock before a user's message is dispatched. The
+   * terminal-run listener promotes queues for every thread on one fiber, so it
+   * can lag behind a busy environment; a message landing in that gap would
+   * otherwise start ahead of the prompts already waiting.
+   */
+  const promoteQueueBeforeUserMessage = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      if (!(yield* projectionStore.canStartQueuedRun(threadId))) return;
+      const { runs } = yield* projectionStore.getThreadRecords(threadId, ["runs"]);
+      // Same input the listener would pass, so a failed run still holds the queue.
+      const latestRun = latestExecutedRun(runs);
+      yield* startNextQueuedRun(
+        threadId,
+        latestRun?.status === "failed" ? { failedRunId: latestRun.id } : undefined,
+      );
+    }).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("Failed to promote queued runs before a message", { threadId, cause }),
+      ),
+    );
+
   const resumeQueuedRuns = Effect.gen(function* () {
     const threadIds = yield* projectionStore.getRecoveryThreadIds("queued-runs");
     let resumed = 0;
@@ -10185,6 +10207,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         sequence: receipt.resultSequence,
         storedEvents,
       } satisfies OrchestratorV2DispatchResult;
+    }
+
+    if (
+      command.type === "message.dispatch" &&
+      command.createdBy === "user" &&
+      command.manualContinuationOfRunId === undefined &&
+      command.deliveryIntent !== "steer" &&
+      command.deliveryIntent !== "restart" &&
+      (command.dispatchMode.type === "queue_after_active" ||
+        command.dispatchMode.type === "start_immediately")
+    ) {
+      yield* promoteQueueBeforeUserMessage(command.threadId);
     }
 
     const plan = yield* dispatchOnce(command).pipe(

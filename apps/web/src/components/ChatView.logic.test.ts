@@ -73,6 +73,7 @@ import {
   getStartedThreadModelChangeBlockReason,
   hasEnvironmentReconnectWarningGraceElapsed,
   hasServerAcknowledgedLocalDispatch,
+  resolveComposerTurnDispatch,
   isBranchMismatchDismissedForSession,
   reconcileMountedTerminalThreadIds,
   resolveDraftPromotionNavigationTarget,
@@ -742,6 +743,72 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingApproval: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingUserInput: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, threadError: "failed" })).toBe(true);
+  });
+
+  it("acknowledges a send the server queued behind a run that is still starting", () => {
+    const startingRun = { ...completedTurn, status: "starting" as const, completedAt: null };
+    const startingRuntime = {
+      ...readySession,
+      status: "starting" as const,
+      activeRunId: startingRun.runId,
+    };
+    const messageId = MessageId.make("message-queued");
+    const localDispatch = createLocalDispatchSnapshot(
+      makeThread({ latestRun: startingRun, runtime: startingRuntime }),
+      { messageId },
+    );
+    const input = {
+      localDispatch,
+      phase: "connecting" as const,
+      latestRun: startingRun,
+      runtime: startingRuntime,
+      hasPendingApproval: false,
+      hasPendingUserInput: false,
+      threadError: null,
+    };
+
+    expect(hasServerAcknowledgedLocalDispatch({ ...input, queuedMessages: [] })).toBe(false);
+    expect(hasServerAcknowledgedLocalDispatch({ ...input, queuedMessages: [{ messageId }] })).toBe(
+      true,
+    );
+  });
+});
+
+describe("resolveComposerTurnDispatch", () => {
+  it("lets the server queue a send the composer saw as idle", () => {
+    // The client phase can lag a run that just began; "auto" would let the
+    // server steer the prompt into it.
+    expect(
+      resolveComposerTurnDispatch({
+        dispatchMode: "auto",
+        phase: "ready",
+        hasHeldQueuedRuns: false,
+      }),
+    ).toEqual({ dispatchMode: "queue", queuesBehindActiveRun: false });
+  });
+
+  it("queues behind a run that is starting or a queue held by Stop", () => {
+    expect(
+      resolveComposerTurnDispatch({
+        dispatchMode: "auto",
+        phase: "connecting",
+        hasHeldQueuedRuns: false,
+      }).queuesBehindActiveRun,
+    ).toBe(true);
+    expect(
+      resolveComposerTurnDispatch({ dispatchMode: "auto", phase: "ready", hasHeldQueuedRuns: true })
+        .queuesBehindActiveRun,
+    ).toBe(true);
+  });
+
+  it("keeps an explicit steer as a steer", () => {
+    expect(
+      resolveComposerTurnDispatch({
+        dispatchMode: "steer",
+        phase: "running",
+        hasHeldQueuedRuns: false,
+      }),
+    ).toEqual({ dispatchMode: "steer", queuesBehindActiveRun: false });
   });
 });
 
