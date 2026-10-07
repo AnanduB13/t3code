@@ -181,7 +181,11 @@ function shellRuntime(thread: OrchestrationV2ThreadShell): ThreadRuntimeSummary 
   if (thread.latestRunId === null && thread.activeProviderThreadId === null && !parkAtIdle) {
     return null;
   }
-  const status = parkAtIdle ? "idle" : (thread.activityRunStatus ?? thread.status);
+  // "idle" means parked on background work. A provider thread bound before
+  // any run (an imported session) is not waiting on anything.
+  const status = parkAtIdle
+    ? "idle"
+    : (thread.activityRunStatus ?? (thread.status === "idle" ? "completed" : thread.status));
   return {
     status,
     activeRunId: thread.activeRunId,

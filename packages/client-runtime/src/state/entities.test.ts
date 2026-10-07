@@ -177,6 +177,19 @@ describe("V2 client presentation", () => {
     ).toBeNull();
   });
 
+  it("does not park an imported thread that never ran", () => {
+    const imported = presentThreadShell(environmentId, {
+      ...v2ThreadShell,
+      latestRunId: null,
+      activeProviderThreadId: ProviderThreadId.make("native-1"),
+      activeRunId: null,
+      status: "idle",
+      pendingBackgroundTasks: [],
+    });
+    // The bound provider stays visible, but nothing is waiting to wake it.
+    expect(imported.runtime).toMatchObject({ status: "completed", activeRunId: null });
+  });
+
   it.each([
     { kinds: ["command"], expected: "completed" },
     { kinds: ["command", "subagent"], expected: "idle" },

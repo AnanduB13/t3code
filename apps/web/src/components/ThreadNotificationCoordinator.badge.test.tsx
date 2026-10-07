@@ -20,7 +20,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => state.navigate,
   useParams: () => ({}),
 }));
-vi.mock("./ui/toast", () => ({ toastManager: { add: state.toast } }));
+vi.mock("./ui/toast", () => ({ toastManager: { add: state.toast, close: vi.fn() } }));
 vi.mock("../state/shell", () => ({ environmentShell: { stateValueAtom: (id: string) => id } }));
 vi.mock("../state/environments", () => ({
   useEnvironmentIds: () => state.environmentIds,
@@ -254,7 +254,7 @@ it("starts a fresh count after another native app window gains focus", async () 
 });
 
 it.each(["off", "sound", "denied", "archived"])(
-  "does not show visual alerts when %s",
+  "does not show system alerts when %s",
   async (condition) => {
     if (condition === "off" || condition === "sound") state.mode = condition;
     if (condition === "denied") TestNotification.permission = "denied";
@@ -270,7 +270,13 @@ it.each(["off", "sound", "denied", "archived"])(
       );
     await render();
     expect(TestNotification.sent).toHaveLength(0);
-    expect(state.badge.mock.calls.every(([count]) => count === 0)).toBe(true);
+    // A completion while away still badges, so a blocked system permission
+    // does not hide it. Off and archived threads stay quiet.
+    if (condition === "sound" || condition === "denied") {
+      expect(state.badge).toHaveBeenLastCalledWith(1);
+    } else {
+      expect(state.badge.mock.calls.every(([count]) => count === 0)).toBe(true);
+    }
   },
 );
 

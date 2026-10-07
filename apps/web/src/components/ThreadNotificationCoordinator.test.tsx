@@ -253,7 +253,37 @@ describe("thread notifications", () => {
       body: "Fix the login form",
       tag: "env-1:thread-1",
       silent: true,
+      requireInteraction: true,
     });
+  });
+
+  it("keeps a needs-you toast until the thread no longer needs the user", async () => {
+    await render();
+    state.approval = true;
+    await render();
+    expect(state.add).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Approval needed", timeout: 0 }),
+    );
+    expect(state.close).not.toHaveBeenCalled();
+    state.approval = false;
+    await render();
+    expect(state.close).toHaveBeenCalledWith("toast-1");
+  });
+
+  it("closes a needs-you toast when the user opens that thread", async () => {
+    await render();
+    state.input = true;
+    await render();
+    expect(state.close).not.toHaveBeenCalled();
+    state.active = { environmentId: "env-1", threadId: "thread-1" };
+    await render();
+    expect(state.close).toHaveBeenCalledWith("toast-1");
+  });
+
+  it("lets completion toasts time out on their own", async () => {
+    await render();
+    await complete();
+    expect(state.add).toHaveBeenCalledWith(expect.not.objectContaining({ timeout: 0 }));
   });
 
   it("alerts when only a dev server is left running, not while a monitor can wake the agent", async () => {
@@ -335,10 +365,12 @@ describe("thread notifications", () => {
     await render();
     await complete();
     expect(state.add).not.toHaveBeenCalled();
+    // Without T3 Code's own chime, the OS plays its usual notification sound.
     expect(state.notification).toHaveBeenCalledWith("Thread completed", {
       body: "Fix the login form",
       tag: "env-1:thread-1",
-      silent: true,
+      silent: false,
+      requireInteraction: false,
     });
   });
   it("notifies for the active thread only after the full run settles", async () => {

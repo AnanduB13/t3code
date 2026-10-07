@@ -2197,7 +2197,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       settledAt: null,
       snoozedUntil: null,
       snoozedAt: null,
-      lastVisitedAt: null,
+      // A new thread starts read, so its first completion reads as unread
+      // even when a schedule, an agent, or another device launched it.
+      lastVisitedAt: now,
       deletedAt: null,
     };
 

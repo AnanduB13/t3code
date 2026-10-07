@@ -4,12 +4,6 @@ import completionUrl from "./assets/notification-completion.mp3";
 import inputUrl from "./assets/notification-input.mp3";
 
 type NotificationMode = ClientSettings["notificationMode"];
-export const NOTIFICATION_MODE_LABELS = {
-  off: "Off",
-  notifications: "Notifications only",
-  sound: "Sound only",
-  "notifications-and-sound": "Notifications with sound",
-} satisfies Record<NotificationMode, string>;
 
 export function hasNotificationSound(mode: NotificationMode) {
   return mode === "sound" || mode === "notifications-and-sound";
@@ -17,6 +11,34 @@ export function hasNotificationSound(mode: NotificationMode) {
 
 export function hasDesktopNotifications(mode: NotificationMode) {
   return mode === "notifications" || mode === "notifications-and-sound";
+}
+
+/** Settings shows system alerts and sound as two switches over one mode. */
+export function notificationModeFor(input: {
+  readonly system: boolean;
+  readonly sound: boolean;
+}): NotificationMode {
+  if (input.system) return input.sound ? "notifications-and-sound" : "notifications";
+  return input.sound ? "sound" : "off";
+}
+
+/** Whether this client can show system alerts, and whether it may. */
+export type SystemNotificationAccess = "unsupported" | NotificationPermission;
+
+export function readSystemNotificationAccess(): SystemNotificationAccess {
+  if (typeof Notification === "undefined") return "unsupported";
+  if (!window.desktopBridge && !window.isSecureContext) return "unsupported";
+  return Notification.permission;
+}
+
+/** Must run inside a user gesture: browsers ignore prompts outside one. */
+export async function requestSystemNotificationAccess(): Promise<SystemNotificationAccess> {
+  if (readSystemNotificationAccess() === "unsupported") return "unsupported";
+  try {
+    return await Notification.requestPermission();
+  } catch {
+    return readSystemNotificationAccess();
+  }
 }
 
 let originalFavicon: HTMLLinkElement | undefined;
@@ -77,8 +99,16 @@ export async function playNotificationSound(
   kind: "completion" | "input",
   shouldPlay: () => boolean,
 ) {
-  if (!audioContext || audioContext.state !== "running") return;
+  // Any earlier gesture on the page lets a context start, so a reload does
+  // not stay silent until the next click. Background tabs and OS audio
+  // interruptions suspend a running context; resuming brings it back.
+  if (!audioContext && navigator.userActivation?.hasBeenActive) {
+    audioContext = new AudioContext();
+  }
+  if (!audioContext) return;
   const context = audioContext;
+  if (context.state !== "running") await context.resume().catch(() => undefined);
+  if (context.state !== "running") return;
   const url = kind === "completion" ? completionUrl : inputUrl;
   try {
     let buffer = buffers.get(url);

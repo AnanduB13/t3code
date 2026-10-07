@@ -3,6 +3,7 @@ import {
   canSnooze,
   effectiveSnoozed,
   hasQueuedTurnStart,
+  isLatestTurnCompleted,
   QUEUED_TURN_START_GRACE_MS,
   resolveSnoozePresets,
   snoozeWakeLabel,
@@ -173,6 +174,9 @@ export const THREAD_LIST_V2_SETTLED_PAGE_COUNT = 25;
 export function threadHasUnseenCompletion(
   thread: Pick<EnvironmentThreadShell, "latestRun" | "lastVisitedAt">,
 ): boolean {
+  // Stopped, cancelled, and failed runs also carry completedAt; only a
+  // finished run is unseen work, as on web.
+  if (!isLatestTurnCompleted(thread.latestRun)) return false;
   const completedAt = thread.latestRun?.completedAt;
   if (!completedAt) return false;
   const completedAtMs = Date.parse(completedAt);

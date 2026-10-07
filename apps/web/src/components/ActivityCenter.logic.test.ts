@@ -81,6 +81,19 @@ describe("activity center completion notifications", () => {
 });
 
 describe("activity center running threads", () => {
+  it("leaves a run blocked on the user out of Working", () => {
+    const blocked = {
+      ...thread({ id: "blocked", status: "running" }),
+      hasPendingApprovals: true,
+    } as EnvironmentThreadShell;
+    expect(buildRunningThreads([blocked, thread({ id: "busy", status: "running" })])).toEqual([
+      expect.objectContaining({
+        status: "Working",
+        thread: expect.objectContaining({ id: "busy" }),
+      }),
+    ]);
+  });
+
   it("includes foreground runs, starting runtimes, and background work", () => {
     const running = buildRunningThreads([
       thread({ id: "run", status: "running", requestedAt: "2026-08-25T12:00:00.000Z" }),

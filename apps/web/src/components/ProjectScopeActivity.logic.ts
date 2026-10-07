@@ -17,8 +17,13 @@ function physicalProjectKey(environmentId: string, projectId: string): string {
   return `${environmentId}:${projectId}`;
 }
 
+// A run blocked on an approval or question is still in flight for the project.
 function isThreadRunning(thread: EnvironmentThreadShell): boolean {
-  return resolveThreadActivityStatus(thread) !== null;
+  return (
+    thread.hasPendingApprovals ||
+    thread.hasPendingUserInput ||
+    resolveThreadActivityStatus(thread) !== null
+  );
 }
 
 export function buildProjectActivityByPhysicalKey(input: {

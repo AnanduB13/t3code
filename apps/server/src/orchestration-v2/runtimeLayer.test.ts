@@ -4524,7 +4524,8 @@ it.layer(layerSharedApplicationDataPlaneTest)("visited projection", (it) => {
         worktreePath: null,
       });
       const created = yield* orchestrator.getThreadProjection(threadId);
-      assert.isNull(created.thread.lastVisitedAt);
+      // A new thread starts read at its creation time.
+      assert.deepEqual(created.thread.lastVisitedAt, created.thread.createdAt);
       const createdUpdatedAt = created.thread.updatedAt;
 
       yield* TestClock.adjust("1 second");

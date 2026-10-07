@@ -10,6 +10,20 @@ Opening a completed chat clears its **Done** badge and marks its notification as
 clients connected to the same environment. **Mark unread** and **Mark all read** also sync.
 Later completions can appear unread again. Reading a chat does not reorder or settle it.
 
+## Know when a thread needs you
+
+On web and desktop, the bell in the toolbar lists threads that need you first: pending
+approvals, questions, and failures you have not opened yet. A number on the bell counts them.
+Toasts for approvals and questions stay until you answer or open the thread.
+
+Turn on **Settings → General → System notifications** and **Notification sound** to be alerted
+while T3 Code is in the background, and press **Send test** to check both. In a browser, system
+notifications need HTTPS and your browser's permission. If the setting says they are blocked,
+allow notifications for the site in the browser's site settings.
+
+A **Stopped** label means a run ended without finishing since you last looked, for example
+because the server restarted. Open the thread to see where it stopped, then resume it.
+
 ## Start a thread
 
 On web and desktop, a new thread keeps the current project and carries your model

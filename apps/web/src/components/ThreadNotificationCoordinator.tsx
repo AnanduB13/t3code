@@ -23,6 +23,7 @@ import {
   unlockNotificationAudio,
 } from "../threadNotifications";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
+import { resolveThreadAttention, THREAD_ATTENTION_TITLES } from "./threadAttention.logic";
 import { toastManager } from "./ui/toast";
 
 export function ThreadNotificationCoordinator() {
@@ -31,34 +32,42 @@ export function ThreadNotificationCoordinator() {
   const inAppNotificationsEnabled = useClientSettings(
     (settings) => settings.inAppNotificationsEnabled,
   );
+  // Alerts that arrived while the app was in the background, keyed by thread.
+  // The badge counts all of them, so a missing or blocked system permission
+  // still leaves a visible count on the favicon or dock icon.
   const pending = useRef(
-    new Map<string, { environmentId: EnvironmentId; notification: Notification }>(),
+    new Map<string, { environmentId: EnvironmentId; notification: Notification | null }>(),
   );
-  const onNotification = useCallback((environmentId: EnvironmentId, notification: Notification) => {
-    pending.current.get(notification.tag)?.notification.close();
-    pending.current.set(notification.tag, { environmentId, notification });
-    setNotificationBadge(document.hasFocus() ? 0 : pending.current.size);
-  }, []);
+  const onAlert = useCallback(
+    (environmentId: EnvironmentId, tag: string, notification: Notification | null) => {
+      const prior = pending.current.get(tag)?.notification ?? null;
+      if (notification && prior !== notification) prior?.close();
+      pending.current.set(tag, { environmentId, notification: notification ?? prior });
+      setNotificationBadge(document.hasFocus() ? 0 : pending.current.size);
+    },
+    [],
+  );
 
   useEffect(() => {
     const activeIds = new Set(environmentIds);
     const count = pending.current.size;
     for (const [tag, { environmentId, notification }] of pending.current) {
       if (activeIds.has(environmentId)) continue;
-      notification.close();
+      notification?.close();
       pending.current.delete(tag);
     }
     if (count !== pending.current.size) setNotificationBadge(pending.current.size);
   }, [environmentIds]);
 
+  // Re-runs on a mode change on purpose: changing alert settings starts a
+  // fresh badge, and turning alerts off clears it.
   useEffect(() => {
     const clear = () => {
-      for (const { notification } of pending.current.values()) notification.close();
+      for (const { notification } of pending.current.values()) notification?.close();
       pending.current.clear();
       setNotificationBadge(0);
     };
     clear();
-    if (!hasDesktopNotifications(mode)) return;
     const unsubscribe = window.desktopBridge?.onNotificationBadgeClear?.(clear);
     window.addEventListener("focus", clear);
     return () => {
@@ -81,11 +90,7 @@ export function ThreadNotificationCoordinator() {
   if (mode === "off" && !inAppNotificationsEnabled) return null;
 
   return environmentIds.map((environmentId) => (
-    <EnvironmentNotifications
-      key={environmentId}
-      environmentId={environmentId}
-      onNotification={onNotification}
-    />
+    <EnvironmentNotifications key={environmentId} environmentId={environmentId} onAlert={onAlert} />
   ));
 }
 
@@ -108,10 +113,10 @@ function isInFlightPhase(phase: NotificationState["phase"]): boolean {
 
 function EnvironmentNotifications({
   environmentId,
-  onNotification,
+  onAlert,
 }: {
   environmentId: EnvironmentId;
-  onNotification: (environmentId: EnvironmentId, notification: Notification) => void;
+  onAlert: (environmentId: EnvironmentId, tag: string, notification: Notification | null) => void;
 }) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
   // The shell reducer keeps the thread list and unchanged thread objects
@@ -130,13 +135,29 @@ function EnvironmentNotifications({
     strict: false,
   });
   const previous = useRef(new Map<ThreadId, NotificationState>());
+  // One toast per thread. Toasts that ask for the user stay until the thread
+  // no longer needs them or the user opens it; completions time out.
+  const toasts = useRef(new Map<string, { id: string; attention: string | null }>());
+  const closeToast = useCallback((threadId: string) => {
+    const open = toasts.current.get(threadId);
+    if (!open) return;
+    toasts.current.delete(threadId);
+    toastManager.close(open.id);
+  }, []);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
+    const openToasts = toasts.current;
     return () => {
       mounted.current = false;
+      for (const { id } of openToasts.values()) toastManager.close(id);
+      openToasts.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (activeEnvironmentId === environmentId && activeThreadId) closeToast(activeThreadId);
+  }, [activeEnvironmentId, activeThreadId, closeToast, environmentId]);
 
   useEffect(() => {
     latestThreads.current = threads;
@@ -159,17 +180,15 @@ function EnvironmentNotifications({
       }
       const thread = presentThreadShell(environmentId, rawThread);
       const phase = resolveThreadAwarenessPhaseV2(rawThread);
-      let status = resolveSidebarThreadStatus(thread);
-      if (status === "ready" && thread.latestRun?.status === "failed") status = "failed";
-      const attention =
-        status === "input" || status === "approval" || status === "failed" || status === "limited"
-          ? `${thread.latestRun?.runId ?? ""}:${status}`
-          : null;
+      const status = resolveThreadAttention(thread);
+      const attention = status ? `${thread.latestRun?.runId ?? ""}:${status}` : null;
+      const openToast = toasts.current.get(thread.id);
+      if (openToast?.attention && openToast.attention !== attention) closeToast(thread.id);
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       // Alert when the whole agent run is done: commands left running (a dev
       // server) read as ready, while wakes, subagents, and monitors keep it going.
       const completion =
-        status === "ready" &&
+        resolveSidebarThreadStatus(thread) === "ready" &&
         phase === "completed" &&
         thread.latestRun?.status === "completed" &&
         Number.isFinite(completedAt)
@@ -184,16 +203,10 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
-      const title =
-        kind === "completion"
-          ? "Thread completed"
-          : status === "approval"
-            ? "Approval needed"
-            : status === "limited"
-              ? "Usage limit reached"
-              : status === "failed"
-                ? "Thread failed"
-                : "Input needed";
+      const title = status ? THREAD_ATTENTION_TITLES[status] : "Thread completed";
+      const tag = `${environmentId}:${thread.id}`;
+      const focused = document.visibilityState === "visible" && document.hasFocus();
+      if (!focused) onAlert(environmentId, tag, null);
       if (hasNotificationSound(mode)) {
         void playNotificationSound(kind, () =>
           hasNotificationSound(getClientSettings().notificationMode),
@@ -201,23 +214,26 @@ function EnvironmentNotifications({
       }
       if (
         inAppNotificationsEnabled &&
-        document.visibilityState === "visible" &&
-        document.hasFocus() &&
+        focused &&
         (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
       ) {
+        closeToast(thread.id);
         const toastId = toastManager.add({
-          type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
+          type: status === null ? "success" : status === "failed" ? "error" : "warning",
           title,
           description: thread.title,
+          ...(status === null ? {} : { timeout: 0 }),
           data: {
             hideCopyButton: true,
             leadingIcon:
-              kind === "completion" ? (
+              status === null ? (
                 <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
               ) : status === "approval" ? (
                 <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
               ) : status === "failed" ? (
                 <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
+              ) : status === "limited" ? (
+                <CircleAlertIcon aria-hidden className="size-4 text-warning-foreground" />
               ) : (
                 <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
               ),
@@ -225,7 +241,7 @@ function EnvironmentNotifications({
           actionProps: {
             children: "Open thread",
             onClick: () => {
-              toastManager.close(toastId);
+              closeToast(thread.id);
               void navigate({
                 to: "/$environmentId/$threadId",
                 params: { environmentId, threadId: thread.id },
@@ -233,12 +249,13 @@ function EnvironmentNotifications({
             },
           },
         });
+        toasts.current.set(thread.id, { id: toastId, attention });
         // Completions also keep their system alert while a toast shows.
         if (kind !== "completion") continue;
       }
       if (
         !hasDesktopNotifications(mode) ||
-        (kind !== "completion" && document.visibilityState === "visible" && document.hasFocus()) ||
+        (kind !== "completion" && focused) ||
         typeof Notification === "undefined"
       )
         continue;
@@ -266,10 +283,14 @@ function EnvironmentNotifications({
           return;
         const notification = new Notification(title, {
           body: thread.title,
-          tag: `${environmentId}:${thread.id}`,
-          silent: true,
+          tag,
+          // T3 Code plays its own chime when sound is on; otherwise the OS
+          // decides, like any other app's notification.
+          silent: hasNotificationSound(getClientSettings().notificationMode),
+          // Approvals and questions block the agent, so they stay on screen.
+          requireInteraction: kind === "input",
         });
-        onNotification(environmentId, notification);
+        onAlert(environmentId, tag, notification);
         notification.addEventListener("click", () => {
           notification.close();
           window.focus();
@@ -287,11 +308,12 @@ function EnvironmentNotifications({
   }, [
     activeEnvironmentId,
     activeThreadId,
+    closeToast,
     environmentId,
     inAppNotificationsEnabled,
     mode,
     navigate,
-    onNotification,
+    onAlert,
     threads,
   ]);
 

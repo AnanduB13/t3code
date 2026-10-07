@@ -67,8 +67,10 @@ import {
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
+  CircleStopIcon,
   ClockIcon,
   EyeIcon,
+  HourglassIcon,
   FolderIcon,
   GitBranchIcon,
   LoaderIcon,
@@ -170,6 +172,7 @@ import {
   buildProjectActivityByPhysicalKey,
   type ProjectScopeActivity,
 } from "./ProjectScopeActivity.logic";
+import { resolveThreadActivityStatus } from "./ActivityCenter.logic";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -193,6 +196,7 @@ import {
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
+  hasUnseenStop,
   isSidebarNestedLinkClick,
   isSidebarThreadWorking,
   isTrailingDoubleClick,
@@ -1295,7 +1299,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Same semantics as the legacy sidebar (never-visited counts as read):
   // switching sidebars must not light up every historical thread as unread.
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
+  const isUnseenStop = hasUnseenStop({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
+  const needsUser =
+    status === "input" || status === "approval" || status === "failed" || status === "limited";
   const isInFlight =
     status === "working" || status === "waiting" || status === "approval" || status === "input";
   // A woken thread reappears at its original position (the sort is
@@ -1316,11 +1323,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Ready and action-required rows keep their unread and wake prominence.
   const shouldRecede = shouldRecedeSidebarThread({
     status,
-    isUnread,
+    isUnread: isUnread || isUnseenStop,
     isWoke,
     isActive: props.isActive,
     isSelected,
   });
+  // Waiting is the agent parked on work that will wake it. Name that work so
+  // the label matches the activity center.
+  const waitingLabel = status === "waiting" ? resolveThreadActivityStatus(thread) : null;
   // Status hues follow the system-wide convention set by sidebar v1 and the
   // mobile Live Activity/widgets (amber approval, indigo input, sky working)
   // so a thread reads the same color everywhere it surfaces.
@@ -1337,9 +1347,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       : status === "waiting"
         ? {
             // Waiting is calm background presence (post-settle background
-            // roster), not active progress, so the label keeps full strength.
-            label: "Waiting",
-            icon: null,
+            // roster), not active progress, so it stays muted.
+            label:
+              waitingLabel === "Monitoring"
+                ? "Monitoring"
+                : waitingLabel === "Background work"
+                  ? "Background"
+                  : "Waiting",
+            icon: waitingLabel === "Monitoring" ? ("monitoring" as const) : ("waiting" as const),
             className: "text-muted-foreground",
           }
         : status === "approval"
@@ -1372,13 +1387,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       icon: "woke" as const,
                       className: "text-warning",
                     }
-                  : isUnread
+                  : isUnseenStop
                     ? {
-                        label: "Done",
-                        icon: "done" as const,
-                        className: "text-success",
+                        label: "Stopped",
+                        icon: "stopped" as const,
+                        className: "text-warning",
                       }
-                    : null;
+                    : isUnread
+                      ? {
+                          label: "Done",
+                          icon: "done" as const,
+                          className: "text-success",
+                        }
+                      : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1693,19 +1714,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               "truncate",
               shouldRecede
                 ? "text-secondary-label"
-                : isUnread || isWoke || status === "input"
+                : isUnread || isUnseenStop || isWoke || needsUser
                   ? "text-foreground"
-                  : status === "failed"
-                    ? "text-foreground/95"
-                    : "text-foreground/90",
+                  : "text-foreground/90",
             )
           : cn(
               "truncate group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
               shouldRecede
                 ? "text-secondary-label/70"
-                : props.isActive || isWoke || status === "input"
+                : props.isActive || isWoke || needsUser
                   ? "text-foreground"
-                  : isUnread
+                  : isUnread || isUnseenStop
                     ? "text-muted-foreground"
                     : "text-secondary-label/70",
             ),
@@ -2088,6 +2107,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             <CircleAlertIcon aria-hidden className="size-4 shrink-0" />
                           ) : topStatus.icon === "done" ? (
                             <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "monitoring" ? (
+                            <EyeIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "waiting" ? (
+                            <HourglassIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "stopped" ? (
+                            <CircleStopIcon aria-hidden className="size-4 shrink-0" />
                           ) : null}
                           {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make

@@ -199,6 +199,22 @@ describe("resolveThreadListV2Status", () => {
     },
   );
 
+  it.each(["interrupted", "cancelled", "failed"] as const)(
+    "does not call a %s run an unseen completion",
+    (status) => {
+      const thread = presentThreadShell(
+        environmentId,
+        makeRawThreadShell({
+          latestRunId: RunId.make("run-stopped"),
+          status,
+          latestRunCompletedAt: DateTime.makeUnsafe(NOW),
+          lastVisitedAt: DateTime.makeUnsafe("2026-06-01T23:59:00.000Z"),
+        }),
+      );
+      expect(threadHasUnseenCompletion(thread)).toBe(false);
+    },
+  );
+
   it("resolves ready for quiescent threads", () => {
     expect(resolveThreadListV2Status(makeThread({ id: ThreadId.make("t"), title: "t" }))).toBe(
       "ready",

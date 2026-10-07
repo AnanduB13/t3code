@@ -633,6 +633,8 @@ export interface ThreadStatusPill {
     | "Pending Approval"
     | "Awaiting Input"
     | "Waiting"
+    | "Failed"
+    | "Limited"
     | "Plan Ready";
   colorClass: string;
   dotClass: string;
@@ -642,6 +644,8 @@ export interface ThreadStatusPill {
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Pending Approval": 5,
   "Awaiting Input": 4,
+  Failed: 3.5,
+  Limited: 3.5,
   Working: 3,
   Connecting: 3,
   Waiting: 2.5,
@@ -782,6 +786,19 @@ export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
   if (Number.isNaN(lastVisitedAt)) return true;
   return completedAt > lastVisitedAt;
+}
+
+/**
+ * A run that stopped without finishing since the user last looked, such as one
+ * cancelled by a server restart. A stop the user watched needs no label.
+ */
+export function hasUnseenStop(thread: ThreadStatusInput): boolean {
+  const run = thread.latestRun;
+  if (run?.status !== "interrupted" && run?.status !== "cancelled") return false;
+  if (!run.completedAt || !thread.lastVisitedAt) return false;
+  const stoppedAt = Date.parse(run.completedAt);
+  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
+  return Number.isFinite(stoppedAt) && (Number.isNaN(lastVisitedAt) || stoppedAt > lastVisitedAt);
 }
 
 export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {
@@ -970,11 +987,10 @@ export function shouldRecedeSidebarThread(input: {
   isActive: boolean;
   isSelected: boolean;
 }): boolean {
-  if (input.isActive || input.isSelected || input.status === "input") return false;
+  // Rows that need the user (input, approval, failures) never recede.
+  if (input.isActive || input.isSelected) return false;
   if (input.status === "working" || input.status === "waiting") return true;
-  if (input.status === "ready" || input.status === "approval") {
-    return !input.isUnread && !input.isWoke;
-  }
+  if (input.status === "ready") return !input.isUnread && !input.isWoke;
   return false;
 }
 
@@ -1246,6 +1262,20 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
+    };
+  }
+
+  // A failure outranks a background roster such as a PR watch, matching the
+  // sidebar: the user has to see that the run broke.
+  if (thread.runtime?.status === "failed" || thread.latestRun?.status === "failed") {
+    const limited = thread.runtime?.lastErrorClass === "usage_limit";
+    return {
+      label: limited ? "Limited" : "Failed",
+      colorClass: limited
+        ? "text-amber-600 dark:text-amber-300/90"
+        : "text-red-600 dark:text-red-300/90",
+      dotClass: limited ? "bg-amber-500 dark:bg-amber-300/90" : "bg-red-500 dark:bg-red-300/90",
+      pulse: false,
     };
   }
 

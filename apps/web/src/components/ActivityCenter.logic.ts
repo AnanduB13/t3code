@@ -55,14 +55,21 @@ export function buildCompletionNotifications(input: {
 }
 
 /**
- * What a thread is doing right now, or null when it is idle. A run in progress
+ * What a thread is doing right now, or null when it is idle or waiting on the
+ * user. A run in progress
  * is "Working"; after the run settles, background work that will wake the
  * agent reads as "Monitoring" when only watch loops remain and "Background
  * work" otherwise. Commands left running (a dev server) do not count.
  */
 export function resolveThreadActivityStatus(
-  thread: Pick<EnvironmentThreadShell, "runtime" | "pendingBackgroundTasks">,
+  thread: Pick<
+    EnvironmentThreadShell,
+    "runtime" | "pendingBackgroundTasks" | "hasPendingApprovals" | "hasPendingUserInput"
+  >,
 ): ActivityCenterRunningThread["status"] | null {
+  // A thread blocked on an approval or question waits on the user, not the
+  // agent, so it belongs under "Needs you" rather than "Working".
+  if (thread.hasPendingApprovals || thread.hasPendingUserInput) return null;
   if (threadRuntimeIsActive(thread.runtime)) return "Working";
   if (thread.runtime?.status !== "idle") return null;
   const holding = thread.pendingBackgroundTasks.filter((task) => task.kind !== "command");

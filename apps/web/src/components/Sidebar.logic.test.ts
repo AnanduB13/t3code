@@ -21,6 +21,7 @@ import {
   getSidebarForkParentThreadId,
   getSidebarThreadIdsToPrewarm,
   hasUnseenCompletion,
+  hasUnseenStop,
   isContextMenuPointerDown,
   isSidebarSubagentThread,
   isSidebarThreadWorking,
@@ -552,6 +553,46 @@ describe("hasUnseenCompletion", () => {
   });
 });
 
+describe("hasUnseenStop", () => {
+  const base = {
+    hasActionableProposedPlan: false,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    interactionMode: "default" as const,
+    runtime: null,
+  };
+
+  it.each(["interrupted", "cancelled"] as const)(
+    "flags a %s run that stopped after the last visit",
+    (status) => {
+      const latestRun = { ...makeLatestRun(), status };
+      expect(hasUnseenStop({ ...base, latestRun, lastVisitedAt: "2026-03-09T10:04:00.000Z" })).toBe(
+        true,
+      );
+      expect(hasUnseenStop({ ...base, latestRun, lastVisitedAt: "2026-03-09T10:06:00.000Z" })).toBe(
+        false,
+      );
+    },
+  );
+
+  it("ignores completed runs and never-visited threads", () => {
+    expect(
+      hasUnseenStop({
+        ...base,
+        latestRun: makeLatestRun(),
+        lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      hasUnseenStop({
+        ...base,
+        latestRun: { ...makeLatestRun(), status: "cancelled" },
+        lastVisitedAt: undefined,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("shouldRecedeSidebarThread", () => {
   it.each(["working", "waiting"] as const)(
     "recedes an inactive %s thread even when it is unread and woke",
@@ -594,6 +635,19 @@ describe("shouldRecedeSidebarThread", () => {
 
     expect(shouldRecedeSidebarThread({ ...input, isActive: true })).toBe(false);
     expect(shouldRecedeSidebarThread({ ...input, isSelected: true })).toBe(false);
+  });
+
+  it.each(["input", "approval"] as const)("keeps a read %s thread prominent", (status) => {
+    // Approval blocks the agent just like a question, so it never fades.
+    expect(
+      shouldRecedeSidebarThread({
+        status,
+        isUnread: false,
+        isWoke: false,
+        isActive: false,
+        isSelected: false,
+      }),
+    ).toBe(false);
   });
 
   it.each([false, true])("keeps input-required threads prominent with unread=%s", (isUnread) => {
@@ -1345,6 +1399,18 @@ describe("resolveThreadStatusPill", () => {
       dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     });
+  });
+
+  it("shows a failure over a background roster such as a PR watch", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          pendingBackgroundTasks: [{ taskId: "bg-1", description: "Watch PR", kind: "monitor" }],
+          runtime: { ...baseThread.runtime, status: "failed", activeRunId: null },
+        },
+      }),
+    ).toMatchObject({ label: "Failed" });
   });
 
   it("keeps an active turn working when background tasks are also present", () => {
