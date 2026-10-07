@@ -21,7 +21,8 @@ import {
   type ChatWorkspaceAxis,
 } from "../../chatWorkspaceLayout";
 import { buildThreadRouteParams } from "../../threadRoutes";
-import { useThreadProjection, useThreadShell } from "../../state/entities";
+import { useComposerDraftStore } from "../../composerDraftStore";
+import { resolveThreadDetailRef, useThreadProjection, useThreadShell } from "../../state/entities";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import ChatView from "../ChatView";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
@@ -205,7 +206,15 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
   readonly onSetLayout: (count: number, columns: number) => void;
 }) {
   const shell = useThreadShell(props.threadRef);
-  const projection = useThreadProjection(props.threadRef);
+  const hasDraft = useComposerDraftStore(
+    (store) => store.getDraftSessionByRef(props.threadRef) !== null,
+  );
+  // Reserved draft IDs must not be fetched before the shell confirms creation.
+  const detailRef = resolveThreadDetailRef(props.threadRef, {
+    shellExists: shell !== null,
+    waitForShell: props.routePane?.routeKind === "draft" || hasDraft,
+  });
+  const projection = useThreadProjection(detailRef);
 
   if (!shell && !projection && props.routePane?.routeKind !== "draft") {
     return (

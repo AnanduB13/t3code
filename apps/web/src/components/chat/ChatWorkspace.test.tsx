@@ -8,7 +8,8 @@ import { ChatWorkspace } from "./ChatWorkspace";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("../../hooks/useMediaQuery", () => ({ useIsMobile: () => false }));
-vi.mock("../../state/entities", () => ({
+vi.mock("../../state/entities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../state/entities")>()),
   useThreadShell: () => ({}),
   useThreadProjection: () => ({}),
 }));
