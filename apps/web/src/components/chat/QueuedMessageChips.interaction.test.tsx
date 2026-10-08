@@ -80,3 +80,55 @@ it("preselects only the clicked prompt, allows explicit additions, and cancels w
   expect(renderer!.root.findAllByType("input")).toHaveLength(0);
   expect(onSteer).toHaveBeenCalledTimes(2);
 });
+
+it("collapses long queues into a summary until the user expands them", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const queued = (ids: string[]): OrchestrationQueuedMessage[] =>
+    ids.map((id) => ({
+      messageId: MessageId.make(id),
+      text: `prompt ${id}`,
+      attachments: [],
+      queuedAt: "2026-09-13T00:00:00Z",
+    }));
+  const render = (queuedMessages: OrchestrationQueuedMessage[]) => (
+    <QueuedMessageChips
+      queuedMessages={queuedMessages}
+      onSteer={vi.fn()}
+      onRemove={vi.fn()}
+      onUpdate={vi.fn()}
+      onReorder={vi.fn()}
+    />
+  );
+  const button = (label: string) =>
+    renderer!.root
+      .findAllByType("button")
+      .find((candidate) => candidate.props["aria-label"] === label);
+  const rowCount = () => renderer!.root.findAllByType("li").length;
+
+  await act(async () => {
+    renderer = create(render(queued(["A", "B", "C"])));
+  });
+  expect(rowCount()).toBe(3);
+
+  await act(async () => renderer!.update(render(queued(["A", "B", "C", "D"]))));
+  expect(rowCount()).toBe(0);
+  await act(async () => button("Show all 4 queued prompts")!.props.onClick());
+  expect(rowCount()).toBe(4);
+
+  // The expand choice survives new prompts arriving.
+  await act(async () => renderer!.update(render(queued(["A", "B", "C", "D", "E"]))));
+  expect(rowCount()).toBe(5);
+  await act(async () =>
+    renderer!.root
+      .findAllByType("button")
+      .find((candidate) => candidate.children.includes("Collapse"))!
+      .props.onClick(),
+  );
+  expect(button("Show all 5 queued prompts")).toBeDefined();
+
+  // Draining the queue resets to automatic collapsing.
+  await act(async () => button("Show all 5 queued prompts")!.props.onClick());
+  await act(async () => renderer!.update(render([])));
+  await act(async () => renderer!.update(render(queued(["F", "G", "H", "I"]))));
+  expect(rowCount()).toBe(0);
+});

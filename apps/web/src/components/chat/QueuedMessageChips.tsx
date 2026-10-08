@@ -19,10 +19,13 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import {
   CheckIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   CornerUpRightIcon,
   GripVerticalIcon,
   FileTextIcon,
   ImageIcon,
+  ListEndIcon,
   PencilIcon,
   Trash2Icon,
   XIcon,
@@ -33,10 +36,21 @@ import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialo
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
+/** Queues longer than this collapse into a single summary row until expanded. */
+const QUEUE_COLLAPSE_THRESHOLD = 3;
+
+function queuedMessageLabel(message: OrchestrationQueuedMessage): string {
+  return message.text.length > 0
+    ? message.text
+    : message.attachments.map((attachment) => attachment.name).join(", ");
+}
+
 /**
  * Queued follow-up messages held server-side while a turn runs. Each chip
  * offers Steer (send explicitly selected prompts at the provider's next accepted
  * boundary) and delete; the queue otherwise drains in order after completion.
+ * Long queues collapse automatically; the user's expand choice holds until the
+ * queue empties.
  */
 export const QueuedMessageChips = memo(function QueuedMessageChips({
   queuedMessages,
@@ -61,14 +75,21 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   );
   const [editingId, setEditingId] = useState<MessageId | null>(null);
   const [draftText, setDraftText] = useState("");
+  const [userExpanded, setUserExpanded] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  if (queuedMessages.length === 0) {
+  const queueIsEmpty = queuedMessages.length === 0;
+  if (queueIsEmpty && userExpanded) setUserExpanded(false);
+  if (queueIsEmpty) {
     return null;
   }
+
+  const collapsible = queuedMessages.length > QUEUE_COLLAPSE_THRESHOLD;
+  const collapsed = collapsible && !userExpanded && editingId === null;
+  const nextMessage = queuedMessages[0]!;
 
   const handleDragEnd = (event: DragEndEvent) => {
     if (event.over === null || event.active.id === event.over.id) return;
@@ -89,199 +110,241 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   return (
     <section
       aria-label="Prompt queue"
-      className="chat-composer-glass pointer-events-auto relative z-0 mx-auto -mb-3 w-[calc(100%_-_1.5rem)] max-w-[46.5rem] overflow-hidden rounded-t-2xl border border-border/70 pb-3 shadow-sm"
+      className="pointer-events-auto relative z-0 mx-auto mb-1.5 w-[calc(100%_-_1.5rem)] max-w-[46.5rem] overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
     >
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        modifiers={[restrictToVerticalAxis]}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={queuedMessages.map((message) => message.messageId)}
-          strategy={verticalListSortingStrategy}
+      {collapsed ? (
+        <button
+          type="button"
+          aria-expanded={false}
+          aria-label={`Show all ${queuedMessages.length} queued prompts`}
+          onClick={() => setUserExpanded(true)}
+          className="group flex w-full min-w-0 items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:outline-none"
         >
-          <ol className="divide-y divide-border/60">
-            {queuedMessages.map((queuedMessage, index) => (
-              <SortableQueuedMessageRow key={queuedMessage.messageId} id={queuedMessage.messageId}>
-                {({ attributes, listeners, setNodeRef, style, isDragging }) => (
-                  <li
-                    ref={setNodeRef}
-                    style={style}
-                    className={`flex min-w-0 items-center gap-2 px-3 py-2 ${isDragging ? "relative z-10 bg-card shadow-md" : ""}`}
+          <ListEndIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="shrink-0 text-xs text-muted-foreground">Next</span>
+          <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
+            {queuedMessageLabel(nextMessage)}
+          </span>
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs font-medium tabular-nums text-muted-foreground group-hover:text-foreground">
+            {queuedMessages.length} queued
+          </span>
+          <ChevronUpIcon
+            className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground"
+            aria-hidden="true"
+          />
+        </button>
+      ) : (
+        <>
+          {collapsible ? (
+            <div className="flex items-center justify-between gap-2 border-b border-border/60 py-1 pr-1.5 pl-3">
+              <span className="text-2xs font-medium tabular-nums text-muted-foreground">
+                {queuedMessages.length} queued prompts
+              </span>
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-expanded={true}
+                disabled={editingId !== null}
+                onClick={() => setUserExpanded(false)}
+              >
+                Collapse
+                <ChevronDownIcon className="size-3" />
+              </Button>
+            </div>
+          ) : null}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={queuedMessages.map((message) => message.messageId)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ol className="max-h-[min(20rem,45vh)] divide-y divide-border/60 overflow-y-auto overscroll-contain">
+                {queuedMessages.map((queuedMessage, index) => (
+                  <SortableQueuedMessageRow
+                    key={queuedMessage.messageId}
+                    id={queuedMessage.messageId}
                   >
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <button
-                            type="button"
-                            className="flex size-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-accent/40 hover:text-foreground active:cursor-grabbing"
-                            aria-label={`Reorder queued prompt ${index + 1}`}
-                            {...attributes}
-                            {...listeners}
-                          />
-                        }
+                    {({ attributes, listeners, setNodeRef, style, isDragging }) => (
+                      <li
+                        ref={setNodeRef}
+                        style={style}
+                        className={`flex min-w-0 items-center gap-2 px-3 py-2 ${isDragging ? "relative z-10 bg-card shadow-md" : ""}`}
                       >
-                        <GripVerticalIcon className="size-3.5" />
-                      </TooltipTrigger>
-                      <TooltipPopup side="top">Drag to reorder prompt {index + 1}</TooltipPopup>
-                    </Tooltip>
-                    {editingId === queuedMessage.messageId ? (
-                      <textarea
-                        autoFocus
-                        rows={2}
-                        value={draftText}
-                        onChange={(event) => setDraftText(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") setEditingId(null);
-                          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                            saveEdit(queuedMessage);
-                          }
-                        }}
-                        aria-label={`Edit queued prompt ${index + 1}`}
-                        className="min-h-10 min-w-0 flex-1 resize-y rounded-md border border-border/70 bg-background/70 px-2 py-1.5 text-[13px] leading-5 outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
-                      />
-                    ) : (
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        {queuedMessage.attachments.length > 0 ? (
-                          <span
-                            className="flex shrink-0 items-center -space-x-1"
-                            aria-label={`${queuedMessage.attachments.length} queued attachment${queuedMessage.attachments.length === 1 ? "" : "s"}: ${queuedMessage.attachments.map((attachment) => attachment.name).join(", ")}`}
-                          >
-                            {queuedMessage.attachments.slice(0, 3).map((attachment) => {
-                              const attachmentUrl = attachmentUrlById?.get(attachment.id);
-                              return attachment.type === "image" && attachmentUrl ? (
-                                <img
-                                  key={attachment.id}
-                                  src={attachmentUrl}
-                                  alt=""
-                                  title={attachment.name}
-                                  className="size-6 rounded-md border border-border/80 bg-muted object-cover"
-                                />
-                              ) : (
-                                <span
-                                  key={attachment.id}
-                                  title={attachment.name}
-                                  className="flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-muted-foreground"
-                                >
-                                  {attachment.type === "pdf" ? (
-                                    <FileTextIcon className="size-3.5" />
-                                  ) : (
-                                    <ImageIcon className="size-3.5" />
-                                  )}
-                                </span>
-                              );
-                            })}
-                            {queuedMessage.attachments.length > 3 ? (
-                              <span className="relative flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-[10px] text-muted-foreground">
-                                +{queuedMessage.attachments.length - 3}
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : null}
-                        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
-                          {queuedMessage.text.length > 0
-                            ? queuedMessage.text
-                            : queuedMessage.attachments
-                                .map((attachment) => attachment.name)
-                                .join(", ")}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex shrink-0 items-center gap-1">
-                      {editingId === queuedMessage.messageId ? (
-                        <>
-                          <Button
-                            size="icon-xs"
-                            variant="ghost"
-                            aria-label="Save queued prompt"
-                            disabled={
-                              draftText.trim().length === 0 &&
-                              queuedMessage.attachments.length === 0
-                            }
-                            onClick={() => saveEdit(queuedMessage)}
-                          >
-                            <CheckIcon className="size-3" />
-                          </Button>
-                          <Button
-                            size="icon-xs"
-                            variant="ghost"
-                            aria-label="Cancel editing queued prompt"
-                            onClick={() => setEditingId(null)}
-                          >
-                            <XIcon className="size-3" />
-                          </Button>
-                        </>
-                      ) : (
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <Button
-                                size="icon-xs"
-                                variant="ghost"
-                                aria-label="Edit queued message"
-                                onClick={() => {
-                                  setEditingId(queuedMessage.messageId);
-                                  setDraftText(queuedMessage.text);
-                                }}
+                              <button
+                                type="button"
+                                className="flex size-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-accent/40 hover:text-foreground active:cursor-grabbing"
+                                aria-label={`Reorder queued prompt ${index + 1}`}
+                                {...attributes}
+                                {...listeners}
                               />
                             }
                           >
-                            <PencilIcon className="size-3" />
+                            <GripVerticalIcon className="size-3.5" />
                           </TooltipTrigger>
-                          <TooltipPopup side="top">Edit queued prompt</TooltipPopup>
+                          <TooltipPopup side="top">Drag to reorder prompt {index + 1}</TooltipPopup>
                         </Tooltip>
-                      )}
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              disabled={steerDisabled}
-                              aria-label={`Steer queued prompt ${index + 1}`}
-                              onClick={() => {
-                                if (queuedMessages.length === 1) onSteer(queuedMessage.messageId);
-                                else setSteerSelection([queuedMessage.messageId]);
-                              }}
-                            />
-                          }
-                        >
-                          <CornerUpRightIcon className="size-3" />
-                          Steer
-                        </TooltipTrigger>
-                        <TooltipPopup
-                          side="top"
-                          className="max-w-72 whitespace-normal leading-tight"
-                        >
-                          {steerDisabled
-                            ? "Waiting for the agent to start"
-                            : "Send this prompt into the active turn"}
-                        </TooltipPopup>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              aria-label="Remove queued message"
-                              onClick={() => onRemove(queuedMessage.messageId)}
-                            />
-                          }
-                        >
-                          <Trash2Icon className="size-3" />
-                        </TooltipTrigger>
-                        <TooltipPopup side="top">Remove from queue</TooltipPopup>
-                      </Tooltip>
-                    </div>
-                  </li>
-                )}
-              </SortableQueuedMessageRow>
-            ))}
-          </ol>
-        </SortableContext>
-      </DndContext>
+                        {editingId === queuedMessage.messageId ? (
+                          <textarea
+                            autoFocus
+                            rows={2}
+                            value={draftText}
+                            onChange={(event) => setDraftText(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") setEditingId(null);
+                              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                                saveEdit(queuedMessage);
+                              }
+                            }}
+                            aria-label={`Edit queued prompt ${index + 1}`}
+                            className="min-h-10 min-w-0 flex-1 resize-y rounded-md border border-border/70 bg-background/70 px-2 py-1.5 text-[13px] leading-5 outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
+                          />
+                        ) : (
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            {queuedMessage.attachments.length > 0 ? (
+                              <span
+                                className="flex shrink-0 items-center -space-x-1"
+                                aria-label={`${queuedMessage.attachments.length} queued attachment${queuedMessage.attachments.length === 1 ? "" : "s"}: ${queuedMessage.attachments.map((attachment) => attachment.name).join(", ")}`}
+                              >
+                                {queuedMessage.attachments.slice(0, 3).map((attachment) => {
+                                  const attachmentUrl = attachmentUrlById?.get(attachment.id);
+                                  return attachment.type === "image" && attachmentUrl ? (
+                                    <img
+                                      key={attachment.id}
+                                      src={attachmentUrl}
+                                      alt=""
+                                      title={attachment.name}
+                                      className="size-6 rounded-md border border-border/80 bg-muted object-cover"
+                                    />
+                                  ) : (
+                                    <span
+                                      key={attachment.id}
+                                      title={attachment.name}
+                                      className="flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-muted-foreground"
+                                    >
+                                      {attachment.type === "pdf" ? (
+                                        <FileTextIcon className="size-3.5" />
+                                      ) : (
+                                        <ImageIcon className="size-3.5" />
+                                      )}
+                                    </span>
+                                  );
+                                })}
+                                {queuedMessage.attachments.length > 3 ? (
+                                  <span className="relative flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-[10px] text-muted-foreground">
+                                    +{queuedMessage.attachments.length - 3}
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : null}
+                            <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
+                              {queuedMessageLabel(queuedMessage)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex shrink-0 items-center gap-1">
+                          {editingId === queuedMessage.messageId ? (
+                            <>
+                              <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                aria-label="Save queued prompt"
+                                disabled={
+                                  draftText.trim().length === 0 &&
+                                  queuedMessage.attachments.length === 0
+                                }
+                                onClick={() => saveEdit(queuedMessage)}
+                              >
+                                <CheckIcon className="size-3" />
+                              </Button>
+                              <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                aria-label="Cancel editing queued prompt"
+                                onClick={() => setEditingId(null)}
+                              >
+                                <XIcon className="size-3" />
+                              </Button>
+                            </>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    size="icon-xs"
+                                    variant="ghost"
+                                    aria-label="Edit queued message"
+                                    onClick={() => {
+                                      setEditingId(queuedMessage.messageId);
+                                      setDraftText(queuedMessage.text);
+                                    }}
+                                  />
+                                }
+                              >
+                                <PencilIcon className="size-3" />
+                              </TooltipTrigger>
+                              <TooltipPopup side="top">Edit queued prompt</TooltipPopup>
+                            </Tooltip>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  disabled={steerDisabled}
+                                  aria-label={`Steer queued prompt ${index + 1}`}
+                                  onClick={() => {
+                                    if (queuedMessages.length === 1)
+                                      onSteer(queuedMessage.messageId);
+                                    else setSteerSelection([queuedMessage.messageId]);
+                                  }}
+                                />
+                              }
+                            >
+                              <CornerUpRightIcon className="size-3" />
+                              Steer
+                            </TooltipTrigger>
+                            <TooltipPopup
+                              side="top"
+                              className="max-w-72 whitespace-normal leading-tight"
+                            >
+                              {steerDisabled
+                                ? "Waiting for the agent to start"
+                                : "Send this prompt into the active turn"}
+                            </TooltipPopup>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost"
+                                  aria-label="Remove queued message"
+                                  onClick={() => onRemove(queuedMessage.messageId)}
+                                />
+                              }
+                            >
+                              <Trash2Icon className="size-3" />
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">Remove from queue</TooltipPopup>
+                          </Tooltip>
+                        </div>
+                      </li>
+                    )}
+                  </SortableQueuedMessageRow>
+                ))}
+              </ol>
+            </SortableContext>
+          </DndContext>
+        </>
+      )}
       <Dialog
         open={steerSelection !== null}
         onOpenChange={(open) => {
@@ -312,9 +375,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                   }
                 />
                 <span className="min-w-0 whitespace-pre-wrap break-words">
-                  {index + 1}.{" "}
-                  {message.text ||
-                    message.attachments.map((attachment) => attachment.name).join(", ")}
+                  {index + 1}. {queuedMessageLabel(message)}
                 </span>
               </label>
             ))}

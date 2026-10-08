@@ -101,22 +101,11 @@ describe("shouldUseRestingComposerLayout", () => {
   const resting = {
     isExistingThread: true,
     isMobileViewport: false,
-    isScrollCollapsed: true,
     hasExpandedChrome: false,
-    hasMultilinePrompt: false,
-    timelineOverflows: true,
   };
 
-  it("uses the resting layout after a timeline scroll", () => {
+  it("defaults existing conversations to the compact frame", () => {
     expect(shouldUseRestingComposerLayout(resting)).toBe(true);
-  });
-
-  it("keeps the composer expanded until the timeline is scrolled", () => {
-    expect(shouldUseRestingComposerLayout({ ...resting, isScrollCollapsed: false })).toBe(false);
-  });
-
-  it("keeps the composer expanded while the timeline fits above it", () => {
-    expect(shouldUseRestingComposerLayout({ ...resting, timelineOverflows: false })).toBe(false);
   });
 
   it("keeps new-thread composers expanded", () => {
@@ -130,19 +119,6 @@ describe("shouldUseRestingComposerLayout", () => {
   it("keeps drawers and composer-owned menus expanded", () => {
     expect(shouldUseRestingComposerLayout({ ...resting, hasExpandedChrome: true })).toBe(false);
   });
-
-  it.each([false, true])(
-    "keeps multiline drafts expanded when scroll collapsed is %s",
-    (isScrollCollapsed) => {
-      expect(
-        shouldUseRestingComposerLayout({
-          ...resting,
-          hasMultilinePrompt: true,
-          isScrollCollapsed,
-        }),
-      ).toBe(false);
-    },
-  );
 });
 
 describe("shouldAnimateComposerRestingTransition", () => {
