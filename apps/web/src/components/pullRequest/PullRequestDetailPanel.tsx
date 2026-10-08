@@ -1424,7 +1424,6 @@ export function PullRequestDetailPanel({
     lastSelectedMergeMethod,
   );
   const selectedMergeMethodLabel = PULL_REQUEST_MERGE_METHOD_LABELS[selectedMergeMethod];
-  const pendingAutoMergeLabel = `Auto-merge (${selectedMergeMethodLabel.toLowerCase()})`;
   const conflicting = detail?.state === "open" && detail.mergeability === "conflicting";
   // Only an outright yes arms it. A host that reports nothing has not said the merge is already
   // spoken for, and an off switch for something that may not be on says the wrong thing twice.
@@ -1474,12 +1473,10 @@ export function PullRequestDetailPanel({
         state: detail.state,
         isDraft: detail.isDraft,
         mergeability: detail.mergeability,
-        checksState,
         autoMergeEnabled: detail.autoMergeEnabled,
         hasMergeMethod: allowedMergeMethods.length > 0,
         canMerge: canMergeSinglePullRequest && can("merge"),
         canMarkReady: can("ready"),
-        canEnableAutoMerge: canMergeSinglePullRequest && can("enable-auto-merge"),
       })
     : null;
   // What the menu's action group holds. Named once so the separators around it are drawn from
@@ -1493,7 +1490,6 @@ export function PullRequestDetailPanel({
     detail?.state === "open" &&
     ((autoMergeArmed && can("disable-auto-merge")) ||
       (!autoMergeArmed &&
-        primaryAction !== "enable-auto-merge" &&
         !detail.isDraft &&
         !conflicting &&
         can("enable-auto-merge") &&
@@ -1501,7 +1497,7 @@ export function PullRequestDetailPanel({
   const showsMergeNow =
     canMergeSinglePullRequest &&
     detail?.state === "open" &&
-    (primaryAction === "enable-auto-merge" || primaryAction === "auto-merge-armed") &&
+    primaryAction === "auto-merge-armed" &&
     can("merge") &&
     !detail.isDraft &&
     !conflicting &&
@@ -1899,38 +1895,6 @@ export function PullRequestDetailPanel({
                     }
                   />
                   <TooltipPopup side="top">Ready for review</TooltipPopup>
-                </Tooltip>
-              ) : primaryAction === "enable-auto-merge" ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span className="inline-flex shrink-0">
-                        <Button
-                          size="xs"
-                          variant="default"
-                          disabled={actionPending}
-                          onClick={() =>
-                            setConfirmation({ open: true, action: "enable-auto-merge" })
-                          }
-                          aria-label={
-                            pendingAction === "enable-auto-merge"
-                              ? "Enabling..."
-                              : pendingAutoMergeLabel
-                          }
-                        >
-                          <PullRequestGlyph.merged aria-hidden className="size-3.5" />
-                          <span className="@max-[30rem]/pr-header:hidden">
-                            {pendingAction === "enable-auto-merge"
-                              ? "Enabling..."
-                              : pendingAutoMergeLabel}
-                          </span>
-                        </Button>
-                      </span>
-                    }
-                  />
-                  <TooltipPopup side="top">
-                    {pendingAction === "enable-auto-merge" ? "Enabling..." : pendingAutoMergeLabel}
-                  </TooltipPopup>
                 </Tooltip>
               ) : primaryAction === "auto-merge-armed" ? (
                 <Tooltip>

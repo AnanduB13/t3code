@@ -252,31 +252,24 @@ describe("pull request primary control", () => {
     state: "open" as const,
     isDraft: false,
     mergeability: "mergeable" as const,
-    checksState: "passing" as const,
     autoMergeEnabled: false,
     hasMergeMethod: true,
     canMerge: true,
     canMarkReady: true,
-    canEnableAutoMerge: true,
   };
 
-  it("moves pending and failing checks to auto-merge", () => {
-    expect(resolvePullRequestPrimaryControl({ ...open, checksState: "pending" })).toBe(
-      "enable-auto-merge",
-    );
-    expect(resolvePullRequestPrimaryControl({ ...open, checksState: "failing" })).toBe(
-      "enable-auto-merge",
-    );
-  });
-
-  it("does not offer auto-merge while the host state is unknown", () => {
+  it.each([false, undefined])("defaults to merge when auto-merge is %s", (autoMergeEnabled) => {
     expect(
       resolvePullRequestPrimaryControl({
         ...open,
-        checksState: "pending",
-        autoMergeEnabled: undefined,
+        autoMergeEnabled,
       }),
     ).toBe("merge");
+  });
+
+  it("requires merge permission and an allowed method", () => {
+    expect(resolvePullRequestPrimaryControl({ ...open, canMerge: false })).toBeNull();
+    expect(resolvePullRequestPrimaryControl({ ...open, hasMergeMethod: false })).toBeNull();
   });
 
   it("keeps armed and terminal states in the merge button slot", () => {

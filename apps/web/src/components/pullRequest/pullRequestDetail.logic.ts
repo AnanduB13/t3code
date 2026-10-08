@@ -7,7 +7,6 @@ import {
   type PullRequestActor,
   type PullRequestBaseComparison,
   type PullRequestCheck,
-  type PullRequestChecksState,
   type PullRequestComment,
   type PullRequestCommit,
   type PullRequestContextMetadata,
@@ -72,7 +71,6 @@ export type PullRequestPrimaryControl =
   | "resolve"
   | "ready"
   | "merge"
-  | "enable-auto-merge"
   | "auto-merge-armed"
   | "merged"
   | "closed"
@@ -83,12 +81,10 @@ export function resolvePullRequestPrimaryControl(input: {
   readonly state: PullRequestState;
   readonly isDraft: boolean;
   readonly mergeability: PullRequestMergeability;
-  readonly checksState: PullRequestChecksState | null;
   readonly autoMergeEnabled: boolean | undefined;
   readonly hasMergeMethod: boolean;
   readonly canMerge: boolean;
   readonly canMarkReady: boolean;
-  readonly canEnableAutoMerge: boolean;
 }): PullRequestPrimaryControl {
   if (input.state === "merged") return "merged";
   if (input.state === "closed") return "closed";
@@ -96,14 +92,6 @@ export function resolvePullRequestPrimaryControl(input: {
   if (input.isDraft) return input.canMarkReady ? "ready" : null;
   if (input.autoMergeEnabled) return "auto-merge-armed";
   if (!input.hasMergeMethod) return null;
-  if (
-    input.autoMergeEnabled === false &&
-    input.checksState !== null &&
-    input.checksState !== "passing" &&
-    input.canEnableAutoMerge
-  ) {
-    return "enable-auto-merge";
-  }
   return input.canMerge ? "merge" : null;
 }
 
