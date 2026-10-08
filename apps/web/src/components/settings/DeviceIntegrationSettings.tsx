@@ -89,8 +89,7 @@ function DeviceIntegrationControls({
             <Switch
               checked={enabled}
               disabled={!loaded || !environmentId || busy || pending !== null}
-              aria-
-              {...searchableSetting("device-hub")}
+              aria-label={searchableSetting("device-hub").title}
               onCheckedChange={(checked) =>
                 void update("hub", {
                   enabled: Boolean(checked),
@@ -141,8 +140,7 @@ function DeviceIntegrationControls({
             <Switch
               checked={agentAccessEnabled}
               disabled={!loaded || !environmentId || !enabled || busy || pending !== null}
-              aria-
-              {...searchableSetting("agent-device-access")}
+              aria-label={searchableSetting("agent-device-access").title}
               onCheckedChange={(checked) =>
                 void update("agent", { agentAccessEnabled: Boolean(checked) })
               }

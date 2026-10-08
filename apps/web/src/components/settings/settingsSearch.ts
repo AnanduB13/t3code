@@ -593,19 +593,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "device-hub",
     title: "Device hub",
     to: "/settings/integrations",
-    searchTerms: ["android emulator ios simulator device enable disable"],
+    searchTerms: ["android emulator ios simulator device enable disable install start"],
   },
   {
     id: "agent-device-access",
     title: "Agent device access",
     to: "/settings/integrations",
-    searchTerms: ["device automation permission"],
+    searchTerms: [
+      "device automation permission allow simulator emulator ios android drive tools sessions",
+    ],
   },
   {
     id: "device-platform-support",
     title: "Platform support",
     to: "/settings/integrations",
-    searchTerms: ["android sdk xcode device host ssh"],
+    targetId: "devices",
+    searchTerms: ["android sdk xcode device host ssh simulator support android studio avd runtime"],
   },
   {
     id: "agent-browser-access",
@@ -619,27 +622,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Device hosts",
     to: "/settings/integrations",
     searchTerms: ["ssh remote simulator emulator ios android mac mini identity key connection"],
-  },
-  {
-    id: "agent-device-access",
-    title: "Agent device access",
-    to: "/settings/integrations",
-    targetId: "devices",
-    searchTerms: ["allow simulator emulator ios android drive tools sessions"],
-  },
-  {
-    id: "device-hub",
-    title: "Device hub",
-    to: "/settings/integrations",
-    targetId: "devices",
-    searchTerms: ["simulator emulator ios android install start"],
-  },
-  {
-    id: "device-platform-support",
-    title: "Simulator support",
-    to: "/settings/integrations",
-    targetId: "devices",
-    searchTerms: ["xcode android studio sdk avd runtime"],
   },
   {
     id: "browser-profiles",

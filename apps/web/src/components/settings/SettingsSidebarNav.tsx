@@ -26,7 +26,7 @@ import {
   SparklesIcon,
   XIcon,
 } from "lucide-react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
@@ -169,20 +169,6 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMobile, open, setOpen, setOpenMobile]);
 
-  const handleSectionClick = useCallback(
-    (to: SettingsPath) => {
-      if (isMobile) {
-        setOpenMobile(false);
-      }
-      void navigate({
-        to,
-        hash: "",
-        replace: true,
-        hashScrollIntoView: false,
-      });
-    },
-    [isMobile, navigate, setOpenMobile],
-  );
   const clearSearch = useCallback(() => {
     setQuery("");
     setActiveResultIndex(0);
@@ -201,7 +187,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       void navigate({
         to: item.to,
         hash: targetId,
-        replace: true,
+        replace: pathname === item.to,
         hashScrollIntoView: false,
         state: { settingsTargetHighlight: true },
       });
@@ -338,7 +324,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton
                         isActive={isActive}
-                        onClick={() => handleSectionClick(item.to)}
+                        render={<Link to={item.to} hash="" hashScrollIntoView={false} />}
+                        onClick={() => {
+                          if (isMobile) setOpenMobile(false);
+                        }}
                       >
                         <Icon />
                         <span className="truncate">{item.label}</span>
