@@ -3,6 +3,8 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   absoluteBoundsToScreenshot,
   boundsMatch,
+  fitScreenshotSize,
+  selectWindowCaptureSource,
   selectUniqueWindowByTitle,
   screenshotPointToScreen,
 } from "./computerUseGeometry.ts";
@@ -22,6 +24,20 @@ describe("Computer Use window coordinate mapping", () => {
       x: 520,
       y: 380,
     });
+  });
+
+  it("keeps mapped edge pixels inside the observed logical window", () => {
+    expect(
+      screenshotPointToScreen(
+        { x: 0, y: 0, width: 800, height: 600, screenshotWidth: 1600, screenshotHeight: 1200 },
+        { x: 1599, y: 1199 },
+      ),
+    ).toEqual({ x: 799, y: 599 });
+  });
+
+  it("bounds large screenshots while preserving their aspect ratio", () => {
+    expect(fitScreenshotSize(3_840, 2_160)).toEqual({ width: 1_600, height: 900 });
+    expect(fitScreenshotSize(1_200, 800)).toEqual({ width: 1_200, height: 800 });
   });
 
   it("maps accessibility bounds into the same screenshot coordinate space", () => {
@@ -59,16 +75,43 @@ describe("Computer Use window coordinate mapping", () => {
     ).toBe(false);
   });
 
-  it("prefers one exact title and refuses ambiguous partial window names", () => {
+  it("requires a unique exact title, including when a partial title has only one match", () => {
     const windows = [
       { id: "settings", title: "Settings" },
       { id: "docs", title: "Settings — Documentation" },
       { id: "general", title: "General — Settings" },
     ];
     expect(selectUniqueWindowByTitle(windows, "Settings").id).toBe("settings");
-    expect(() => selectUniqueWindowByTitle(windows, "Set")).toThrow("ambiguous");
+    expect(() => selectUniqueWindowByTitle(windows, "Set")).toThrow(
+      "No visible application window",
+    );
+    expect(() => selectUniqueWindowByTitle(windows, "Documentation")).toThrow(
+      "No visible application window",
+    );
+    expect(() => selectUniqueWindowByTitle([...windows, windows[0]!], "Settings")).toThrow(
+      "ambiguous",
+    );
     expect(() => selectUniqueWindowByTitle(windows, "Missing")).toThrow(
       "No visible application window",
     );
+  });
+
+  it("selects an unobscured native window capture by handle before title", () => {
+    const sources = [
+      { id: "window:41:0", name: "Editor" },
+      { id: "window:42:0", name: "Editor" },
+    ];
+    expect(
+      selectWindowCaptureSource(sources, { nativeKey: "handle:42", title: "Editor" })?.id,
+    ).toBe("window:42:0");
+    expect(
+      selectWindowCaptureSource(sources, { nativeKey: "fallback:Editor", title: "Editor" }),
+    ).toBeUndefined();
+    expect(
+      selectWindowCaptureSource([{ id: "window:9:0", name: "Settings" }], {
+        nativeKey: "fallback:Settings",
+        title: "Settings",
+      })?.id,
+    ).toBe("window:9:0");
   });
 });

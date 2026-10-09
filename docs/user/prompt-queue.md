@@ -1,0 +1,19 @@
+# Queuing follow-up prompts
+
+When an agent is working, sending another prompt adds it to that thread's prompt queue. Prompts run
+in order after the active turn finishes. Stopping the active turn does not discard or pause the
+remaining queue; the next prompt starts after the provider acknowledges the stop.
+
+Once a prompt is accepted into the queue, the composer is ready for the next one. You can keep
+adding prompts while the agent works; there is no fixed limit on the number of queued prompts.
+
+Use the controls beside a queued prompt to edit its text, remove it, or steer it into the active
+turn. Steer selects only that prompt by default. If several prompts are queued, choose which ones
+to include before sending. Selected prompts are sent together in queue order; unselected prompts
+stay queued in their original order. Cancel closes the selection without sending anything.
+
+Drag the handle at the start of a prompt to change the order. Queue changes are stored by the
+environment, so the same order and edits remain after a refresh or reconnect.
+
+Images and PDFs stay attached while a prompt waits. Their previews or file icons appear beside the
+queued prompt and the files are sent with it when that prompt runs.

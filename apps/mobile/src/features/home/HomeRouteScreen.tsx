@@ -1,38 +1,94 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
+import { AsyncResult } from "effect/reactivity";
+import type {
+  EnvironmentProject,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
+import {
+  GENERAL_CHATS_PROJECT_ID,
+  GENERAL_CHATS_PROJECT_TITLE,
+  GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
+} from "@t3tools/client-runtime/general-chats";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { useNavigation } from "@react-navigation/native";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Alert, Platform, useWindowDimensions } from "react-native";
 
-import { getCompactBrandHeaderOptions } from "../../components/CompactBrandTitle";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useNavigationThreadShells } from "../../state/entities";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
+import { projectEnvironment } from "../../state/projects";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { WorkspaceEmptyDetail } from "../layout/WorkspaceEmptyDetail";
-import { WorkspaceSidebarToolbar } from "../layout/workspace-sidebar-toolbar";
-import { checkForAppUpdateOnLaunch } from "../updates/app-updates";
+import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
+import { checkForAppUpdateOnLaunch, startAppUpdateForegroundRecheck } from "../updates/app-updates";
 import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
+import { useHomeThreadSelection } from "./home-thread-navigation";
 import { buildHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
+import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
 export function HomeRouteScreen() {
-  const { layout } = useAdaptiveWorkspaceLayout();
+  const { width: windowWidth } = useWindowDimensions();
+  const { homeMode, layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useProjects();
-  const threads = useThreadShells();
+  const threads = useNavigationThreadShells();
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState("");
-  const { archiveThread, confirmDeleteThread, settleThread, unsettleThread } =
-    useThreadListActions();
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const handleSelectThread = useHomeThreadSelection();
+  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
+  const [pendingChatEnvironmentId, setPendingChatEnvironmentId] = useState<EnvironmentId | null>(
+    null,
+  );
+  const handleNewThreadOnBranch = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      navigation.navigate("NewTaskSheet", {
+        screen: "NewTaskDraft",
+        params: {
+          environmentId: String(thread.environmentId),
+          projectId: String(thread.projectId),
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+        },
+      });
+    },
+    [navigation],
+  );
+
+  useEffect(() => {
+    void checkForAppUpdateOnLaunch();
+    startAppUpdateForegroundRecheck();
+  }, []);
+
+  const {
+    archiveThread,
+    confirmDeleteThread,
+    settleThread,
+    snoozeThread,
+    unsnoozeThread,
+    pinThread,
+    unpinThread,
+    setThreadAutoSettle,
+    moveThread,
+    renameThread,
+    regenerateThreadTitle,
+    unsettleThread,
+  } = useThreadListActions();
   const pendingTasks = usePendingNewTasks();
   const { openPendingTask, confirmDeletePendingTask } = usePendingTaskListActions();
   const environments = useMemo(() => {
@@ -55,14 +111,11 @@ export function HomeRouteScreen() {
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
-  const {
-    options: listOptions,
-    setSelectedEnvironmentId,
-    setProjectSortOrder,
-    setThreadSortOrder,
-  } = useHomeListOptions(availableEnvironmentIds);
+  const { options: listOptions, setSelectedEnvironmentId } =
+    useHomeListOptions(availableEnvironmentIds);
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const deferredSelectedProjectKey = useDeferredValue(selectedProjectKey);
   const projectFilterOptions = useMemo(
     () =>
       buildHomeProjectScopes({
@@ -70,11 +123,19 @@ export function HomeRouteScreen() {
         environmentId: selectedEnvironmentId,
         projectGroupingMode: listOptions.projectGroupingMode,
       }).map((scope) => ({
+        environmentId: scope.representative.environmentId,
+        faviconPath: scope.representative.faviconPath,
         key: scope.key,
         label: scope.title,
+        workspaceRoot: scope.representative.workspaceRoot,
       })),
     [listOptions.projectGroupingMode, projects, selectedEnvironmentId],
   );
+  useEffect(() => {
+    if (homeMode === "chats") {
+      setSelectedProjectKey(null);
+    }
+  }, [homeMode]);
   useEffect(() => {
     if (
       selectedProjectKey !== null &&
@@ -84,25 +145,126 @@ export function HomeRouteScreen() {
     }
   }, [projectFilterOptions, selectedProjectKey]);
 
+  const openGeneralChatDraft = useCallback(
+    (project: EnvironmentProject) => {
+      navigation.navigate("NewTaskSheet", {
+        screen: "NewTaskDraft",
+        params: {
+          environmentId: String(project.environmentId),
+          projectId: String(project.id),
+          title: "New chat",
+        },
+      });
+    },
+    [navigation],
+  );
+
+  useEffect(() => {
+    if (pendingChatEnvironmentId === null) return;
+    const project = projects.find(
+      (candidate) =>
+        candidate.environmentId === pendingChatEnvironmentId &&
+        candidate.id === GENERAL_CHATS_PROJECT_ID,
+    );
+    if (!project) return;
+    setPendingChatEnvironmentId(null);
+    openGeneralChatDraft(project);
+  }, [openGeneralChatDraft, pendingChatEnvironmentId, projects]);
+
+  const startNewItem = useCallback(() => {
+    if (homeMode === "projects") {
+      navigation.navigate("NewTaskSheet", { screen: "NewTask" });
+      return;
+    }
+    if (pendingChatEnvironmentId !== null) return;
+
+    const targetEnvironment =
+      workspaceEnvironments.find(
+        (environment) =>
+          environment.environmentId === selectedEnvironmentId &&
+          environment.connectionState === "connected",
+      ) ?? workspaceEnvironments.find((environment) => environment.connectionState === "connected");
+    if (!targetEnvironment) {
+      Alert.alert("Could not start chat", "Connect an environment before starting a chat.");
+      return;
+    }
+
+    const existing = projects.find(
+      (project) =>
+        project.environmentId === targetEnvironment.environmentId &&
+        project.id === GENERAL_CHATS_PROJECT_ID,
+    );
+    if (existing) {
+      openGeneralChatDraft(existing);
+      return;
+    }
+
+    setPendingChatEnvironmentId(targetEnvironment.environmentId);
+    void createProject({
+      environmentId: targetEnvironment.environmentId,
+      input: {
+        projectId: GENERAL_CHATS_PROJECT_ID,
+        title: GENERAL_CHATS_PROJECT_TITLE,
+        workspaceRoot: GENERAL_CHATS_WORKSPACE_ROOT,
+        createWorkspaceRootIfMissing: true,
+        defaultModelSelection: null,
+      },
+    }).then((result) => {
+      if (!AsyncResult.isFailure(result)) return;
+      const error = squashAtomCommandFailure(result);
+      if (isGeneralChatsProjectAlreadyExistsError(error)) return;
+      setPendingChatEnvironmentId(null);
+      Alert.alert(
+        "Could not start chat",
+        error instanceof Error ? error.message : "The chat could not be created.",
+      );
+    });
+  }, [
+    createProject,
+    homeMode,
+    navigation,
+    openGeneralChatDraft,
+    pendingChatEnvironmentId,
+    projects,
+    selectedEnvironmentId,
+    workspaceEnvironments,
+  ]);
+
   // In split layouts the persistent sidebar IS the thread list — Home becomes
   // an empty detail pane so selecting a thread never transitions layouts.
   if (layout.usesSplitView) {
     return (
       <>
         <NativeStackScreenOptions
-          options={{ title: "", headerTitle: "", unstable_headerLeftItems: () => [] }}
+          options={
+            Platform.OS === "android"
+              ? { headerShown: false }
+              : { title: "", headerTitle: "", unstable_headerLeftItems: () => [] }
+          }
         />
-        <WorkspaceSidebarToolbar
-          afterSidebarButton={
+        {Platform.OS === "ios" ? (
+          <NativeHeaderToolbar placement="left">
             <NativeHeaderToolbar.Button
               accessibilityLabel="New task"
               icon="square.and.pencil"
               onPress={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
             />
-          }
-        />
+          </NativeHeaderToolbar>
+        ) : null}
+        {Platform.OS === "android" ? <AndroidScreenHeader title="Threads" /> : null}
         <WorkspaceEmptyDetail
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+          onAddConnection={
+            Platform.OS === "android" && !catalogState.hasConnections
+              ? () =>
+                  navigation.navigate("SettingsSheet", {
+                    screen: "SettingsContent",
+                    params: { screen: "SettingsEnvironmentNew" },
+                  })
+              : undefined
+          }
+          onStartNewTask={
+            Platform.OS === "android" && panes.primarySidebarVisible ? undefined : startNewItem
+          }
         />
       </>
     );
@@ -110,57 +272,92 @@ export function HomeRouteScreen() {
 
   return (
     <AndroidHomeFabLayout
-      onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+      accessibilityLabel={homeMode === "chats" ? "New chat" : "New task"}
+      onStartNewTask={startNewItem}
     >
       <>
-        {/* Restore the compact title after the split branch blanks the detail header. */}
-        <NativeStackScreenOptions options={getCompactBrandHeaderOptions()} />
+        {/* Restore the header after leaving split view; screen options are
+            shallow-merged. The brand slot also doubles as the connection
+            status surface while an environment reconnects. */}
+        <NativeStackScreenOptions
+          optionsVersion={windowWidth}
+          options={{
+            ...getConnectionAwareBrandHeaderOptions({
+              headerWidth: windowWidth,
+              onOpenEnvironments: () =>
+                navigation.navigate("SettingsSheet", {
+                  screen: "SettingsContent",
+                  params: { screen: "SettingsEnvironments" },
+                }),
+            }),
+            headerShown: true,
+          }}
+        />
         <HomeHeader
+          mode={homeMode}
           environments={environments}
           projects={projectFilterOptions}
           searchQuery={searchQuery}
           selectedEnvironmentId={selectedEnvironmentId}
           selectedProjectKey={selectedProjectKey}
-          projectSortOrder={listOptions.projectSortOrder}
-          threadSortOrder={listOptions.threadSortOrder}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
-          onOpenSettings={() => navigation.navigate("SettingsSheet", { screen: "Settings" })}
-          onProjectSortOrderChange={setProjectSortOrder}
+          onOpenEnvironments={() =>
+            navigation.navigate("SettingsSheet", {
+              screen: "SettingsContent",
+              params: { screen: "SettingsEnvironments" },
+            })
+          }
+          onOpenSettings={() =>
+            navigation.navigate("SettingsSheet", {
+              screen: "SettingsContent",
+              params: { screen: "Settings" },
+            })
+          }
           onSearchQueryChange={setSearchQuery}
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
-          onThreadSortOrderChange={setThreadSortOrder}
+          onStartNewTask={startNewItem}
         />
 
         <HomeScreen
+          mode={homeMode}
           catalogState={catalogState}
           environments={environments}
           onAddConnection={() =>
-            navigation.navigate("SettingsSheet", { screen: "SettingsEnvironmentNew" })
+            navigation.navigate("SettingsSheet", {
+              screen: "SettingsContent",
+              params: { screen: "SettingsEnvironmentNew" },
+            })
           }
           onArchiveThread={archiveThread}
           onDeleteThread={confirmDeleteThread}
           onSettleThread={settleThread}
+          onSnoozeThread={snoozeThread}
+          onUnsnoozeThread={unsnoozeThread}
           onUnsettleThread={unsettleThread}
+          onPinThread={pinThread}
+          onUnpinThread={unpinThread}
+          onSetThreadAutoSettle={setThreadAutoSettle}
+          onMoveThread={moveThread}
+          onRenameThread={renameThread}
+          onRegenerateThreadTitle={regenerateThreadTitle}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
-          onOpenEnvironments={() =>
-            navigation.navigate("SettingsSheet", { screen: "SettingsEnvironments" })
+          onOpenSettings={() =>
+            navigation.navigate("SettingsSheet", {
+              screen: "SettingsContent",
+              params: { screen: "Settings" },
+            })
           }
-          onOpenSettings={() => navigation.navigate("SettingsSheet", { screen: "Settings" })}
-          onProjectSortOrderChange={setProjectSortOrder}
           onSearchQueryChange={setSearchQuery}
-          onSelectThread={(thread) => {
-            // Settled threads are live shells: opening one is plain
-            // navigation, and sending a message un-settles server-side.
-            navigation.navigate("Thread", {
-              environmentId: thread.environmentId,
-              threadId: thread.id,
-            });
-          }}
+          onSelectThread={handleSelectThread}
           onSelectPendingTask={openPendingTask}
           onDeletePendingTask={confirmDeletePendingTask}
+          onNewThreadOnBranch={handleNewThreadOnBranch}
           onNewThreadInProject={(project) => {
+            if (project.id === GENERAL_CHATS_PROJECT_ID) {
+              openGeneralChatDraft(project);
+              return;
+            }
             navigation.navigate("NewTaskSheet", {
               screen: "NewTaskDraft",
               params: {
@@ -170,18 +367,16 @@ export function HomeRouteScreen() {
               },
             });
           }}
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
-          onThreadSortOrderChange={setThreadSortOrder}
+          onStartNewTask={startNewItem}
           pendingTasks={pendingTasks}
           projectGroupingMode={listOptions.projectGroupingMode}
           projects={projects}
           projectSortOrder={listOptions.projectSortOrder}
           savedConnectionsById={savedConnectionsById}
-          searchQuery={searchQuery}
+          searchQuery={deferredSearchQuery}
           selectedEnvironmentId={selectedEnvironmentId}
-          selectedProjectKey={selectedProjectKey}
+          selectedProjectKey={deferredSelectedProjectKey}
           threads={threads}
-          threadSortOrder={listOptions.threadSortOrder}
         />
       </>
     </AndroidHomeFabLayout>

@@ -1,4 +1,8 @@
-import type { ComputerUseAppList, ComputerUseAppState } from "@t3tools/contracts";
+import type {
+  ComputerUseActionResult,
+  ComputerUseAppList,
+  ComputerUseAppState,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import * as ComputerUseBroker from "../../ComputerUseBroker.ts";
@@ -30,18 +34,21 @@ const handlers = {
     context().pipe(Effect.flatMap(({ scope, broker }) => broker.selectDevice(scope, deviceId))),
   computer_list_apps: () => invoke<ComputerUseAppList>("listApps", {}),
   computer_get_app_state: (input) => invoke<ComputerUseAppState>("getAppState", input),
-  computer_move: (input) => invoke<void>("move", input).pipe(Effect.as(null)),
-  computer_click: (input) => invoke<void>("click", input).pipe(Effect.as(null)),
-  computer_drag: (input) => invoke<void>("drag", input).pipe(Effect.as(null)),
-  computer_press_key: (input) => invoke<void>("pressKey", input).pipe(Effect.as(null)),
-  computer_scroll: (input) => invoke<void>("scroll", input).pipe(Effect.as(null)),
-  computer_type_text: (input) => invoke<void>("typeText", input).pipe(Effect.as(null)),
+  computer_move: (input) => invoke<ComputerUseActionResult>("move", input),
+  computer_click: (input) => invoke<ComputerUseActionResult>("click", input),
+  computer_drag: (input) => invoke<ComputerUseActionResult>("drag", input),
+  computer_press_key: (input) => invoke<ComputerUseActionResult>("pressKey", input),
+  computer_scroll: (input) => invoke<ComputerUseActionResult>("scroll", input),
+  computer_type_text: (input) => invoke<ComputerUseActionResult>("typeText", input),
 } satisfies Parameters<typeof ComputerUseToolkit.toLayer>[0];
 
-const { computer_get_app_state, ...standardHandlers } = handlers;
-export const ComputerUseStandardToolkitHandlersLive =
-  ComputerUseStandardToolkit.toLayer(standardHandlers);
-export const ComputerUseSnapshotToolkitHandlersLive = ComputerUseSnapshotToolkit.toLayer({
-  computer_get_app_state,
+const { computer_list_devices, computer_select_device, computer_list_apps, ...snapshotHandlers } =
+  handlers;
+export const ComputerUseStandardToolkitHandlersLive = ComputerUseStandardToolkit.toLayer({
+  computer_list_devices,
+  computer_select_device,
+  computer_list_apps,
 });
+export const ComputerUseSnapshotToolkitHandlersLive =
+  ComputerUseSnapshotToolkit.toLayer(snapshotHandlers);
 export const ComputerUseToolkitHandlersLive = ComputerUseToolkit.toLayer(handlers);

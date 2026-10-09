@@ -12,10 +12,12 @@ import {
   buildPhysicalToLogicalProjectKeyMap,
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
+  projectGroupsSpanEnvironments,
 } from "./sidebarProjectGrouping";
 import { orderItemsByPreferredIds } from "./components/Sidebar.logic";
 import { legacyProjectCwdPreferenceKey } from "./uiStateStore";
 import type { Project } from "./types";
+import { GENERAL_CHATS_PROJECT_ID } from "./generalChats";
 
 const primaryEnvironmentId = EnvironmentId.make("env-primary");
 const remoteEnvironmentId = EnvironmentId.make("env-remote");
@@ -79,6 +81,40 @@ describe("environment grouping", () => {
     }).length;
 
     expect(projectGroupCount).toBe(1);
+  });
+
+  it("reports whether the project groups span more than one environment", () => {
+    const grouped = makeProject({ repositoryIdentity });
+    const groupedRemote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity,
+    });
+    const separateLocal = makeProject({
+      id: ProjectId.make("workbench-local"),
+      title: "workbench",
+      workspaceRoot: "/tmp/workbench",
+    });
+    const separateRemote = makeProject({
+      id: ProjectId.make("workbench-remote"),
+      environmentId: remoteEnvironmentId,
+      title: "workbench",
+      workspaceRoot: "/tmp/workbench",
+    });
+    const build = (projects: Project[]) =>
+      buildSidebarProjectSnapshots({
+        projects,
+        settings: defaultGroupingSettings,
+        primaryEnvironmentId,
+        resolveEnvironmentLabel: (environmentId) =>
+          environmentId === remoteEnvironmentId ? "Mac mini" : "Primary",
+      });
+
+    const groups = build([groupedRemote, grouped, separateLocal, separateRemote]);
+    expect(groups).toHaveLength(3);
+    expect(projectGroupsSpanEnvironments(groups)).toBe(true);
+    expect(projectGroupsSpanEnvironments(build([grouped, separateLocal]))).toBe(false);
+    expect(projectGroupsSpanEnvironments(build([separateRemote]))).toBe(false);
   });
 
   it("keeps projects without repository identity physically scoped", () => {
@@ -279,6 +315,11 @@ describe("environment grouping", () => {
     expect(physicalToLogicalKey.get(derivePhysicalProjectKey(staleWithoutRepositoryIdentity))).toBe(
       repositoryIdentity.canonicalKey,
     );
+    // Deriving from the stale project alone misses the identity its sibling
+    // carries, so consumers must go through the map to match the sidebar.
+    expect(
+      deriveLogicalProjectKeyFromSettings(staleWithoutRepositoryIdentity, defaultGroupingSettings),
+    ).not.toBe(repositoryIdentity.canonicalKey);
   });
 
   it("builds one picker entry per logical project and targets the preferred environment", () => {
@@ -316,6 +357,173 @@ describe("environment grouping", () => {
     });
     expect(entries[0]?.isPreferred).toBe(true);
     expect(entries[1]?.group.displayName).toBe("separate");
+  });
+
+  it("keeps the current environment when available and falls back otherwise", () => {
+    const currentPrimary = makeProject({ repositoryIdentity });
+    const currentRemote = makeProject({
+      id: ProjectId.make("current-remote"),
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity,
+    });
+    const destinationRepositoryIdentity = {
+      canonicalKey: "github.com/example/destination",
+      locator: {
+        source: "git-remote" as const,
+        remoteName: "origin",
+        remoteUrl: "https://github.com/example/destination.git",
+      },
+    };
+    const destinationPrimary = makeProject({
+      id: ProjectId.make("destination-primary"),
+      title: "destination",
+      workspaceRoot: "/tmp/destination",
+      repositoryIdentity: destinationRepositoryIdentity,
+    });
+    const destinationRemote = makeProject({
+      id: ProjectId.make("destination-remote"),
+      environmentId: remoteEnvironmentId,
+      title: "destination",
+      workspaceRoot: "/remote/destination",
+      repositoryIdentity: destinationRepositoryIdentity,
+    });
+    const fallbackPrimary = makeProject({
+      id: ProjectId.make("fallback-primary"),
+      title: "fallback",
+      workspaceRoot: "/tmp/fallback",
+    });
+    const groups = buildSidebarProjectSnapshots({
+      projects: [
+        currentPrimary,
+        currentRemote,
+        destinationPrimary,
+        destinationRemote,
+        fallbackPrimary,
+      ],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+
+    const entries = buildSidebarProjectPickerEntries({
+      groups,
+      preferredProjectRef: {
+        environmentId: remoteEnvironmentId,
+        projectId: currentRemote.id,
+      },
+    });
+    const destination = entries.find(
+      (entry) => entry.group.projectKey === destinationRepositoryIdentity.canonicalKey,
+    );
+    const fallback = entries.find((entry) => entry.group.displayName === "fallback");
+
+    expect(destination?.targetProject).toMatchObject({
+      environmentId: remoteEnvironmentId,
+      id: destinationRemote.id,
+    });
+    expect(fallback?.targetProject).toMatchObject({
+      environmentId: primaryEnvironmentId,
+      id: fallbackPrimary.id,
+    });
+  });
+
+  it("puts the selected sidebar project ahead of an unrelated active thread", () => {
+    const active = makeProject();
+    const other = makeProject({
+      id: ProjectId.make("other"),
+      title: "Other",
+      workspaceRoot: "/tmp/other",
+    });
+    const selected = makeProject({
+      id: ProjectId.make("tradefxbook"),
+      title: "TradeFXBook",
+      workspaceRoot: "/tmp/tradefxbook",
+    });
+    const groups = buildSidebarProjectSnapshots({
+      projects: [active, other, selected],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+    const preferredProjectRef = { environmentId: primaryEnvironmentId, projectId: active.id };
+    const selectedKey = groups.find((group) => group.id === selected.id)!.projectKey;
+
+    const entries = buildSidebarProjectPickerEntries({
+      groups,
+      preferredProjectRef,
+      preferredProjectKey: selectedKey,
+    });
+
+    expect(entries.map((entry) => entry.targetProject.id)).toEqual([
+      selected.id,
+      active.id,
+      other.id,
+    ]);
+    expect(entries.map((entry) => entry.isPreferred)).toEqual([true, false, false]);
+    // Returning to All projects restores the active thread's project.
+    expect(
+      buildSidebarProjectPickerEntries({
+        groups,
+        preferredProjectRef,
+        preferredProjectKey: null,
+      }).map((entry) => entry.targetProject.id),
+    ).toEqual([active.id, other.id, selected.id]);
+    expect(
+      buildSidebarProjectPickerEntries({
+        groups,
+        preferredProjectRef,
+        preferredProjectKey: "deleted-project",
+      })[0]?.targetProject.id,
+    ).toBe(active.id);
+  });
+
+  it("keeps the active remote member when its logical project is selected", () => {
+    const primary = makeProject({ repositoryIdentity });
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity,
+    });
+    const groups = buildSidebarProjectSnapshots({
+      projects: [primary, remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+    const entries = buildSidebarProjectPickerEntries({
+      groups,
+      preferredProjectRef: { environmentId: remoteEnvironmentId, projectId: remote.id },
+      preferredProjectKey: groups[0]!.projectKey,
+    });
+
+    expect(entries[0]?.targetProject).toMatchObject({
+      environmentId: remoteEnvironmentId,
+      id: remote.id,
+    });
+  });
+
+  it("excludes Chats on every environment from project thread pickers", () => {
+    const regular = makeProject();
+    const chats = makeProject({
+      id: GENERAL_CHATS_PROJECT_ID,
+      title: "Chats",
+      workspaceRoot: "/tmp/chats",
+    });
+    const remoteChats = { ...chats, environmentId: remoteEnvironmentId };
+    const groups = buildSidebarProjectSnapshots({
+      projects: [chats, remoteChats, regular],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+
+    const entries = buildSidebarProjectPickerEntries({
+      groups,
+      preferredProjectRef: { environmentId: primaryEnvironmentId, projectId: chats.id },
+    });
+
+    expect(entries.map((entry) => entry.targetProject.id)).toEqual([regular.id]);
+    expect(entries[0]?.isPreferred).toBe(false);
   });
 
   it("keeps manual project order when building grouped sidebar entries", () => {

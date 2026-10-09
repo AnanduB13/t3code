@@ -1,5 +1,12 @@
-import { pipeline } from "@huggingface/transformers";
+import { env, pipeline } from "@huggingface/transformers";
+import onnxRuntimeModuleUrl from "../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs?url";
+import onnxRuntimeWasmUrl from "../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.wasm?url";
+import {
+  type WhisperPipelineConfiguration,
+  whisperPipelineConfigurations,
+} from "../lib/whisperModel";
 import { type WhisperTranscriberOptions, whisperTranscriberOptions } from "../lib/whisperOptions";
+import { configureLocalWhisperRuntime } from "../lib/whisperRuntime";
 
 /* oxlint-disable unicorn/require-post-message-target-origin -- Worker.postMessage has no target origin. */
 
@@ -14,6 +21,12 @@ type TranscribeRequest = {
 };
 type WorkerRequest = { type: "load" } | TranscribeRequest;
 
+configureLocalWhisperRuntime(
+  env,
+  { mjs: onnxRuntimeModuleUrl, wasm: onnxRuntimeWasmUrl },
+  self.location.href,
+);
+
 let transcriberPromise: Promise<Transcriber> | null = null;
 
 function loadingProgress(progress: unknown): number | undefined {
@@ -24,15 +37,9 @@ function loadingProgress(progress: unknown): number | undefined {
     : undefined;
 }
 
-function loadTranscriber(device: "webgpu" | "wasm"): Promise<Transcriber> {
+function loadTranscriber(configuration: WhisperPipelineConfiguration): Promise<Transcriber> {
   return pipeline("automatic-speech-recognition", "onnx-community/whisper-base", {
-    device,
-    // Whisper's encoder is especially sensitive to quantization. Preserve it at q8 on CPU
-    // and fp32 on GPU while keeping the autoregressive decoder compact.
-    dtype:
-      device === "webgpu"
-        ? { encoder_model: "fp32", decoder_model_merged: "q4" }
-        : { encoder_model: "q8", decoder_model_merged: "q4" },
+    ...configuration,
     progress_callback: (progress) => {
       const detail =
         typeof progress === "object" && progress && "status" in progress
@@ -47,11 +54,20 @@ function loadTranscriber(device: "webgpu" | "wasm"): Promise<Transcriber> {
   }) as unknown as Promise<Transcriber>;
 }
 
+async function loadFastestSupportedTranscriber(): Promise<Transcriber> {
+  let lastError: unknown;
+  for (const configuration of whisperPipelineConfigurations("gpu" in navigator)) {
+    try {
+      return await loadTranscriber(configuration);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error("No supported Whisper runtime was found.");
+}
+
 function getTranscriber(): Promise<Transcriber> {
-  transcriberPromise ??=
-    "gpu" in navigator
-      ? loadTranscriber("webgpu").catch(() => loadTranscriber("wasm"))
-      : loadTranscriber("wasm");
+  transcriberPromise ??= loadFastestSupportedTranscriber();
   return transcriberPromise;
 }
 

@@ -2,13 +2,25 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
   acquireBrowserSurface,
+  acquireBrowserSurfaceActivity,
   resolveBrowserSurfacePanelRect,
   useBrowserSurfaceStore,
 } from "./browserSurfaceStore";
 
 describe("browserSurfaceStore", () => {
   beforeEach(() => {
-    useBrowserSurfaceStore.setState({ byTabId: {} });
+    useBrowserSurfaceStore.setState({ activityByTabId: {}, byTabId: {} });
+  });
+
+  it("keeps concurrent background work active until every lease is released", () => {
+    const first = acquireBrowserSurfaceActivity("background-browser");
+    const second = acquireBrowserSurfaceActivity("background-browser");
+
+    first();
+    expect(useBrowserSurfaceStore.getState().activityByTabId["background-browser"]).toBe(1);
+
+    second();
+    expect(useBrowserSurfaceStore.getState().activityByTabId["background-browser"]).toBeUndefined();
   });
 
   it("freezes the source content dimensions for a fitted presentation", () => {
@@ -95,9 +107,11 @@ describe("browserSurfaceStore", () => {
           hidden: {
             rect: staleRect,
             visible: false,
+            zIndex: 30,
             content: null,
             fittedSourceContent: null,
             fitSourceContent: false,
+            interactive: true,
             cornerRadius: 0,
             updatedAt: 1,
             owner: null,
@@ -105,9 +119,11 @@ describe("browserSurfaceStore", () => {
           active: {
             rect: liveRect,
             visible: true,
+            zIndex: 30,
             content: null,
             fittedSourceContent: null,
             fitSourceContent: false,
+            interactive: true,
             cornerRadius: 0,
             updatedAt: 2,
             owner: null,
@@ -147,6 +163,31 @@ describe("browserSurfaceStore", () => {
     expect(useBrowserSurfaceStore.getState().byTabId[tabId]).toMatchObject({
       visible: false,
       owner: null,
+    });
+  });
+
+  it("tracks whether a presented surface accepts browser input", () => {
+    const tabId = "read-only-browser-surface";
+    const lease = acquireBrowserSurface(tabId);
+    lease.present({ x: 10, y: 20, width: 320, height: 200 }, true, 12, 30, false);
+
+    expect(useBrowserSurfaceStore.getState().byTabId[tabId]).toMatchObject({
+      visible: true,
+      interactive: false,
+    });
+
+    lease.release();
+    expect(useBrowserSurfaceStore.getState().byTabId[tabId]?.interactive).toBe(true);
+  });
+
+  it("keeps the requested layer with the active surface lease", () => {
+    const tabId = "layered-browser-surface";
+    const lease = acquireBrowserSurface(tabId);
+    lease.present({ x: 10, y: 20, width: 320, height: 200 }, true, 12, 48);
+
+    expect(useBrowserSurfaceStore.getState().byTabId[tabId]).toMatchObject({
+      visible: true,
+      zIndex: 48,
     });
   });
 

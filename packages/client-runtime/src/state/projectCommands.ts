@@ -1,7 +1,20 @@
-import { type EnvironmentId, type ProjectReadFileResult, WS_METHODS } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  ProjectId,
+  type ProjectReadFileResult,
+  type ScopedProjectRef,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
-import { Atom } from "effect/unstable/reactivity";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import { Atom, AtomRegistry } from "effect/reactivity";
 
+import { type EnvironmentRpcInput, request } from "../rpc/client.ts";
+import type { EnvironmentProject } from "./models.ts";
 import {
   createAtomCommandScheduler,
   createEnvironmentCommand,
@@ -39,8 +52,22 @@ function optimisticProjectFileKey(target: OptimisticProjectFileTarget): string {
   return JSON.stringify([target.environmentId, target.cwd, target.relativePath]);
 }
 
+/** The Scratch project was created, but its event never reached this client. */
+export class ScratchProjectNotLoadedError extends Schema.TaggedError<ScratchProjectNotLoadedError>()(
+  "ScratchProjectNotLoadedError",
+  { projectId: ProjectId },
+) {
+  override get message(): string {
+    return "The folder for threads without a project has not reached this device yet. Try again.";
+  }
+}
+
 export function createProjectEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | Crypto.Crypto | R, E>,
+  options: {
+    /** The client store's project; openScratch waits here for the created project. */
+    readonly projectAtom: (ref: ScopedProjectRef) => Atom.Atom<EnvironmentProject | null>;
+  },
 ) {
   const projectScheduler = createAtomCommandScheduler();
   const fileScheduler = createAtomCommandScheduler();
@@ -92,6 +119,41 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: projectScheduler,
       concurrency: projectConcurrency,
     }),
+    // Finds or creates the environment's Scratch project and resolves once the
+    // project is in the client store, since drafts key off its stored path.
+    openScratch: createEnvironmentCommand(runtime, {
+      label: "environment-data:projects:open-scratch",
+      execute: (
+        input: EnvironmentRpcInput<typeof WS_METHODS.projectsEnsureScratch>,
+        registry,
+        environmentId,
+      ) =>
+        request(WS_METHODS.projectsEnsureScratch, input).pipe(
+          Effect.flatMap(({ projectId }) =>
+            AtomRegistry.toStream(registry, options.projectAtom({ environmentId, projectId })).pipe(
+              Stream.filter(Predicate.isNotNull),
+              Stream.runHead,
+              Effect.timeoutOption("10 seconds"),
+              Effect.map(Option.flatten),
+              Effect.flatMap(
+                Option.match({
+                  onSome: Effect.succeed,
+                  onNone: () => Effect.fail(new ScratchProjectNotLoadedError({ projectId })),
+                }),
+              ),
+            ),
+          ),
+        ),
+      scheduler: projectScheduler,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
+    // Makes a new folder and repository from just a name, then the project.
+    createNew: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:create-new",
+      tag: WS_METHODS.projectsCreateNew,
+      scheduler: projectScheduler,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
     writeFile: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:write-file",
       tag: WS_METHODS.projectsWriteFile,
@@ -100,6 +162,55 @@ export function createProjectEnvironmentAtoms<R, E>(
         mode: "serial",
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+    }),
+    createEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:create-entry",
+      tag: WS_METHODS.projectsCreateEntry,
+      scheduler: fileScheduler,
+    }),
+    moveEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:move-entry",
+      tag: WS_METHODS.projectsMoveEntry,
+      scheduler: fileScheduler,
+    }),
+    deleteEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:delete-entry",
+      tag: WS_METHODS.projectsDeleteEntry,
+      scheduler: fileScheduler,
+    }),
+    createSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:create",
+      tag: WS_METHODS.skillsCreate,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.instanceId, input.name]),
+      },
+    }),
+    createGlobalSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:create-global",
+      tag: WS_METHODS.skillsCreateGlobal,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.instanceId, input.name]),
+      },
+    }),
+    readSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:read",
+      tag: WS_METHODS.skillsRead,
+    }),
+    updateSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:skills:update",
+      tag: WS_METHODS.skillsUpdate,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.instanceId, input.path]),
       },
     }),
   };

@@ -2,12 +2,35 @@ import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+export const DiscoveredAgentRuntime = Schema.Struct({
+  kind: Schema.Literals(["hermes", "openclaw"]),
+  state: Schema.Literals(["running", "starting", "unavailable"]),
+  endpoint: Schema.NullOr(Schema.String),
+  version: Schema.optional(Schema.String),
+  model: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
+  agents: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+});
+export type DiscoveredAgentRuntime = typeof DiscoveredAgentRuntime.Type;
+
+export const AgentDiscoveryResult = Schema.Struct({
+  hostname: Schema.String,
+  runtimes: Schema.Array(DiscoveredAgentRuntime),
+});
+export type AgentDiscoveryResult = typeof AgentDiscoveryResult.Type;
+
+export class AgentDiscoveryError extends Schema.TaggedError<AgentDiscoveryError>()(
+  "AgentDiscoveryError",
+  { message: Schema.String },
+) {}
+
 export const HermesAgentStatus = Schema.Struct({
   available: Schema.Boolean,
   endpoint: Schema.String,
   version: Schema.optional(Schema.String),
   model: Schema.optional(Schema.String),
   message: Schema.optional(Schema.String),
+  timezone: Schema.optional(Schema.String),
 });
 export type HermesAgentStatus = typeof HermesAgentStatus.Type;
 
@@ -43,7 +66,10 @@ export const HermesCronJob = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: Schema.String,
   prompt: Schema.String,
+  schedule: Schema.optional(Schema.NullOr(Schema.String)),
   scheduleDisplay: Schema.NullOr(Schema.String),
+  workdir: Schema.optional(Schema.NullOr(Schema.String)),
+  delivery: Schema.optional(Schema.NullOr(Schema.String)),
   enabled: Schema.Boolean,
   state: Schema.String,
   nextRunAt: Schema.NullOr(Schema.String),
@@ -79,6 +105,28 @@ export const HermesCronRunList = Schema.Struct({
   hasMore: Schema.Boolean,
 });
 
+export const HermesCreateCronJobInput = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  prompt: TrimmedNonEmptyString,
+  schedule: TrimmedNonEmptyString,
+  workdir: Schema.optional(TrimmedNonEmptyString),
+});
+
+export const HermesUpdateCronJobInput = Schema.Struct({
+  jobId: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  prompt: TrimmedNonEmptyString,
+  schedule: TrimmedNonEmptyString,
+  workdir: Schema.optional(Schema.String),
+});
+
+export const HermesCronJobIdInput = Schema.Struct({ jobId: TrimmedNonEmptyString });
+
+export const HermesDeleteCronJobResult = Schema.Struct({
+  jobId: TrimmedNonEmptyString,
+  deleted: Schema.Boolean,
+});
+
 export const HermesMessageList = Schema.Struct({
   sessionId: TrimmedNonEmptyString,
   messages: Schema.Array(HermesMessage),
@@ -111,11 +159,8 @@ export const HermesDeleteSessionResult = Schema.Struct({
   deleted: Schema.Boolean,
 });
 
-export class HermesAgentError extends Schema.TaggedErrorClass<HermesAgentError>()(
-  "HermesAgentError",
-  {
-    operation: Schema.String,
-    message: Schema.String,
-    status: Schema.optional(Schema.Number),
-  },
-) {}
+export class HermesAgentError extends Schema.TaggedError<HermesAgentError>()("HermesAgentError", {
+  operation: Schema.String,
+  message: Schema.String,
+  status: Schema.optional(Schema.Number),
+}) {}

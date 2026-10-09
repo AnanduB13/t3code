@@ -1,4 +1,4 @@
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import {
   BotIcon,
   CalendarClockIcon,
@@ -6,9 +6,10 @@ import {
   CopyPlusIcon,
   LoaderCircleIcon,
   ListTodoIcon,
-  MessageSquareIcon,
   MessageSquarePlusIcon,
   PencilIcon,
+  PauseIcon,
+  PlayIcon,
   PlusIcon,
   RefreshCwIcon,
   SendIcon,
@@ -28,7 +29,13 @@ import {
   type KeyboardEvent,
 } from "react";
 
-import type { HermesCronRun, HermesMessage, HermesSession } from "@t3tools/contracts";
+import type {
+  HermesCronJob,
+  HermesCronRun,
+  HermesMessage,
+  HermesSession,
+  EnvironmentId,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -40,14 +47,25 @@ import { SidebarInset } from "../components/ui/sidebar";
 import { Textarea } from "../components/ui/textarea";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { cn } from "../lib/utils";
-import { usePrimaryEnvironmentId } from "../state/environments";
+import { useAgentEnvironment } from "../components/agents/useAgentEnvironment";
 import { hermesAgentEnvironment } from "../state/hermesAgents";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 import { resolveHermesConnectionState } from "../components/agents/Agents.logic";
-import { chronologicalCronRuns, groupHermesTasks } from "../components/agents/Agents.tasks";
+import {
+  chronologicalCronRuns,
+  groupHermesTasks,
+  localScheduledTasks,
+} from "../components/agents/Agents.tasks";
+import { useAgentsSidebarStore } from "../components/agents/agentsSidebarStore";
+import { AgentsOverview } from "../components/agents/AgentsOverview";
+import {
+  ScheduledTaskDialog,
+  type ScheduledTaskInput,
+} from "../components/agents/ScheduledTaskDialog";
+import { useProjects } from "../state/entities";
 
 function sessionTitle(session: HermesSession): string {
   return session.title?.trim() || "Untitled Hermes chat";
@@ -70,7 +88,7 @@ function TaskRunView({
   const response =
     run.response?.trim() === "[SILENT]"
       ? "No update was delivered for this run."
-      : run.response?.trim() || "Hermes did not record a response for this run.";
+      : run.response?.trim() || "The scheduled agent did not record a response for this run.";
 
   return (
     <article className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5">
@@ -153,10 +171,49 @@ function HermesMessageView({ message }: { readonly message: HermesMessage }) {
   );
 }
 
-function AgentsRouteView() {
-  const environmentId = usePrimaryEnvironmentId();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+export type HermesWorkspaceSection = "tasks" | "chats";
+
+export function HermesWorkspaceView({
+  section,
+  standaloneScheduled = false,
+}: {
+  readonly section: HermesWorkspaceSection;
+  readonly standaloneScheduled?: boolean;
+}) {
+  const { environmentId } = useAgentEnvironment();
+  return (
+    <HermesEnvironmentWorkspace
+      key={environmentId ?? "no-environment"}
+      environmentId={environmentId}
+      section={section}
+      standaloneScheduled={standaloneScheduled}
+    />
+  );
+}
+
+function HermesEnvironmentWorkspace({
+  environmentId,
+  section,
+  standaloneScheduled,
+}: {
+  readonly environmentId: EnvironmentId | null;
+  readonly section: HermesWorkspaceSection;
+  readonly standaloneScheduled: boolean;
+}) {
+  const { environment, environments } = useAgentEnvironment();
+  const setEnvironmentId = useAgentsSidebarStore((state) => state.setEnvironmentId);
+  const showOverview = useAgentsSidebarStore((state) => state.showOverview);
+  const deviceLabel = environment?.label ?? "this computer";
+  const deviceConnected = environment?.connection.phase === "connected";
+  const selectedId = useAgentsSidebarStore((state) => state.selectedSessionId);
+  const setSelectedId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
+  const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
+  const setSelectedTaskId = useAgentsSidebarStore((state) => state.setSelectedTaskId);
+  const taskFilter = useAgentsSidebarStore((state) => state.taskFilter);
+  const setTaskFilter = useAgentsSidebarStore((state) => state.setTaskFilter);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<HermesCronJob | null>(null);
+  const [taskMutation, setTaskMutation] = useState<string | null>(null);
   const [taskRunLimit, setTaskRunLimit] = useState(20);
   const [taskRunSnapshot, setTaskRunSnapshot] = useState<{
     readonly jobId: string;
@@ -164,13 +221,21 @@ function AgentsRouteView() {
     readonly total: number;
     readonly hasMore: boolean;
   } | null>(null);
-  const [section, setSection] = useState<"tasks" | "chats">("tasks");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taskScrollRef = useRef<HTMLDivElement>(null);
   const pendingPrependRef = useRef<{ readonly height: number; readonly top: number } | null>(null);
   const autoScrolledTaskRef = useRef<string | null>(null);
+  const pendingSelectedTaskIdRef = useRef<string | null>(null);
+  const projects = useProjects();
 
   const status = useEnvironmentQuery(
     environmentId ? hermesAgentEnvironment.status({ environmentId, input: {} }) : null,
@@ -180,7 +245,7 @@ function AgentsRouteView() {
     isPending: status.isPending,
     error: status.error,
   });
-  const connected = connectionState === "connected";
+  const connected = deviceConnected && connectionState === "connected";
   const sessions = useEnvironmentQuery(
     environmentId && connected
       ? hermesAgentEnvironment.sessions({ environmentId, input: {} })
@@ -195,13 +260,24 @@ function AgentsRouteView() {
     () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
     [cronJobs.data?.jobs, sessions.data?.sessions],
   );
+  const scheduledTasks = useMemo(
+    () => (standaloneScheduled ? localScheduledTasks(grouped.tasks) : grouped.tasks),
+    [grouped.tasks, standaloneScheduled],
+  );
+  const visibleTasks = useMemo(
+    () =>
+      taskFilter === "active"
+        ? scheduledTasks.filter((task) => task.job?.enabled === true)
+        : scheduledTasks,
+    [scheduledTasks, taskFilter],
+  );
   const selectedTask = useMemo(
-    () => grouped.tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [grouped.tasks, selectedTaskId],
+    () => scheduledTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [scheduledTasks, selectedTaskId],
   );
   const visibleSessions = grouped.chats;
   const taskRuns = useEnvironmentQuery(
-    environmentId && connected && selectedTaskId
+    environmentId && connected && section === "tasks" && selectedTaskId
       ? hermesAgentEnvironment.cronRuns({
           environmentId,
           input: { jobId: selectedTaskId, limit: taskRunLimit },
@@ -233,11 +309,33 @@ function AgentsRouteView() {
     reportFailure: false,
   });
   const sendMessage = useAtomCommand(hermesAgentEnvironment.sendMessage, { reportFailure: false });
+  const createCronJob = useAtomCommand(hermesAgentEnvironment.createCronJob, {
+    reportFailure: false,
+  });
+  const updateCronJob = useAtomCommand(hermesAgentEnvironment.updateCronJob, {
+    reportFailure: false,
+  });
+  const pauseCronJob = useAtomCommand(hermesAgentEnvironment.pauseCronJob, {
+    reportFailure: false,
+  });
+  const resumeCronJob = useAtomCommand(hermesAgentEnvironment.resumeCronJob, {
+    reportFailure: false,
+  });
+  const runCronJob = useAtomCommand(hermesAgentEnvironment.runCronJob, { reportFailure: false });
+  const deleteCronJob = useAtomCommand(hermesAgentEnvironment.deleteCronJob, {
+    reportFailure: false,
+  });
 
   useEffect(() => {
-    if (selectedTaskId && grouped.tasks.some((task) => task.id === selectedTaskId)) return;
-    setSelectedTaskId(grouped.tasks[0]?.id ?? null);
-  }, [grouped.tasks, selectedTaskId]);
+    if (selectedTaskId && visibleTasks.some((task) => task.id === selectedTaskId)) {
+      if (pendingSelectedTaskIdRef.current === selectedTaskId) {
+        pendingSelectedTaskIdRef.current = null;
+      }
+      return;
+    }
+    if (selectedTaskId && pendingSelectedTaskIdRef.current === selectedTaskId) return;
+    setSelectedTaskId(visibleTasks[0]?.id ?? null);
+  }, [selectedTaskId, visibleTasks]);
 
   useLayoutEffect(() => {
     setTaskRunLimit(20);
@@ -286,11 +384,103 @@ function AgentsRouteView() {
     toastManager.add(stackedThreadToast({ type: "error", title, description }));
   }, []);
 
+  const openNewTask = useCallback(() => {
+    setEditingTask(null);
+    setTaskDialogOpen(true);
+  }, []);
+
+  const handleTaskSave = useCallback(
+    async (input: ScheduledTaskInput): Promise<boolean> => {
+      if (!environmentId) return false;
+      setTaskMutation("save");
+      const result = editingTask
+        ? await updateCronJob({
+            environmentId,
+            input: { jobId: editingTask.id, ...input, workdir: input.workdir ?? "" },
+          })
+        : await createCronJob({ environmentId, input });
+      if (!mountedRef.current) return false;
+      setTaskMutation(null);
+      if (result._tag === "Success") {
+        pendingSelectedTaskIdRef.current = result.value.id;
+        setSelectedTaskId(result.value.id);
+        cronJobs.refresh();
+        return true;
+      }
+      if (!isAtomCommandInterrupted(result)) {
+        showError(
+          "Couldn’t save scheduled task",
+          commandError(result, "The scheduler rejected the schedule."),
+        );
+      }
+      return false;
+    },
+    [
+      createCronJob,
+      cronJobs,
+      editingTask,
+      environmentId,
+      setSelectedTaskId,
+      showError,
+      updateCronJob,
+    ],
+  );
+
+  const handleTaskAction = useCallback(
+    async (action: "pause" | "resume" | "run" | "delete") => {
+      if (!environmentId || !selectedTask?.job || taskMutation) return;
+      const job = selectedTask.job;
+      if (
+        action === "delete" &&
+        !window.confirm(
+          `Delete “${job.name}”? Its previous result sessions will remain in history.`,
+        )
+      )
+        return;
+      setTaskMutation(action);
+      const command =
+        action === "pause"
+          ? pauseCronJob
+          : action === "resume"
+            ? resumeCronJob
+            : action === "run"
+              ? runCronJob
+              : deleteCronJob;
+      const result = await command({ environmentId, input: { jobId: job.id } });
+      if (!mountedRef.current) return;
+      setTaskMutation(null);
+      if (result._tag === "Success") {
+        if (action === "delete") setSelectedTaskId(null);
+        cronJobs.refresh();
+        sessions.refresh();
+        taskRuns.refresh();
+      } else if (!isAtomCommandInterrupted(result)) {
+        showError(
+          `Couldn’t ${action} scheduled task`,
+          commandError(result, "The scheduler could not complete that action."),
+        );
+      }
+    },
+    [
+      cronJobs,
+      deleteCronJob,
+      environmentId,
+      pauseCronJob,
+      resumeCronJob,
+      runCronJob,
+      selectedTask,
+      sessions,
+      showError,
+      taskMutation,
+      taskRuns,
+    ],
+  );
+
   const handleCreate = useCallback(async () => {
     if (!environmentId) return;
     const result = await createSession({ environmentId, input: {} });
+    if (!mountedRef.current) return;
     if (AsyncResult.isSuccess(result)) {
-      setSection("chats");
       setSelectedId(result.value.id);
       sessions.refresh();
       return;
@@ -323,6 +513,7 @@ function AgentsRouteView() {
       environmentId,
       input: { sessionId: selectedSession.id },
     });
+    if (!mountedRef.current) return;
     if (AsyncResult.isSuccess(result)) {
       setSelectedId(result.value.id);
       sessions.refresh();
@@ -342,6 +533,7 @@ function AgentsRouteView() {
       environmentId,
       input: { sessionId: selectedSession.id },
     });
+    if (!mountedRef.current) return;
     if (AsyncResult.isSuccess(result)) {
       setSelectedId(null);
       sessions.refresh();
@@ -385,12 +577,43 @@ function AgentsRouteView() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header
           className={cn(
-            "flex h-12 shrink-0 items-center gap-3 border-b border-border px-3 sm:px-5",
+            "flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-5",
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
-          <BotIcon className="size-4" />
-          <span className="text-sm font-semibold">Agents</span>
+          {standaloneScheduled ? (
+            <CalendarClockIcon className="size-4" />
+          ) : (
+            <BotIcon className="size-4" />
+          )}
+          <span className="text-sm font-semibold">
+            {standaloneScheduled ? "Scheduled" : "Agents"}
+          </span>
+          {!standaloneScheduled ? (
+            <Button size="xs" variant="ghost" onClick={showOverview}>
+              All agents
+            </Button>
+          ) : null}
+          <select
+            aria-label="Computer for scheduled tasks and agents"
+            className="h-7 min-w-0 max-w-48 rounded-md border bg-background px-2 text-sm"
+            value={environmentId ?? ""}
+            disabled={taskMutation !== null || sending || taskDialogOpen}
+            onChange={(event) => {
+              const target = environments.find(
+                (entry) => entry.environmentId === event.target.value,
+              );
+              if (target) setEnvironmentId(target.environmentId);
+            }}
+          >
+            {!environment ? <option value={environmentId ?? ""}>Choose a computer</option> : null}
+            {environments.map((entry) => (
+              <option key={entry.environmentId} value={entry.environmentId}>
+                {entry.label}
+                {entry.connection.phase === "connected" ? "" : " (disconnected)"}
+              </option>
+            ))}
+          </select>
           <Badge
             variant={connected ? "success" : connectionState === "error" ? "error" : "outline"}
           >
@@ -406,45 +629,46 @@ function AgentsRouteView() {
                       : "bg-muted-foreground",
               )}
             />
-            Hermes {connectionState}
+            {standaloneScheduled ? "Scheduler" : "Hermes"}{" "}
+            {deviceConnected ? connectionState : "disconnected"}
           </Badge>
-          {status.data?.model ? (
+          {!standaloneScheduled && status.data?.model ? (
             <span className="hidden text-xs text-muted-foreground sm:inline">
               {status.data.model}
             </span>
           ) : null}
-          {connected ? (
-            <div className="ml-auto flex items-center gap-1 md:hidden">
-              <Button
-                size="icon-xs"
-                variant={section === "tasks" ? "secondary" : "ghost"}
-                aria-label="Scheduled tasks"
-                onClick={() => setSection("tasks")}
-              >
-                <ListTodoIcon />
-              </Button>
-              <Button
-                size="icon-xs"
-                variant={section === "chats" ? "secondary" : "ghost"}
-                aria-label="Hermes chats"
-                onClick={() => setSection("chats")}
-              >
-                <MessageSquareIcon />
-              </Button>
-            </div>
-          ) : null}
           <Button
-            className="md:ml-auto"
+            className="ml-auto"
             size="xs"
             variant="outline"
             disabled={!connected}
-            onClick={() => void handleCreate()}
+            onClick={() => (section === "tasks" ? openNewTask() : void handleCreate())}
           >
-            <PlusIcon className="size-3.5" /> New chat
+            <PlusIcon className="size-3.5" />{" "}
+            {section === "tasks" ? "New scheduled task" : "New chat"}
           </Button>
         </header>
 
-        {connectionState === "connecting" ? (
+        {connected && (cronJobs.error || sessions.error) ? (
+          <div
+            role="alert"
+            className="flex items-center gap-3 border-b border-border px-5 py-3 text-sm text-destructive"
+          >
+            <span className="flex-1">{cronJobs.error ?? sessions.error}</span>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                cronJobs.refresh();
+                sessions.refresh();
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : null}
+
+        {deviceConnected && connectionState === "connecting" ? (
           <div className="flex flex-1 items-center justify-center text-muted-foreground">
             <LoaderCircleIcon className="size-5 animate-spin" />
           </div>
@@ -452,14 +676,20 @@ function AgentsRouteView() {
           <div className="flex flex-1 items-center justify-center p-6">
             <div className="max-w-lg rounded-2xl border border-border bg-card p-7 text-center shadow-sm">
               <WifiOffIcon className="mx-auto size-8 text-muted-foreground" />
-              <h1 className="mt-4 text-lg font-semibold">Hermes API isn’t reachable</h1>
+              <h1 className="mt-4 text-lg font-semibold">
+                {standaloneScheduled
+                  ? "Scheduled task runner isn’t reachable"
+                  : "Hermes API isn’t reachable"}
+              </h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                T3 looked for Hermes at{" "}
+                {deviceConnected
+                  ? `T3 looked for Hermes on ${deviceLabel} at `
+                  : `Connect ${deviceLabel} in Settings → Connections. Its Hermes runner is at `}
                 <code className="rounded bg-muted px-1.5 py-0.5">
                   {status.data?.endpoint ?? "http://127.0.0.1:8642"}
                 </code>
-                . Enable Hermes’ API server and restart its gateway. T3 reads the API key
-                server-side from{" "}
+                . You can choose another connected computer above. Enable Hermes’ API server on the
+                selected computer and restart its gateway. T3 reads the API key server-side from{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5">~/.hermes/.env</code> or{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5">HERMES_API_KEY</code>.
               </p>
@@ -477,38 +707,28 @@ function AgentsRouteView() {
             </div>
           </div>
         ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)]">
-            <aside className="hidden min-h-0 border-r border-border bg-muted/10 md:flex md:flex-col">
-              <div className="grid grid-cols-2 gap-1 border-b border-border p-2">
-                <Button
-                  size="sm"
-                  variant={section === "tasks" ? "secondary" : "ghost"}
-                  onClick={() => setSection("tasks")}
-                >
-                  <ListTodoIcon className="size-3.5" /> Tasks
-                  {grouped.tasks.length ? (
-                    <span className="text-[10px] text-muted-foreground">
-                      {grouped.tasks.length}
-                    </span>
-                  ) : null}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={section === "chats" ? "secondary" : "ghost"}
-                  onClick={() => setSection("chats")}
-                >
-                  <MessageSquareIcon className="size-3.5" /> Chats
-                  {grouped.chats.length ? (
-                    <span className="text-[10px] text-muted-foreground">
-                      {grouped.chats.length}
-                    </span>
-                  ) : null}
-                </Button>
-              </div>
+          <div className="flex min-h-0 flex-1">
+            <aside className="hidden min-h-0 border-r border-border bg-muted/10">
               <div className="flex items-center justify-between px-3 py-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {section === "tasks" ? "Scheduled tasks" : "Hermes chats"}
-                </span>
+                {section === "tasks" ? (
+                  <div className="flex rounded-md bg-muted p-0.5">
+                    {(["active", "all"] as const).map((filter) => (
+                      <button
+                        key={filter}
+                        type="button"
+                        className={cn(
+                          "rounded px-2 py-1 text-xs capitalize text-muted-foreground",
+                          taskFilter === filter && "bg-background text-foreground shadow-sm",
+                        )}
+                        onClick={() => setTaskFilter(filter)}
+                      >
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-xs font-medium text-muted-foreground">Hermes chats</span>
+                )}
                 <Button
                   size="icon-xs"
                   variant="ghost"
@@ -524,7 +744,7 @@ function AgentsRouteView() {
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
                 {section === "tasks"
-                  ? grouped.tasks.map((task) => (
+                  ? visibleTasks.map((task) => (
                       <button
                         key={task.id}
                         type="button"
@@ -562,15 +782,19 @@ function AgentsRouteView() {
                       </button>
                     ))}
                 {!sessions.isPending &&
-                (section === "tasks" ? grouped.tasks.length === 0 : grouped.chats.length === 0) ? (
+                (section === "tasks" ? visibleTasks.length === 0 : grouped.chats.length === 0) ? (
                   <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-                    {section === "tasks" ? "No scheduled task runs yet." : "No Hermes chats yet."}
+                    {section === "tasks"
+                      ? taskFilter === "active"
+                        ? "No active scheduled tasks."
+                        : "No scheduled tasks yet."
+                      : "No Hermes chats yet."}
                   </div>
                 ) : null}
               </div>
             </aside>
 
-            <main className="flex min-h-0 min-w-0 flex-col">
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col">
               {section === "tasks" && selectedTask ? (
                 <>
                   <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 sm:px-5">
@@ -580,7 +804,7 @@ function AgentsRouteView() {
                       onChange={(event) => setSelectedTaskId(event.target.value)}
                       aria-label="Scheduled task"
                     >
-                      {grouped.tasks.map((task) => (
+                      {visibleTasks.map((task) => (
                         <option key={task.id} value={task.id}>
                           {task.name}
                         </option>
@@ -594,17 +818,69 @@ function AgentsRouteView() {
                       </div>
                     </div>
                     {selectedTask.job ? (
-                      <div className="hidden items-center gap-2 text-xs sm:flex">
-                        <Badge variant={selectedTask.job.enabled ? "success" : "outline"}>
+                      <div className="flex items-center gap-1 text-xs">
+                        <Badge
+                          className="hidden sm:inline-flex"
+                          variant={selectedTask.job.enabled ? "success" : "outline"}
+                        >
                           {selectedTask.job.enabled ? (
                             <CheckCircle2Icon className="size-3" />
                           ) : null}
                           {selectedTask.job.state}
                         </Badge>
-                        <span className="flex items-center gap-1 text-muted-foreground">
+                        <span className="hidden items-center gap-1 text-muted-foreground lg:flex">
                           <CalendarClockIcon className="size-3.5" />
                           {selectedTask.job.scheduleDisplay ?? "No schedule"}
                         </span>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label="Edit scheduled task"
+                          disabled={taskMutation !== null}
+                          onClick={() => {
+                            setEditingTask(selectedTask.job);
+                            setTaskDialogOpen(true);
+                          }}
+                        >
+                          <PencilIcon />
+                        </Button>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label={
+                            selectedTask.job.enabled
+                              ? "Pause scheduled task"
+                              : "Resume scheduled task"
+                          }
+                          disabled={taskMutation !== null}
+                          onClick={() =>
+                            void handleTaskAction(selectedTask.job!.enabled ? "pause" : "resume")
+                          }
+                        >
+                          {selectedTask.job.enabled ? <PauseIcon /> : <PlayIcon />}
+                        </Button>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label="Run scheduled task now"
+                          disabled={taskMutation !== null}
+                          onClick={() => void handleTaskAction("run")}
+                        >
+                          {taskMutation === "run" ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : (
+                            <PlayIcon />
+                          )}
+                        </Button>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label="Delete scheduled task"
+                          disabled={taskMutation !== null}
+                          onClick={() => void handleTaskAction("delete")}
+                        >
+                          <Trash2Icon />
+                        </Button>
                       </div>
                     ) : null}
                   </div>
@@ -613,6 +889,18 @@ function AgentsRouteView() {
                     className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6"
                   >
                     <div className="mx-auto max-w-3xl space-y-4">
+                      {selectedTask.job ? (
+                        <section className="rounded-xl border border-border bg-muted/20 p-4 text-sm">
+                          <p className="whitespace-pre-wrap leading-6">{selectedTask.job.prompt}</p>
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                            <span>Runs in {selectedTask.job.workdir ?? "the agent workspace"}</span>
+                            <span>
+                              New result chat for every run ·{" "}
+                              {status.data?.timezone ?? "server local time"}
+                            </span>
+                          </div>
+                        </section>
+                      ) : null}
                       {visibleTaskRunSnapshot === null ? (
                         taskRuns.error ? (
                           <div className="mx-auto mt-12 max-w-md rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-center">
@@ -669,7 +957,7 @@ function AgentsRouteView() {
                           <ListTodoIcon className="mx-auto size-8 text-muted-foreground" />
                           <h2 className="mt-4 font-semibold">No results yet</h2>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Hermes’ response will appear here after the first run.
+                            The scheduled agent’s response will appear here after the first run.
                           </p>
                         </div>
                       ) : null}
@@ -787,14 +1075,20 @@ function AgentsRouteView() {
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {section === "tasks"
-                        ? "Recurring Hermes jobs will appear here with their result history."
+                        ? standaloneScheduled
+                          ? "Your recurring tasks will appear here with their result history."
+                          : "Recurring Hermes jobs will appear here with their result history."
                         : "Chat, run tasks, and use the same agent capabilities you use from Discord."}
                     </p>
                     {section === "chats" ? (
                       <Button className="mt-4" size="sm" onClick={() => void handleCreate()}>
                         <PlusIcon /> New chat
                       </Button>
-                    ) : null}
+                    ) : (
+                      <Button className="mt-4" size="sm" onClick={openNewTask}>
+                        <PlusIcon /> New scheduled task
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
@@ -802,6 +1096,18 @@ function AgentsRouteView() {
           </div>
         )}
       </div>
+      <ScheduledTaskDialog
+        open={taskDialogOpen}
+        onOpenChange={setTaskDialogOpen}
+        job={editingTask}
+        deviceLabel={deviceLabel}
+        projects={projects
+          .filter((project) => project.environmentId === environmentId)
+          .map((project) => ({ title: project.title, workspaceRoot: project.workspaceRoot }))}
+        timezone={status.data?.timezone ?? "server local time"}
+        saving={taskMutation === "save"}
+        onSave={handleTaskSave}
+      />
     </SidebarInset>
   );
 }
@@ -815,5 +1121,12 @@ export const Route = createFileRoute("/agents")({
       throw redirect({ to: "/pair", replace: true });
     }
   },
-  component: AgentsRouteView,
+  component: AgentsWorkspace,
 });
+
+function AgentsWorkspace() {
+  const view = useAgentsSidebarStore((state) => state.agentView);
+  const section = useAgentsSidebarStore((state) => state.section);
+  if (view === "overview") return <AgentsOverview />;
+  return <HermesWorkspaceView section={section} />;
+}

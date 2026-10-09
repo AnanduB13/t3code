@@ -90,4 +90,39 @@ describe("Computer Use accessibility navigation", () => {
       interactiveElementIndices: [2, 3],
     });
   });
+
+  it("clips partially visible controls and excludes off-window and empty targets", () => {
+    const tree = flattenAccessibilityTree(
+      {
+        children: [
+          { role: "AXButton", region: { left: 80, top: 60, width: 40, height: 20 } },
+          { role: "AXButton", region: { left: 0, top: 0, width: 10, height: 10 } },
+          { role: "AXButton", region: { left: 150, top: 100, width: 0, height: 10 } },
+        ],
+      },
+      coordinateSpace,
+    );
+    expect(tree[1]).toMatchObject({ interactive: true, x: 0, y: 20, width: 40, height: 40 });
+    expect(tree[2]).toMatchObject({ interactive: false });
+    expect(tree[2]?.x).toBeUndefined();
+    expect(tree[3]).toMatchObject({ interactive: false });
+    expect(summarizeNavigation(tree).interactiveElementIndices).toEqual([1]);
+  });
+
+  it("bounds large editor values and stops traversing once the element budget is exhausted", () => {
+    const tree = flattenAccessibilityTree(
+      {
+        children: Array.from({ length: 2_000 }, () => ({
+          role: "AXTextField",
+          value: "x".repeat(20_000),
+        })),
+      },
+      coordinateSpace,
+      100,
+    );
+    expect(tree).toHaveLength(100);
+    expect(tree[1]?.value).toHaveLength(1_024);
+    expect(tree[1]?.value?.endsWith("…")).toBe(true);
+    expect(describeAccessibilityTree(tree).length).toBeLessThan(40_000);
+  });
 });

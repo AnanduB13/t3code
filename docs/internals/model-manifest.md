@@ -1,0 +1,28 @@
+# Model manifest
+
+`apps/server/src/provider/model-manifest.json` is bundled for offline startup and fetched from
+`main` at runtime. A remote fetch replaces the in-memory and on-disk cache only after generic
+catalog references and provider-owned adapter data validate. A failed or invalid fetch keeps the
+last successful remote manifest. The bundle is used when no valid remote cache exists, or when
+the bundle's `updatedAt` is later than the cached manifest's, so a release that edits the manifest
+takes effect before the next successful fetch. Bump `updatedAt` whenever you edit the file.
+
+A newer bundle outranks the cached remote manifest by `updatedAt`, so a release can
+correct model data before the next successful fetch. Bump `updatedAt` whenever the
+file changes. Fetch time cannot establish which copy contains the newer edit.
+
+Generic catalog data describes presentation and capabilities. Each provider owns
+its adapter schema and dispatch mappings. Claude uses the manifest for its entire
+built-in catalog. Adding a model with an existing capability profile is a JSON
+edit; a new profile is needed only for a new capability combination. Codex still
+gets its model list from its app server.
+
+`currentModels.claudeAgent` is the current-model classification overlay for
+releases that predate catalog discovery; it does not add models to their catalogs.
+Catalog-aware releases use `providers.claudeAgent.models[].status` instead.
+Codex uses `currentModels.codex` as a legacy-classification overlay for discovered
+models.
+
+Model data is schema-validated configuration. Tests should cover resolver, cache,
+and adapter semantics with synthetic model names, so adding a model never requires
+tests that repeat the configuration.

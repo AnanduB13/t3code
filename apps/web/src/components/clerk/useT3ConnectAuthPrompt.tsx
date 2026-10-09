@@ -6,7 +6,7 @@ import { resolveClerkSignInProps } from "./authRedirect";
 export function useT3ConnectAuthPrompt() {
   const clerk = useClerk();
   const openAuthPrompt = () => {
-    clerk.openSignIn({ forceRedirectUrl: window.location.href });
+    clerk.openSignIn(resolveClerkSignInProps(window.location.href, isElectron));
   };
   return { authPrompt: null, openAuthPrompt };
 }

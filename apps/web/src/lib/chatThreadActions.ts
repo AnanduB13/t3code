@@ -1,6 +1,16 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
-import type { DraftThreadEnvMode } from "../composerDraftStore";
+import type {
+  EnvironmentId,
+  ModelSelection,
+  ProjectId,
+  ScopedProjectRef,
+} from "@t3tools/contracts";
+import type { ComposerThreadDraftState, DraftThreadEnvMode } from "../composerDraftStore";
+
+type ComposerModelSelectionState = Pick<
+  ComposerThreadDraftState,
+  "activeProvider" | "modelSelectionByProvider" | "modelSelectionExplicit"
+>;
 
 interface ThreadContextLike {
   environmentId: EnvironmentId;
@@ -16,13 +26,15 @@ interface NewThreadHandler {
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
     },
-  ): Promise<void>;
+    // The opened draft's identity, which most callers have no use for.
+  ): Promise<unknown>;
 }
 
 export interface ChatThreadActionContext {
   readonly activeDraftThread: ThreadContextLike | null;
   readonly activeThread: ThreadContextLike | undefined;
   readonly defaultProjectRef: ScopedProjectRef | null;
+  readonly selectedProjectRef?: ScopedProjectRef | null;
   readonly handleNewThread: NewThreadHandler;
 }
 
@@ -31,6 +43,30 @@ export function resolveNewDraftStartFromOrigin(input: {
   newWorktreesStartFromOrigin: boolean;
 }): boolean {
   return input.envMode === "worktree" && input.newWorktreesStartFromOrigin;
+}
+
+export function resolveNewThreadModelSelectionOverride(input: {
+  readonly projectDefaultSelection: ModelSelection | null;
+  readonly carrySelection: ModelSelection | null;
+  readonly carrySourceDraftId: string | null;
+  readonly destinationDraftId: string;
+}): ModelSelection | null {
+  return (
+    input.projectDefaultSelection ??
+    (input.carrySourceDraftId === input.destinationDraftId ? null : input.carrySelection)
+  );
+}
+
+export function hasExplicitComposerModelSelection(
+  draft: ComposerModelSelectionState | null | undefined,
+): boolean {
+  const activeProvider = draft?.activeProvider;
+  return (
+    draft?.modelSelectionExplicit === true &&
+    activeProvider !== null &&
+    activeProvider !== undefined &&
+    draft.modelSelectionByProvider[activeProvider] !== undefined
+  );
 }
 
 export function resolveThreadActionProjectRef(
@@ -48,39 +84,16 @@ export function resolveThreadActionProjectRef(
   return context.defaultProjectRef;
 }
 
-function buildContextualThreadOptions(context: ChatThreadActionContext): NewThreadOptions {
-  return {
-    branch: context.activeThread?.branch ?? context.activeDraftThread?.branch ?? null,
-    worktreePath:
-      context.activeThread?.worktreePath ?? context.activeDraftThread?.worktreePath ?? null,
-    envMode:
-      context.activeDraftThread?.envMode ??
-      (context.activeThread?.worktreePath ? "worktree" : "local"),
-    ...(context.activeDraftThread
-      ? { startFromOrigin: context.activeDraftThread.startFromOrigin }
-      : {}),
-  };
-}
-
-export async function startNewThreadInProjectFromContext(
-  context: ChatThreadActionContext,
-  projectRef: ScopedProjectRef,
-): Promise<void> {
-  const contextualProjectRef = resolveThreadActionProjectRef(context);
-  const matchesContext =
-    contextualProjectRef?.environmentId === projectRef.environmentId &&
-    contextualProjectRef.projectId === projectRef.projectId;
-  if (!matchesContext) {
-    await context.handleNewThread(projectRef);
-    return;
-  }
-  await context.handleNewThread(projectRef, buildContextualThreadOptions(context));
-}
-
+// New threads inherit only the *project* from the current context. Branch,
+// worktree, and env mode always come from the user's configured defaults —
+// carrying them over from the viewed thread meant "new thread" silently
+// reused checkouts and branches. Explicit affordances (branch toolbar's
+// "new thread in this worktree") pass those options to handleNewThread
+// directly instead.
 export async function startNewThreadFromContext(
   context: ChatThreadActionContext,
 ): Promise<boolean> {
-  const projectRef = resolveThreadActionProjectRef(context);
+  const projectRef = context.selectedProjectRef ?? resolveThreadActionProjectRef(context);
   if (!projectRef) {
     return false;
   }

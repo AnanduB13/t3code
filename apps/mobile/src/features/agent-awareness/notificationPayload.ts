@@ -31,7 +31,12 @@ function identifierFromNotificationResponse(response: unknown): string | null {
     return null;
   }
   const identifier = (request as { readonly identifier?: unknown }).identifier;
-  return typeof identifier === "string" ? identifier : null;
+  const date = (notification as { readonly date?: unknown }).date;
+  // Local notifications reuse a thread's identifier to replace its previous alert.
+  // Each delivery must still be tappable; only callbacks for that delivery dedupe.
+  return typeof identifier === "string"
+    ? JSON.stringify([identifier, typeof date === "number" ? date : null])
+    : null;
 }
 
 function encodeThreadDeepLink(input: {
@@ -67,6 +72,19 @@ function normalizeThreadDeepLink(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The deep link a notification would have to carry to target the thread the
+ * given route is showing, including its nested screens such as the file
+ * inspector. Null when the route is not inside a thread.
+ */
+export function threadDeepLinkOnScreen(pathname: string): string | null {
+  const match = /^\/threads\/([^/]+)\/([^/]+)(?:\/|$)/.exec(pathname);
+  if (!match?.[1] || !match[2]) {
+    return null;
+  }
+  return `/threads/${match[1]}/${match[2]}`;
 }
 
 export function extractAgentNotificationDeepLink(response: unknown): string | null {

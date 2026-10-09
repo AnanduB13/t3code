@@ -3,6 +3,7 @@ import {
   GENERAL_CHATS_PROJECT_ID,
   GENERAL_CHATS_PROJECT_TITLE,
   GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
   isGeneralChatsProject,
 } from "@t3tools/client-runtime/general-chats";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
@@ -15,6 +16,7 @@ export {
   GENERAL_CHATS_PROJECT_ID,
   GENERAL_CHATS_PROJECT_TITLE,
   GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
   isGeneralChatsProject,
 };
 export const GENERAL_CHAT_NEW_THREAD_OPTIONS = {
@@ -48,6 +50,26 @@ export function findGeneralChatsProject(
   );
 }
 
+export function resolveGeneralChatsStorageEnvironmentId(
+  environments: ReadonlyArray<{ readonly environmentId: EnvironmentId }>,
+  preferredEnvironmentId: EnvironmentId | null,
+  primaryEnvironmentId: EnvironmentId | null,
+): EnvironmentId | null {
+  if (
+    preferredEnvironmentId !== null &&
+    environments.some(({ environmentId }) => environmentId === preferredEnvironmentId)
+  ) {
+    return preferredEnvironmentId;
+  }
+  if (
+    primaryEnvironmentId !== null &&
+    environments.some(({ environmentId }) => environmentId === primaryEnvironmentId)
+  ) {
+    return primaryEnvironmentId;
+  }
+  return environments[0]?.environmentId ?? null;
+}
+
 export function getGeneralChatNewThreadOptions(projectId: ProjectId) {
   return projectId === GENERAL_CHATS_PROJECT_ID ? GENERAL_CHAT_NEW_THREAD_OPTIONS : undefined;
 }
@@ -58,18 +80,4 @@ export function resolveGeneralChatNewThreadOptions(
 ): GeneralChatNewThreadOptions | undefined {
   const generalChatOptions = getGeneralChatNewThreadOptions(projectId);
   return generalChatOptions ? { ...options, ...generalChatOptions } : options;
-}
-
-export function isGeneralChatsProjectAlreadyExistsError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) {
-    return false;
-  }
-
-  const candidate = error as Record<string, unknown>;
-  return (
-    candidate._tag === "OrchestrationCommandInvariantError" &&
-    candidate.commandType === "project.create" &&
-    candidate.detail ===
-      `Project '${GENERAL_CHATS_PROJECT_ID}' already exists and cannot be created twice.`
-  );
 }

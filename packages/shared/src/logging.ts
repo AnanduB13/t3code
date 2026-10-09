@@ -7,10 +7,12 @@ export interface RotatingFileSinkOptions {
   readonly filePath: string;
   readonly maxBytes: number;
   readonly maxFiles: number;
+  /** Preserve every backup instead of pruning or replacing older files. */
+  readonly keepForever?: boolean;
   readonly throwOnError?: boolean;
 }
 
-export class RotatingFileSinkConfigurationError extends Schema.TaggedErrorClass<RotatingFileSinkConfigurationError>()(
+export class RotatingFileSinkConfigurationError extends Schema.TaggedError<RotatingFileSinkConfigurationError>()(
   "RotatingFileSinkConfigurationError",
   {
     option: Schema.Literals(["maxBytes", "maxFiles"]),
@@ -23,7 +25,7 @@ export class RotatingFileSinkConfigurationError extends Schema.TaggedErrorClass<
   }
 }
 
-export class RotatingFileSinkError extends Schema.TaggedErrorClass<RotatingFileSinkError>()(
+export class RotatingFileSinkError extends Schema.TaggedError<RotatingFileSinkError>()(
   "RotatingFileSinkError",
   {
     operation: Schema.Literals(["initialize", "read", "write", "rotate", "prune"]),
@@ -45,8 +47,10 @@ export class RotatingFileSink {
   private readonly filePath: string;
   private readonly maxBytes: number;
   private readonly maxFiles: number;
+  private readonly keepForever: boolean;
   private readonly throwOnError: boolean;
   private currentSize = 0;
+  private nextBackupIndex = 1;
 
   constructor(options: RotatingFileSinkOptions) {
     if (options.maxBytes < 1) {
@@ -67,6 +71,7 @@ export class RotatingFileSink {
     this.filePath = options.filePath;
     this.maxBytes = options.maxBytes;
     this.maxFiles = options.maxFiles;
+    this.keepForever = options.keepForever ?? false;
     this.throwOnError = options.throwOnError ?? false;
 
     try {
@@ -110,6 +115,18 @@ export class RotatingFileSink {
 
   private rotate(): void {
     try {
+      if (this.keepForever) {
+        while (NodeFS.existsSync(this.withSuffix(this.nextBackupIndex))) {
+          this.nextBackupIndex += 1;
+        }
+        if (NodeFS.existsSync(this.filePath)) {
+          NodeFS.renameSync(this.filePath, this.withSuffix(this.nextBackupIndex));
+          this.nextBackupIndex += 1;
+        }
+        this.currentSize = 0;
+        return;
+      }
+
       const oldest = this.withSuffix(this.maxFiles);
       if (NodeFS.existsSync(oldest)) {
         NodeFS.rmSync(oldest, { force: true });
@@ -147,6 +164,12 @@ export class RotatingFileSink {
       for (const entry of NodeFS.readdirSync(dir)) {
         if (!entry.startsWith(`${baseName}.`)) continue;
         const suffix = Number(entry.slice(baseName.length + 1));
+        if (this.keepForever) {
+          if (Number.isSafeInteger(suffix) && suffix >= this.nextBackupIndex) {
+            this.nextBackupIndex = suffix + 1;
+          }
+          continue;
+        }
         if (!Number.isInteger(suffix) || suffix <= this.maxFiles) continue;
         NodeFS.rmSync(NodePath.join(dir, entry), { force: true });
       }

@@ -16,11 +16,7 @@ describe("formatProviderSkillDisplayName", () => {
   });
 
   it("falls back to a title-cased skill name", () => {
-    expect(
-      formatProviderSkillDisplayName({
-        name: "review-follow-up",
-      }),
-    ).toBe("Review Follow Up");
+    expect(formatProviderSkillDisplayName({ name: "review-follow-up" })).toBe("Review Follow Up");
   });
 });
 

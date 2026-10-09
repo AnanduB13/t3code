@@ -1,16 +1,26 @@
 import type {
+  ComputerUseActionResult,
   ComputerUseAppState,
   ComputerUseDevice,
   ComputerUseOperation,
 } from "@t3tools/contracts";
-import { desktopCapturer, screen as electronScreen, systemPreferences } from "electron";
-import { randomUUID } from "node:crypto";
-import { hostname, arch, platform } from "node:os";
-import { performance } from "node:perf_hooks";
+import {
+  HostProcessArchitecture,
+  HostProcessEnvironment,
+  HostProcessHostname,
+  HostProcessPlatform,
+} from "@t3tools/shared/hostProcess";
+import { app, desktopCapturer, screen as electronScreen, systemPreferences } from "electron";
+import Store from "electron-store";
+import * as Effect from "effect/Effect";
+import * as NodeCrypto from "node:crypto";
+import * as NodePerfHooks from "node:perf_hooks";
 import * as NodeTimersPromises from "node:timers/promises";
 
 import {
   boundsMatch,
+  fitScreenshotSize,
+  selectWindowCaptureSource,
   selectUniqueWindowByTitle,
   screenshotPointToScreen,
   type ComputerUseBounds,
@@ -21,15 +31,49 @@ import {
   flattenAccessibilityTree,
   summarizeNavigation,
 } from "./computerUseAccessibility.ts";
+import { createSerializedAbortableExecutor } from "@t3tools/shared/serializedAbortableExecutor";
 
-const platformName = (): ComputerUseDevice["platform"] =>
-  platform() === "darwin" ? "macos" : platform() === "win32" ? "windows" : "linux";
+interface ComputerUseRuntime {
+  readonly platform: NodeJS.Platform;
+  readonly architecture: NodeJS.Architecture;
+  readonly hostname: string;
+  readonly environment: NodeJS.ProcessEnv;
+}
 
-const sessionIsolation = (): ComputerUseDevice["sessionIsolation"] =>
-  process.env.T3CODE_COMPUTER_USE_ISOLATED_SESSION === "1" ? "isolated" : "shared";
+const readRuntime = (): ComputerUseRuntime => ({
+  platform: Effect.runSync(HostProcessPlatform),
+  architecture: Effect.runSync(HostProcessArchitecture),
+  hostname: Effect.runSync(HostProcessHostname),
+  environment: Effect.runSync(HostProcessEnvironment),
+});
 
-const availability = (): { available: boolean; unavailableReason?: string } => {
-  if (platform() === "darwin") {
+const platformName = (runtime: ComputerUseRuntime): ComputerUseDevice["platform"] =>
+  runtime.platform === "darwin" ? "macos" : runtime.platform === "win32" ? "windows" : "linux";
+
+const sessionIsolation = (runtime: ComputerUseRuntime): ComputerUseDevice["sessionIsolation"] =>
+  runtime.environment.T3CODE_COMPUTER_USE_ISOLATED_SESSION === "1" ? "isolated" : "shared";
+
+interface ComputerUseStore {
+  readonly deviceId?: string;
+}
+
+let deviceStore: Store<ComputerUseStore> | undefined;
+const installationDeviceId = (): string => {
+  deviceStore ??= new Store<ComputerUseStore>({
+    name: "computer-use",
+    cwd: app.getPath("userData"),
+  });
+  const existing = deviceStore.get("deviceId");
+  if (existing) return existing;
+  const created = `desktop-${NodeCrypto.randomUUID()}`;
+  deviceStore.set("deviceId", created);
+  return created;
+};
+
+const availability = (
+  runtime: ComputerUseRuntime,
+): { available: boolean; unavailableReason?: string } => {
+  if (runtime.platform === "darwin") {
     if (!systemPreferences.isTrustedAccessibilityClient(false)) {
       return {
         available: false,
@@ -43,7 +87,7 @@ const availability = (): { available: boolean; unavailableReason?: string } => {
       };
     }
   }
-  if (platform() === "linux" && !process.env.DISPLAY) {
+  if (runtime.platform === "linux" && !runtime.environment.DISPLAY) {
     return {
       available: false,
       unavailableReason:
@@ -53,14 +97,15 @@ const availability = (): { available: boolean; unavailableReason?: string } => {
   return { available: true };
 };
 
-export const describeComputerUseDevice = (): ComputerUseDevice => ({
-  deviceId: `${hostname()}:${platform()}:${arch()}`,
-  label: hostname(),
-  platform: platformName(),
-  architecture: arch(),
-  kind: sessionIsolation() === "isolated" ? "remote-desktop" : "prompting-device",
-  sessionIsolation: sessionIsolation(),
-  ...availability(),
+export const describeComputerUseDevice = (runtime = readRuntime()): ComputerUseDevice => ({
+  deviceId: installationDeviceId(),
+  label: runtime.hostname,
+  platform: platformName(runtime),
+  architecture: runtime.architecture,
+  kind: sessionIsolation(runtime) === "isolated" ? "remote-desktop" : "prompting-device",
+  sessionIsolation: sessionIsolation(runtime),
+  platformSupport: runtime.platform === "darwin" ? "verified" : "experimental",
+  ...availability(runtime),
   supportedOperations: [
     "listApps",
     "getAppState",
@@ -76,6 +121,31 @@ export const describeComputerUseDevice = (): ComputerUseDevice => ({
 const loadNut = () => import("@nut-tree-fork/nut-js");
 type NutModule = Awaited<ReturnType<typeof loadNut>>;
 type NativeWindow = Awaited<ReturnType<NutModule["getActiveWindow"]>>;
+
+export const probeComputerUseDevice = async (): Promise<ComputerUseDevice> => {
+  const device = describeComputerUseDevice();
+  if (!device.available) return device;
+  const timeout = new AbortController();
+  try {
+    const { getWindows } = await loadNut();
+    await Promise.race([
+      getWindows(),
+      NodeTimersPromises.setTimeout(5_000, undefined, { signal: timeout.signal }).then(() => {
+        throw new Error("Native window inspection did not respond within 5 seconds.");
+      }),
+    ]);
+    return device;
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    return {
+      ...device,
+      available: false,
+      unavailableReason: `Native window inspection is unavailable: ${detail}`,
+    };
+  } finally {
+    timeout.abort();
+  }
+};
 
 interface WindowRecord {
   readonly windowId: string;
@@ -96,10 +166,16 @@ interface Observation {
 
 const windowIds = new Map<string, string>();
 const observations = new Map<string, Observation>();
-const OBSERVATION_TTL_MS = 120_000;
+const OBSERVATION_TTL_MS = 30_000;
 
 const windowBounds = async (window: NativeWindow): Promise<ComputerUseBounds> => {
-  const region = await window.region;
+  const handle = Reflect.get(window, "windowHandle");
+  const { providerRegistry } = await loadNut();
+  // Window.region clips to the primary display, losing secondary-monitor coordinates.
+  const region =
+    typeof handle === "number"
+      ? await providerRegistry.getWindow().getWindowRegion(handle)
+      : await window.region;
   return { x: region.left, y: region.top, width: region.width, height: region.height };
 };
 
@@ -121,18 +197,28 @@ const enumerateWindows = async (): Promise<WindowRecord[]> => {
   const windows = await getWindows();
   const records = await Promise.all(
     windows.slice(0, 200).map(async (window) => {
-      const [title, bounds] = await Promise.all([window.title, windowBounds(window)]);
-      if (!title.trim() || bounds.width <= 1 || bounds.height <= 1) return null;
-      const nativeKey = await nativeWindowKey(window, title);
-      let windowId = windowIds.get(nativeKey);
-      if (!windowId) {
-        windowId = `window-${randomUUID()}`;
-        windowIds.set(nativeKey, windowId);
+      try {
+        const [title, bounds] = await Promise.all([window.title, windowBounds(window)]);
+        if (!title.trim() || bounds.width <= 1 || bounds.height <= 1) return null;
+        const nativeKey = await nativeWindowKey(window, title);
+        let windowId = windowIds.get(nativeKey);
+        if (!windowId) {
+          windowId = `window-${NodeCrypto.randomUUID()}`;
+          windowIds.set(nativeKey, windowId);
+        }
+        return { windowId, nativeKey, window, title, bounds } satisfies WindowRecord;
+      } catch {
+        // A window can disappear between enumeration and reading its title/bounds.
+        return null;
       }
-      return { windowId, nativeKey, window, title, bounds } satisfies WindowRecord;
     }),
   );
-  return records.filter((record): record is WindowRecord => record !== null);
+  const visible = records.filter((record): record is WindowRecord => record !== null);
+  const keys = new Set(visible.map((record) => record.nativeKey));
+  for (const key of windowIds.keys()) {
+    if (!keys.has(key)) windowIds.delete(key);
+  }
+  return visible;
 };
 
 const resolveWindow = async (input: { windowId?: string; app?: string }): Promise<WindowRecord> => {
@@ -149,7 +235,7 @@ const resolveWindow = async (input: { windowId?: string; app?: string }): Promis
       return selectUniqueWindowByTitle(windows, input.app);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(`${message} Use one exact windowId from computer_list_apps.`);
+      throw new Error(`${message} Use one exact windowId from computer_list_apps.`, { cause });
     }
   }
 
@@ -177,7 +263,7 @@ const listApps = async () => {
   };
 };
 
-const captureWindow = async (bounds: ComputerUseBounds) => {
+const captureDisplayCrop = async (bounds: ComputerUseBounds) => {
   const display = electronScreen.getDisplayMatching(bounds);
   const displayBounds = display.bounds;
   const fullyContained =
@@ -216,7 +302,13 @@ const captureWindow = async (bounds: ComputerUseBounds) => {
   };
   crop.width = Math.min(crop.width, displayImageSize.width - crop.x);
   crop.height = Math.min(crop.height, displayImageSize.height - crop.y);
-  const image = displayImage.crop(crop);
+  const croppedImage = displayImage.crop(crop);
+  const croppedSize = croppedImage.getSize();
+  const fittedSize = fitScreenshotSize(croppedSize.width, croppedSize.height);
+  const image =
+    fittedSize.width === croppedSize.width && fittedSize.height === croppedSize.height
+      ? croppedImage
+      : croppedImage.resize({ ...fittedSize, quality: "good" });
   const size = image.getSize();
   const coordinateSpace: ComputerUseCoordinateSpace = {
     ...bounds,
@@ -234,48 +326,120 @@ const captureWindow = async (bounds: ComputerUseBounds) => {
   };
 };
 
-const captureSettledWindow = async (target: NativeWindow) => {
-  let previousData: string | undefined;
-  let latest: Awaited<ReturnType<typeof captureWindow>> | undefined;
-  let latestBounds: ComputerUseBounds | undefined;
-  // Two identical samples are a cheap and effective guard against capturing a
-  // menu half-open or a window mid-animation. Dynamic UIs still proceed after
-  // the bounded attempts, so clocks and carets cannot stall the agent.
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    latestBounds = await windowBounds(target);
-    latest = await captureWindow(latestBounds);
-    if (latest.screenshot.data === previousData) return { ...latest, bounds: latestBounds };
-    previousData = latest.screenshot.data;
-    if (attempt < 5) await NodeTimersPromises.setTimeout(160);
+const captureNativeWindow = async (target: WindowRecord) => {
+  const display = electronScreen.getDisplayMatching(target.bounds);
+  const requested = fitScreenshotSize(
+    Math.max(1, Math.round(target.bounds.width * display.scaleFactor)),
+    Math.max(1, Math.round(target.bounds.height * display.scaleFactor)),
+  );
+  const sources = await desktopCapturer.getSources({
+    types: ["window"],
+    thumbnailSize: requested,
+    fetchWindowIcons: false,
+  });
+  const source = selectWindowCaptureSource(sources, target);
+  if (!source || source.thumbnail.isEmpty()) return undefined;
+  const sourceSize = source.thumbnail.getSize();
+  const boundsRatio = target.bounds.width / target.bounds.height;
+  const sourceRatio = sourceSize.width / sourceSize.height;
+  if (Math.abs(boundsRatio - sourceRatio) / boundsRatio > 0.04) return undefined;
+  const fittedSize = fitScreenshotSize(sourceSize.width, sourceSize.height);
+  const image =
+    fittedSize.width === sourceSize.width && fittedSize.height === sourceSize.height
+      ? source.thumbnail
+      : source.thumbnail.resize({ ...fittedSize, quality: "good" });
+  const size = image.getSize();
+  return {
+    screenshot: {
+      mimeType: "image/png" as const,
+      data: image.toPNG().toString("base64"),
+      width: size.width,
+      height: size.height,
+    },
+    coordinateSpace: {
+      ...target.bounds,
+      screenshotWidth: size.width,
+      screenshotHeight: size.height,
+    } satisfies ComputerUseCoordinateSpace,
+  };
+};
+
+const captureTargetWindow = async (target: WindowRecord) =>
+  (await captureNativeWindow(target)) ?? captureDisplayCrop(target.bounds);
+
+const abortError = () => new Error("Computer Use action was cancelled.");
+
+const requireNotAborted = (signal: AbortSignal) => {
+  if (signal.aborted) throw abortError();
+};
+
+const wait = async (durationMs: number, signal: AbortSignal) => {
+  try {
+    await NodeTimersPromises.setTimeout(durationMs, undefined, { signal });
+  } catch (cause) {
+    if (signal.aborted) throw abortError();
+    throw cause;
   }
-  if (!latest || !latestBounds) throw new Error("The target window could not be captured.");
-  return { ...latest, bounds: latestBounds };
+};
+
+const focusWindowIfNeeded = async (
+  target: WindowRecord,
+  signal: AbortSignal,
+  allowFocus = true,
+) => {
+  requireNotAborted(signal);
+  const { getActiveWindow } = await loadNut();
+  const active = await getActiveWindow().catch(() => null);
+  const activeKey = active ? await nativeWindowKey(active, await active.title) : null;
+  if (activeKey === target.nativeKey) return;
+  if (!allowFocus) {
+    throw new Error(
+      "The active window changed after the action. List windows and observe the new target.",
+    );
+  }
+  requireNotAborted(signal);
+  if (!(await target.window.focus())) throw new Error("The target window could not be focused.");
+  await wait(150, signal);
+  const focused = await getActiveWindow();
+  if ((await nativeWindowKey(focused, await focused.title)) !== target.nativeKey) {
+    throw new Error("The target window did not gain focus. Observe the active window again.");
+  }
 };
 
 const discardExpiredObservations = () => {
-  const cutoff = performance.now() - OBSERVATION_TTL_MS;
+  const cutoff = NodePerfHooks.performance.now() - OBSERVATION_TTL_MS;
   for (const [id, observation] of observations) {
     if (observation.createdAt < cutoff) observations.delete(id);
   }
 };
 
-const getAppState = async (input: {
-  windowId?: string;
-  app?: string;
-}): Promise<ComputerUseAppState> => {
+const getAppState = async (
+  input: {
+    windowId?: string;
+    app?: string;
+  },
+  signal: AbortSignal,
+  allowFocus = true,
+): Promise<ComputerUseAppState> => {
+  requireNotAborted(signal);
   const target = await resolveWindow(input);
-  await target.window.focus();
-  await NodeTimersPromises.setTimeout(150);
-  const { screenshot, coordinateSpace, bounds } = await captureSettledWindow(target.window);
-  const elements = await target.window
-    .getElements(1_000)
-    .then((root) => flattenAccessibilityTree(root, coordinateSpace))
-    .catch(() => []);
-  const observationId = `observation-${randomUUID()}`;
+  await focusWindowIfNeeded(target, signal, allowFocus);
+  await wait(120, signal);
+  const bounds = await windowBounds(target.window);
+  const [{ screenshot, coordinateSpace }, root] = await Promise.all([
+    captureTargetWindow({ ...target, bounds }),
+    target.window.getElements(1_000).catch(() => null),
+  ]);
+  requireNotAborted(signal);
+  if (!boundsMatch(bounds, await windowBounds(target.window))) {
+    throw new Error("The target window moved or resized during capture. Observe it again.");
+  }
+  const elements = root ? flattenAccessibilityTree(root, coordinateSpace) : [];
+  const observationId = `observation-${NodeCrypto.randomUUID()}`;
   observations.set(observationId, {
     observationId,
     windowId: target.windowId,
-    createdAt: performance.now(),
+    createdAt: NodePerfHooks.performance.now(),
     bounds,
     coordinateSpace,
     elements,
@@ -304,11 +468,15 @@ const getAppState = async (input: {
   };
 };
 
-const requireFreshObservation = async (input: Record<string, unknown>) => {
+const requireFreshObservation = async (input: Record<string, unknown>, signal: AbortSignal) => {
+  requireNotAborted(signal);
   const observationId = String(input.observationId ?? "");
   const windowId = String(input.windowId ?? "");
   const observation = observations.get(observationId);
-  if (!observation || performance.now() - observation.createdAt > OBSERVATION_TTL_MS) {
+  if (
+    !observation ||
+    NodePerfHooks.performance.now() - observation.createdAt > OBSERVATION_TTL_MS
+  ) {
     observations.delete(observationId);
     throw new Error(
       "This observation is missing, expired, or already used. Observe the window again.",
@@ -318,14 +486,15 @@ const requireFreshObservation = async (input: Record<string, unknown>) => {
     throw new Error("The observation does not belong to the requested window. Observe it again.");
   }
   const target = await resolveWindow({ windowId });
+  await focusWindowIfNeeded(target, signal);
   const currentBounds = await windowBounds(target.window);
   if (!boundsMatch(observation.bounds, currentBounds)) {
     observations.delete(observationId);
     throw new Error("The target window moved or resized after observation. Observe it again.");
   }
-  await target.window.focus();
-  await NodeTimersPromises.setTimeout(100);
-  observations.delete(observationId);
+  requireNotAborted(signal);
+  // Any input invalidates every outstanding observation, including those from other sessions.
+  observations.clear();
   return { target, observation };
 };
 
@@ -370,12 +539,28 @@ const pointFromInput = (
 const moveVisibleCursor = async (
   nut: NutModule,
   point: { readonly x: number; readonly y: number },
+  signal: AbortSignal,
 ) => {
-  // Moving the real OS pointer makes agent activity observable to the user and
-  // avoids an instantaneous teleport that is difficult to follow or interrupt.
-  nut.mouse.config.mouseSpeed = 1_800;
+  requireNotAborted(signal);
+  const start = await nut.mouse.getPosition();
+  const pixelsPerSecond = 6_000;
+  const durationMs = Math.min(
+    120,
+    (Math.hypot(point.x - start.x, point.y - start.y) / pixelsPerSecond) * 1_000,
+  );
+  const steps = Math.max(1, Math.ceil(durationMs / 16));
   nut.mouse.config.autoDelayMs = 35;
-  await nut.mouse.move(nut.straightTo(new nut.Point(point.x, point.y)));
+  // nut-js mouse.move busy-waits for every pixel. A bounded path keeps IPC/Stop responsive.
+  for (let step = 1; step <= steps; step += 1) {
+    requireNotAborted(signal);
+    await nut.mouse.setPosition(
+      new nut.Point(
+        Math.round(start.x + ((point.x - start.x) * step) / steps),
+        Math.round(start.y + ((point.y - start.y) * step) / steps),
+      ),
+    );
+    if (step < steps) await wait(durationMs / steps, signal);
+  }
 };
 
 const keyFromName = async (name: string) => {
@@ -402,29 +587,42 @@ const keyFromName = async (name: string) => {
   return key;
 };
 
-export async function executeComputerUse(operation: ComputerUseOperation, rawInput: unknown) {
-  const device = describeComputerUseDevice();
+async function executeComputerUseNow(
+  operation: ComputerUseOperation,
+  rawInput: unknown,
+  signal: AbortSignal,
+) {
+  requireNotAborted(signal);
+  const runtime = readRuntime();
+  const device = describeComputerUseDevice(runtime);
   if (!device.available)
     throw new Error(device.unavailableReason ?? "Computer Use is unavailable.");
   const input = (rawInput ?? {}) as Record<string, unknown> & {
     windowId?: string;
     app?: string;
   };
-  if (operation === "listApps") return await listApps();
-  if (operation === "getAppState") return await getAppState(input);
+  if (operation === "listApps") {
+    const result = await listApps();
+    requireNotAborted(signal);
+    return result;
+  }
+  if (operation === "getAppState") return await getAppState(input, signal);
 
-  const { observation } = await requireFreshObservation(input);
+  const { observation } = await requireFreshObservation(input, signal);
   const nut = await loadNut();
+  nut.keyboard.config.autoDelayMs = 0;
+  nut.providerRegistry.getKeyboard().setKeyboardDelay(0);
+  requireNotAborted(signal);
   switch (operation) {
     case "move": {
       const point = pointFromInput(observation, input);
-      await moveVisibleCursor(nut, point);
-      await NodeTimersPromises.setTimeout(250);
+      await moveVisibleCursor(nut, point, signal);
+      await wait(250, signal);
       return null;
     }
     case "click": {
       const point = pointFromInput(observation, input);
-      await moveVisibleCursor(nut, point);
+      await moveVisibleCursor(nut, point, signal);
       const button =
         input.mouseButton === "right"
           ? nut.Button.RIGHT
@@ -432,8 +630,14 @@ export async function executeComputerUse(operation: ComputerUseOperation, rawInp
             ? nut.Button.MIDDLE
             : nut.Button.LEFT;
       const count = Math.max(1, Math.min(3, Number(input.clickCount ?? 1)));
+      requireNotAborted(signal);
       if (count === 2) await nut.mouse.doubleClick(button);
-      else for (let index = 0; index < count; index += 1) await nut.mouse.click(button);
+      else {
+        for (let index = 0; index < count; index += 1) {
+          requireNotAborted(signal);
+          await nut.mouse.click(button);
+        }
+      }
       return null;
     }
     case "drag": {
@@ -445,9 +649,15 @@ export async function executeComputerUse(operation: ComputerUseOperation, rawInp
         x: Number(input.toX),
         y: Number(input.toY),
       });
-      await moveVisibleCursor(nut, from);
-      nut.mouse.config.mouseSpeed = 1_400;
-      await nut.mouse.drag(nut.straightTo(new nut.Point(to.x, to.y)));
+      await moveVisibleCursor(nut, from, signal);
+      requireNotAborted(signal);
+      try {
+        await nut.mouse.pressButton(nut.Button.LEFT);
+        requireNotAborted(signal);
+        await moveVisibleCursor(nut, to, signal);
+      } finally {
+        await nut.mouse.releaseButton(nut.Button.LEFT);
+      }
       return null;
     }
     case "pressKey": {
@@ -456,7 +666,7 @@ export async function executeComputerUse(operation: ComputerUseOperation, rawInp
         modifierNames.map((modifier) =>
           keyFromName(
             modifier === "Meta"
-              ? platform() === "darwin"
+              ? runtime.platform === "darwin"
                 ? "LeftCmd"
                 : "LeftMeta"
               : modifier === "Control"
@@ -468,28 +678,81 @@ export async function executeComputerUse(operation: ComputerUseOperation, rawInp
         ),
       );
       const keys = [...modifierKeys, await keyFromName(String(input.key))];
-      await nut.keyboard.pressKey(...keys);
-      await nut.keyboard.releaseKey(...keys.toReversed());
+      requireNotAborted(signal);
+      try {
+        await nut.keyboard.pressKey(...keys);
+      } finally {
+        // nut-js expects modifiers followed by the key for both press and release.
+        await nut.keyboard.releaseKey(...keys);
+      }
       return null;
     }
     case "scroll": {
-      if (input.x !== undefined && input.y !== undefined) {
-        const point = screenshotPointToScreen(observation.coordinateSpace, {
-          x: Number(input.x),
-          y: Number(input.y),
-        });
-        await moveVisibleCursor(nut, point);
-      }
+      const point = screenshotPointToScreen(observation.coordinateSpace, {
+        x:
+          input.x === undefined ? observation.coordinateSpace.screenshotWidth / 2 : Number(input.x),
+        y:
+          input.y === undefined
+            ? observation.coordinateSpace.screenshotHeight / 2
+            : Number(input.y),
+      });
+      await moveVisibleCursor(nut, point, signal);
+      requireNotAborted(signal);
       const deltaY = Number(input.deltaY ?? 0);
       const deltaX = Number(input.deltaX ?? 0);
       if (deltaY > 0) await nut.mouse.scrollDown(Math.ceil(deltaY));
       if (deltaY < 0) await nut.mouse.scrollUp(Math.ceil(-deltaY));
+      requireNotAborted(signal);
       if (deltaX > 0) await nut.mouse.scrollRight(Math.ceil(deltaX));
       if (deltaX < 0) await nut.mouse.scrollLeft(Math.ceil(-deltaX));
       return null;
     }
     case "typeText":
-      await nut.keyboard.type(String(input.text ?? ""));
+      for (const character of String(input.text ?? "")) {
+        requireNotAborted(signal);
+        // Each call yields to IPC, so Stop can interrupt long text without using the clipboard.
+        await nut.keyboard.type(character);
+      }
       return null;
   }
+}
+
+const executor = createSerializedAbortableExecutor(
+  async (
+    input: { readonly operation: ComputerUseOperation; readonly rawInput: unknown },
+    signal,
+  ) => {
+    const result = await executeComputerUseNow(input.operation, input.rawInput, signal);
+    if (input.operation === "listApps" || input.operation === "getAppState") return result;
+    const action = input.rawInput as { readonly observeAfter?: boolean; readonly windowId: string };
+    if (!action.observeAfter) return result;
+    requireNotAborted(signal);
+    try {
+      const observation = await getAppState({ windowId: action.windowId }, signal, false);
+      return { actionCompleted: true, observation } satisfies ComputerUseActionResult;
+    } catch (cause) {
+      requireNotAborted(signal);
+      return {
+        actionCompleted: true,
+        observationError: cause instanceof Error ? cause.message : String(cause),
+      } satisfies ComputerUseActionResult;
+    }
+  },
+);
+
+export function executeComputerUse(
+  requestId: string,
+  operation: ComputerUseOperation,
+  rawInput: unknown,
+) {
+  return executor.execute(requestId, { operation, rawInput });
+}
+
+export function cancelComputerUse(requestId: string) {
+  executor.cancel(requestId);
+}
+
+export function cancelAllComputerUse() {
+  executor.cancelAll();
+  observations.clear();
 }

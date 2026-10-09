@@ -56,13 +56,18 @@ const relativeBounds = (
   element: NativeAccessibilityElement,
   coordinateSpace: ComputerUseCoordinateSpace,
 ): ComputerUseBounds | null => {
-  if (!element.region) return null;
-  return absoluteBoundsToScreenshot(coordinateSpace, {
+  if (!element.region || !Object.values(element.region).every(Number.isFinite)) return null;
+  const bounds = absoluteBoundsToScreenshot(coordinateSpace, {
     x: element.region.left,
     y: element.region.top,
     width: element.region.width,
     height: element.region.height,
   });
+  const x = Math.max(0, bounds.x);
+  const y = Math.max(0, bounds.y);
+  const right = Math.min(coordinateSpace.screenshotWidth, bounds.x + bounds.width);
+  const bottom = Math.min(coordinateSpace.screenshotHeight, bounds.y + bounds.height);
+  return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
 };
 
 export const flattenAccessibilityTree = (
@@ -71,6 +76,13 @@ export const flattenAccessibilityTree = (
   maximumElements = 1_000,
 ): ComputerUseElement[] => {
   const result: ComputerUseElement[] = [];
+  let remainingText = 32_000;
+  const boundedText = (value: string | undefined) => {
+    if (!value) return undefined;
+    const limit = Math.min(1_024, remainingText);
+    remainingText -= Math.min(limit, value.length);
+    return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 1))}…`;
+  };
   const visit = (
     element: NativeAccessibilityElement,
     depth: number,
@@ -83,17 +95,20 @@ export const flattenAccessibilityTree = (
       index,
       depth,
       ...(parentIndex === undefined ? {} : { parentIndex }),
-      ...(element.role || element.type ? { role: element.role ?? element.type } : {}),
-      ...(element.subRole ? { subRole: element.subRole } : {}),
-      ...(element.title ? { label: element.title } : {}),
-      ...(element.value ? { value: element.value } : {}),
-      ...(element.selectedText ? { selectedText: element.selectedText } : {}),
+      ...(element.role || element.type ? { role: boundedText(element.role ?? element.type) } : {}),
+      ...(element.subRole ? { subRole: boundedText(element.subRole) } : {}),
+      ...(element.title ? { label: boundedText(element.title) } : {}),
+      ...(element.value ? { value: boundedText(element.value) } : {}),
+      ...(element.selectedText ? { selectedText: boundedText(element.selectedText) } : {}),
       ...(element.isFocused === undefined ? {} : { focused: element.isFocused }),
       ...(element.isEnabled === undefined ? {} : { enabled: element.isEnabled }),
-      interactive: isLikelyInteractive(element),
-      ...(bounds ?? {}),
+      interactive: bounds !== null && isLikelyInteractive(element),
+      ...bounds,
     });
-    for (const child of element.children ?? []) visit(child, depth + 1, index);
+    for (const child of element.children ?? []) {
+      if (result.length >= maximumElements) break;
+      visit(child, depth + 1, index);
+    }
   };
   visit(root, 0);
   return result;
@@ -116,7 +131,7 @@ export const describeAccessibilityTree = (elements: readonly ComputerUseElement[
         element.x === undefined
           ? ""
           : ` rect=(${element.x},${element.y},${element.width},${element.height})`;
-      return `${"  ".repeat(element.depth)}[${element.index}] ${element.role ?? "element"}${quoted(element.subRole, "subrole")}${quoted(element.label, "label")}${quoted(element.value, "value")}${quoted(element.selectedText, "selected")}${state ? ` state=(${state})` : ""}${rectangle}`;
+      return `${"  ".repeat(Math.min(element.depth, 12))}[${element.index}] ${element.role ?? "element"}${element.depth > 12 ? ` parent=${element.parentIndex}` : ""}${quoted(element.subRole, "subrole")}${quoted(element.label, "label")}${quoted(element.value, "value")}${quoted(element.selectedText, "selected")}${state ? ` state=(${state})` : ""}${rectangle}`;
     })
     .join("\n");
 

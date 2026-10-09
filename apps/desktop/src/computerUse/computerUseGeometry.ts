@@ -12,6 +12,22 @@ export interface ComputerUseCoordinateSpace extends ComputerUseBounds {
 
 const finitePositive = (value: number) => Number.isFinite(value) && value > 0;
 
+export const fitScreenshotSize = (
+  width: number,
+  height: number,
+  maximumWidth = 1_600,
+  maximumHeight = 900,
+): { readonly width: number; readonly height: number } => {
+  if (![width, height, maximumWidth, maximumHeight].every(finitePositive)) {
+    throw new Error("Screenshot dimensions must be positive finite numbers.");
+  }
+  const scale = Math.min(1, maximumWidth / width, maximumHeight / height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+};
+
 export const assertValidCoordinateSpace = (space: ComputerUseCoordinateSpace): void => {
   if (
     !Number.isFinite(space.x) ||
@@ -44,8 +60,20 @@ export const screenshotPointToScreen = (
     );
   }
   return {
-    x: Math.round(space.x + (point.x / space.screenshotWidth) * space.width),
-    y: Math.round(space.y + (point.y / space.screenshotHeight) * space.height),
+    x: Math.min(
+      Math.ceil(space.x + space.width) - 1,
+      Math.max(
+        Math.floor(space.x),
+        Math.round(space.x + (point.x / space.screenshotWidth) * space.width),
+      ),
+    ),
+    y: Math.min(
+      Math.ceil(space.y + space.height) - 1,
+      Math.max(
+        Math.floor(space.y),
+        Math.round(space.y + (point.y / space.screenshotHeight) * space.height),
+      ),
+    ),
   };
 };
 
@@ -79,17 +107,25 @@ export const selectUniqueWindowByTitle = <T extends { readonly title: string }>(
   const query = requestedTitle.trim().toLocaleLowerCase();
   const exact = windows.filter((window) => window.title.trim().toLocaleLowerCase() === query);
   if (exact.length === 1) return exact[0]!;
-  const prefix = windows.filter((window) =>
-    window.title.trim().toLocaleLowerCase().startsWith(query),
-  );
-  if (prefix.length === 1) return prefix[0]!;
-  const partial = windows.filter((window) => window.title.toLocaleLowerCase().includes(query));
-  if (partial.length === 1) return partial[0]!;
-  const matches = exact.length > 0 ? exact : prefix.length > 0 ? prefix : partial;
-  if (matches.length > 1) {
+  if (exact.length > 1) {
     throw new Error(
-      `Window name ${JSON.stringify(requestedTitle)} is ambiguous. Matches: ${matches.map((window) => window.title).join(", ")}.`,
+      `Window name ${JSON.stringify(requestedTitle)} is ambiguous. Matches: ${exact.map((window) => window.title).join(", ")}.`,
     );
   }
   throw new Error(`No visible application window matches ${JSON.stringify(requestedTitle)}.`);
+};
+
+export const selectWindowCaptureSource = <T extends { readonly id: string; readonly name: string }>(
+  sources: ReadonlyArray<T>,
+  target: { readonly nativeKey: string; readonly title: string },
+): T | undefined => {
+  const nativeHandle = target.nativeKey.startsWith("handle:")
+    ? target.nativeKey.slice("handle:".length)
+    : null;
+  if (nativeHandle) {
+    const handleMatch = sources.find((source) => source.id.split(":")[1] === nativeHandle);
+    if (handleMatch) return handleMatch;
+  }
+  const titleMatches = sources.filter((source) => source.name === target.title);
+  return titleMatches.length === 1 ? titleMatches[0] : undefined;
 };

@@ -1,0 +1,42 @@
+import { assert, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import { runMigrations } from "../Migrations.ts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+
+const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
+
+layer("044_AfterDarkUpstreamCompatibility", (it) => {
+  it.effect("repairs databases where the legacy queue migration occupied ID 36", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* runMigrations({ toMigrationInclusive: 35 });
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (36, 'ProjectionQueuedMessages')
+      `;
+
+      yield* runMigrations({ toMigrationInclusive: 44 });
+
+      const columns = yield* sql<{ readonly name: string }>`
+        PRAGMA table_info(projection_threads)
+      `;
+      assert.ok(columns.some((column) => column.name === "pinned_at"));
+
+      const migrations = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        SELECT migration_id, name
+        FROM effect_sql_migrations
+        WHERE migration_id = 44
+      `;
+      assert.deepStrictEqual(migrations, [
+        {
+          migration_id: 44,
+          name: "ClearAutomaticProjectModelDefaults",
+        },
+      ]);
+    }),
+  );
+});

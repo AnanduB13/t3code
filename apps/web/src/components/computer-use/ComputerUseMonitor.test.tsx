@@ -6,6 +6,7 @@ import { ComputerUseMonitor } from "./ComputerUseMonitor";
 it("renders the captured application screenshot and isolated virtual pointer", () => {
   const markup = renderToStaticMarkup(
     <ComputerUseMonitor
+      onStop={() => undefined}
       state={{
         deviceLabel: "Mac Studio",
         sessionIsolation: "isolated",

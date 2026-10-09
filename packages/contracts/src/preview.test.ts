@@ -2,7 +2,10 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  ConfiguredLocalServerUrls,
+  CONFIGURED_LOCAL_SERVER_URLS_MAX_ITEMS,
   DiscoveredLocalServer,
+  PREVIEW_URL_MAX_LENGTH,
   PreviewEvent,
   PreviewNavStatus,
   PreviewSessionSnapshot,
@@ -21,6 +24,7 @@ const decodePreviewEvent = Schema.decodeUnknownSync(PreviewEvent);
 const decodeSnapshot = Schema.decodeUnknownSync(PreviewSessionSnapshot);
 const decodeNavStatus = Schema.decodeUnknownSync(PreviewNavStatus);
 const decodeServer = Schema.decodeUnknownSync(DiscoveredLocalServer);
+const decodeConfiguredLocalServerUrls = Schema.decodeUnknownSync(ConfiguredLocalServerUrls);
 const decodeViewport = Schema.decodeUnknownSync(PreviewViewportSetting);
 const decodeResizeInput = Schema.decodeUnknownSync(PreviewAutomationResizeInput);
 const decodeOpenInput = Schema.decodeUnknownSync(PreviewAutomationOpenInput);
@@ -184,6 +188,7 @@ describe("PreviewAutomationError", () => {
     expect(error.message).toContain("Continue with another available browser or web-search tool");
     expect(error.message).toContain("do not ask the user to retry this host");
   });
+
   it("preserves a typed non-editable target failure", () => {
     const error = decodeAutomationError({
       _tag: "PreviewAutomationTargetNotEditableError",
@@ -352,6 +357,22 @@ describe("DiscoveredLocalServer", () => {
         pid: null,
         terminal: null,
       }),
+    ).toThrow();
+  });
+});
+
+describe("ConfiguredLocalServerUrls", () => {
+  it("bounds the number and length of probe candidates", () => {
+    expect(() =>
+      decodeConfiguredLocalServerUrls(
+        Array.from(
+          { length: CONFIGURED_LOCAL_SERVER_URLS_MAX_ITEMS + 1 },
+          (_, index) => `http://localhost:${3_000 + index}`,
+        ),
+      ),
+    ).toThrow();
+    expect(() =>
+      decodeConfiguredLocalServerUrls([`http://localhost/${"a".repeat(PREVIEW_URL_MAX_LENGTH)}`]),
     ).toThrow();
   });
 });

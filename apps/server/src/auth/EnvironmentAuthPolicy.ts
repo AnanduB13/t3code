@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { isRemoteReachableHost, resolveSessionCookieName } from "./utils.ts";
 
 export class EnvironmentAuthPolicy extends Context.Service<
@@ -13,12 +14,13 @@ export class EnvironmentAuthPolicy extends Context.Service<
   }
 >()("t3/auth/EnvironmentAuthPolicy") {}
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
+  const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   // Tailscale Serve makes a loopback-bound backend remotely reachable through
   // its authenticated HTTPS proxy without exposing the backend port itself.
-  const isRemoteReachable =
-    isRemoteReachableHost(config.host) || config.tailscaleServeEnabled;
+  const isRemoteReachable = isRemoteReachableHost(config.host) || config.tailscaleServeEnabled;
 
   const policy =
     config.mode === "desktop"
@@ -45,6 +47,7 @@ export const make = Effect.gen(function* () {
       port: config.port,
       host: config.host,
       instanceKey: config.stateDir,
+      environmentId: yield* serverEnvironment.getEnvironmentId,
       development: config.devUrl !== undefined,
     }),
   };

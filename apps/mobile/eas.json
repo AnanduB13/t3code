@@ -40,18 +40,46 @@
         "buildType": "apk"
       }
     },
+    "v2-preview": {
+      "extends": "production",
+      "distribution": "store",
+      "channel": "v2-preview",
+      "env": {
+        "T3CODE_MOBILE_UPDATES_ENABLED": "0"
+      }
+    },
     "production": {
       "corepack": true,
       "env": {
         "APP_VARIANT": "production",
         "NODE_OPTIONS": "--max-old-space-size=4096"
       },
-      "channel": "production",
+      "channel": "after-dark",
       "environment": "production",
       "autoIncrement": true
+    },
+    "production:apk": {
+      "corepack": true,
+      "env": {
+        "APP_VARIANT": "production",
+        "NODE_OPTIONS": "--max-old-space-size=4096"
+      },
+      "channel": "after-dark",
+      "environment": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {
+    "v2-preview": {
+      "extends": "production",
+      "android": {
+        "track": "v2",
+        "releaseStatus": "completed"
+      }
+    },
     "production": {
       "ios": {
         "ascAppId": "6787819824"

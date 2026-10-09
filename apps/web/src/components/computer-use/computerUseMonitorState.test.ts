@@ -52,6 +52,12 @@ describe("Computer Use monitor telemetry", () => {
     expect(pointer?.yPercent).toBeCloseTo(8.3333);
   });
 
+  it("shows the default scroll target at the window center", () => {
+    expect(
+      pointerForAction(observation, "scroll", { observationId: "observation-1", deltaY: 3 }, 5),
+    ).toMatchObject({ xPercent: 50, yPercent: 50, operation: "scroll" });
+  });
+
   it("uses a drag destination and ignores actions from stale observations", () => {
     expect(
       pointerForAction(

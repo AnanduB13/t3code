@@ -44,7 +44,7 @@ export const ProviderUsageResult = Schema.Struct({
 });
 export type ProviderUsageResult = typeof ProviderUsageResult.Type;
 
-export class ProviderUsageError extends Schema.TaggedErrorClass<ProviderUsageError>()(
+export class ProviderUsageError extends Schema.TaggedError<ProviderUsageError>()(
   "ProviderUsageError",
   { message: Schema.String },
 ) {}

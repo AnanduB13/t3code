@@ -5,7 +5,7 @@ import type {
   ProviderUsageSnapshot,
   ProviderUsageWindow,
 } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Clock3Icon } from "lucide-react";
 
 import { providerUsageQuery } from "../../state/providerUsage";
@@ -42,18 +42,29 @@ export function formatWeeklyUsageReset(
 export function ComposerWeeklyUsage(props: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
-  readonly compact: boolean;
 }) {
   const result = useAtomValue(
     providerUsageQuery({ environmentId: props.environmentId, input: {} }),
   );
-  if (!AsyncResult.isSuccess(result)) return null;
+  if (!AsyncResult.isSuccess(result)) {
+    return (
+      <span className="hidden shrink-0 text-[10px] text-muted-foreground/45 md:inline">
+        Weekly usage {result.waiting ? "loading…" : "unavailable"}
+      </span>
+    );
+  }
 
   const provider = result.value.providers.find(
     (candidate) => candidate.instanceId === props.instanceId,
   );
   const weekly = selectWeeklyUsageWindow(provider);
-  if (!provider || !weekly) return null;
+  if (!provider || !weekly) {
+    return (
+      <span className="hidden shrink-0 text-[10px] text-muted-foreground/45 md:inline">
+        Weekly usage unavailable
+      </span>
+    );
+  }
 
   const remaining = Math.round(weekly.remainingPercent);
   const resetLabel = formatWeeklyUsageReset(weekly.resetsAt);
@@ -62,20 +73,17 @@ export function ComposerWeeklyUsage(props: {
 
   return (
     <div
-      className="border-t border-border/45 px-3 py-2 sm:px-4"
+      className="hidden min-w-0 md:block md:justify-self-center"
       data-chat-composer-weekly-usage="true"
       title={`${provider.displayName} weekly usage: ${remaining}% remaining${resetLabel ? `, ${resetLabel}` : ""}`}
     >
-      <div className="flex min-w-0 items-center gap-2.5">
-        <div className="flex min-w-0 shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground/80">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground/75">
           <span className="size-1.5 rounded-full bg-primary/70" aria-hidden="true" />
-          <span className={cn("truncate", props.compact && "max-w-16")}>
-            {provider.displayName}
-          </span>
-          <span className="text-muted-foreground/50">weekly</span>
+          <span className="max-w-16 truncate">{provider.displayName}</span>
         </div>
         <div
-          className="h-1 min-w-10 flex-1 overflow-hidden rounded-full bg-muted/80"
+          className="h-1 w-[clamp(3.5rem,10vw,7.5rem)] shrink-0 overflow-hidden rounded-full bg-muted/80"
           role="progressbar"
           aria-label={`${provider.displayName} weekly usage remaining`}
           aria-valuemin={0}
@@ -88,10 +96,10 @@ export function ComposerWeeklyUsage(props: {
           />
         </div>
         <span className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground/75">
-          {remaining}% left
+          {remaining}%
         </span>
-        {!props.compact && resetLabel ? (
-          <span className="hidden shrink-0 items-center gap-1 text-[10px] text-muted-foreground/60 sm:flex">
+        {resetLabel ? (
+          <span className="hidden shrink-0 items-center gap-1 text-[10px] text-muted-foreground/55 xl:flex">
             <Clock3Icon className="size-2.5" />
             {resetLabel}
           </span>

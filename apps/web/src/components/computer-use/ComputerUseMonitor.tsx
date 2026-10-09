@@ -8,7 +8,13 @@ import { cn } from "~/lib/utils";
 
 import type { ComputerUseMonitorState } from "./computerUseMonitorState";
 
-export function ComputerUseMonitor({ state }: { readonly state: ComputerUseMonitorState | null }) {
+export function ComputerUseMonitor({
+  state,
+  onStop,
+}: {
+  readonly state: ComputerUseMonitorState | null;
+  readonly onStop: () => void;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [hidden, setHidden] = useState(false);
   if (!state) return null;
@@ -41,7 +47,7 @@ export function ComputerUseMonitor({ state }: { readonly state: ComputerUseMonit
               ? "bg-destructive"
               : state.phase === "idle"
                 ? "bg-emerald-500"
-                : "animate-pulse bg-amber-400",
+                : "bg-amber-400",
           )}
         />
         <Camera className="size-3.5 text-muted-foreground" />
@@ -63,6 +69,15 @@ export function ComputerUseMonitor({ state }: { readonly state: ComputerUseMonit
           onClick={() => setCollapsed((value) => !value)}
         >
           <ChevronDown className={cn("size-3.5 transition-transform", collapsed && "-rotate-90")} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          aria-label="Stop sharing this computer with agents"
+          onClick={onStop}
+        >
+          Stop
         </Button>
         <Button
           type="button"
@@ -96,7 +111,7 @@ export function ComputerUseMonitor({ state }: { readonly state: ComputerUseMonit
                 className="pointer-events-none absolute z-10 -translate-x-[2px] -translate-y-[2px] transition-[left,top] duration-300 ease-out"
                 style={{ left: `${state.pointer.xPercent}%`, top: `${state.pointer.yPercent}%` }}
               >
-                <span className="absolute -left-2 -top-2 size-5 animate-ping rounded-full bg-sky-400/50" />
+                <span className="absolute -left-2 -top-2 size-5 rounded-full bg-sky-400/35" />
                 <MousePointer2 className="relative size-5 fill-sky-400 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]" />
               </div>
             )}

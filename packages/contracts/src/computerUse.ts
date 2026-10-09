@@ -27,6 +27,7 @@ export const ComputerUseDevice = Schema.Struct({
   architecture: TrimmedNonEmptyString.check(Schema.isMaxLength(32)),
   kind: Schema.Literals(["backend-device", "prompting-device", "remote-desktop"]),
   sessionIsolation: Schema.Literals(["shared", "isolated"]),
+  platformSupport: Schema.optional(Schema.Literals(["verified", "experimental"])),
   available: Schema.Boolean,
   unavailableReason: Schema.optional(Schema.String),
   supportedOperations: Schema.Array(ComputerUseOperation),
@@ -41,34 +42,54 @@ export const ComputerUseDeviceList = Schema.Struct({
 export type ComputerUseDeviceList = typeof ComputerUseDeviceList.Type;
 
 export const ComputerUseSelectDeviceInput = Schema.Struct({ deviceId: ComputerUseDeviceId });
+const ComputerUseWindowId = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
+const ComputerUseObservationId = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
 export const ComputerUseAppTargetInput = Schema.Struct({
-  windowId: Schema.optional(TrimmedNonEmptyString),
-  app: Schema.optional(TrimmedNonEmptyString),
+  windowId: Schema.optional(ComputerUseWindowId),
+  app: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
 });
 const ComputerUseObservedWindowInput = {
-  windowId: TrimmedNonEmptyString,
-  observationId: TrimmedNonEmptyString,
+  windowId: ComputerUseWindowId,
+  observationId: ComputerUseObservationId,
+  observeAfter: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Set true to return the next window observation with this action, saving a separate observation call. If observation fails after input, the result reports actionCompleted and observationError; do not repeat the action.",
+  }),
 };
+const ComputerUsePointerTargetInput = {
+  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  x: Schema.optional(Schema.Finite),
+  y: Schema.optional(Schema.Finite),
+};
+const validatePointerTarget = Schema.makeFilter(
+  (input: {
+    readonly elementIndex?: number | undefined;
+    readonly x?: number | undefined;
+    readonly y?: number | undefined;
+  }) => {
+    const hasElement = input.elementIndex !== undefined;
+    const hasX = input.x !== undefined;
+    const hasY = input.y !== undefined;
+    if (hasX !== hasY) return "Coordinates require both x and y.";
+    return hasElement !== (hasX && hasY) || "Provide exactly one pointer target.";
+  },
+);
 export const ComputerUseClickInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
+  ...ComputerUsePointerTargetInput,
   mouseButton: Schema.optional(Schema.Literals(["left", "right", "middle"])),
   clickCount: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3 }))),
-});
+}).check(validatePointerTarget);
 export const ComputerUseMoveInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  elementIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
-});
+  ...ComputerUsePointerTargetInput,
+}).check(validatePointerTarget);
 export const ComputerUseDragInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  fromX: Schema.Number,
-  fromY: Schema.Number,
-  toX: Schema.Number,
-  toY: Schema.Number,
+  fromX: Schema.Finite,
+  fromY: Schema.Finite,
+  toX: Schema.Finite,
+  toY: Schema.Finite,
 });
 export const ComputerUsePressKeyInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
@@ -77,18 +98,25 @@ export const ComputerUsePressKeyInput = Schema.Struct({
 });
 export const ComputerUseScrollInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
-  deltaX: Schema.optional(Schema.Number),
-  deltaY: Schema.optional(Schema.Number),
-});
+  x: Schema.optional(Schema.Finite),
+  y: Schema.optional(Schema.Finite),
+  deltaX: Schema.optional(Schema.Finite),
+  deltaY: Schema.optional(Schema.Finite),
+}).check(
+  Schema.makeFilter((input) => {
+    if ((input.x === undefined) !== (input.y === undefined)) {
+      return "Scroll coordinates require both x and y.";
+    }
+    return input.deltaX !== undefined || input.deltaY !== undefined || "Provide a scroll delta.";
+  }),
+);
 export const ComputerUseTypeTextInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
-  text: Schema.String,
+  text: Schema.String.check(Schema.isMaxLength(32_000)),
 });
 
 export const ComputerUseApp = Schema.Struct({
-  windowId: TrimmedNonEmptyString,
+  windowId: ComputerUseWindowId,
   index: Schema.Int,
   title: Schema.String,
   focused: Schema.Boolean,
@@ -120,8 +148,8 @@ export const ComputerUseElement = Schema.Struct({
 export type ComputerUseElement = typeof ComputerUseElement.Type;
 export const ComputerUseAppState = Schema.Struct({
   app: Schema.String,
-  windowId: TrimmedNonEmptyString,
-  observationId: TrimmedNonEmptyString,
+  windowId: ComputerUseWindowId,
+  observationId: ComputerUseObservationId,
   text: Schema.String,
   elements: Schema.Array(ComputerUseElement),
   navigation: Schema.Struct({
@@ -148,6 +176,15 @@ export const ComputerUseAppState = Schema.Struct({
 });
 export type ComputerUseAppState = typeof ComputerUseAppState.Type;
 
+export const ComputerUseActionResult = Schema.NullOr(
+  Schema.Struct({
+    actionCompleted: Schema.Literal(true),
+    observation: Schema.optional(ComputerUseAppState),
+    observationError: Schema.optional(Schema.String),
+  }),
+);
+export type ComputerUseActionResult = typeof ComputerUseActionResult.Type;
+
 export const ComputerUseClientId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export const ComputerUseConnectionId = TrimmedNonEmptyString.check(Schema.isMaxLength(64));
 export const ComputerUseHost = Schema.Struct({
@@ -173,6 +210,11 @@ export const ComputerUseStreamEvent = Schema.Union([
     connectionId: ComputerUseConnectionId,
     request: ComputerUseRequest,
   }),
+  Schema.Struct({
+    type: Schema.Literal("cancel"),
+    connectionId: ComputerUseConnectionId,
+    requestId: TrimmedNonEmptyString,
+  }),
 ]);
 export type ComputerUseStreamEvent = typeof ComputerUseStreamEvent.Type;
 
@@ -193,19 +235,19 @@ const ScopeFields = {
   providerInstanceId: ProviderInstanceId,
 };
 
-export class ComputerUseUnavailableError extends Schema.TaggedErrorClass<ComputerUseUnavailableError>()(
+export class ComputerUseUnavailableError extends Schema.TaggedError<ComputerUseUnavailableError>()(
   "ComputerUseUnavailableError",
   { ...ScopeFields, reason: Schema.String },
 ) {}
-export class ComputerUseDeviceSelectionRequiredError extends Schema.TaggedErrorClass<ComputerUseDeviceSelectionRequiredError>()(
+export class ComputerUseDeviceSelectionRequiredError extends Schema.TaggedError<ComputerUseDeviceSelectionRequiredError>()(
   "ComputerUseDeviceSelectionRequiredError",
   { ...ScopeFields, devices: Schema.Array(ComputerUseDevice) },
 ) {}
-export class ComputerUseDeviceNotFoundError extends Schema.TaggedErrorClass<ComputerUseDeviceNotFoundError>()(
+export class ComputerUseDeviceNotFoundError extends Schema.TaggedError<ComputerUseDeviceNotFoundError>()(
   "ComputerUseDeviceNotFoundError",
   { ...ScopeFields, deviceId: ComputerUseDeviceId },
 ) {}
-export class ComputerUseExecutionError extends Schema.TaggedErrorClass<ComputerUseExecutionError>()(
+export class ComputerUseExecutionError extends Schema.TaggedError<ComputerUseExecutionError>()(
   "ComputerUseExecutionError",
   {
     ...ScopeFields,
@@ -214,7 +256,7 @@ export class ComputerUseExecutionError extends Schema.TaggedErrorClass<ComputerU
     reason: Schema.String,
   },
 ) {}
-export class ComputerUseTimeoutError extends Schema.TaggedErrorClass<ComputerUseTimeoutError>()(
+export class ComputerUseTimeoutError extends Schema.TaggedError<ComputerUseTimeoutError>()(
   "ComputerUseTimeoutError",
   {
     ...ScopeFields,
