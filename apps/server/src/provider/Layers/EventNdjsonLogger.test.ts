@@ -50,6 +50,54 @@ function parseLogLine(line: string) {
 }
 
 describe("EventNdjsonLogger", () => {
+  it.effect("keeps old history and all rotations by default across flushes and restarts", () =>
+    Effect.gen(function* () {
+      const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-provider-log-"));
+      const basePath = NodePath.join(tempDir, "events.log");
+      const threadId = ThreadId.make("preserved");
+      const oldPath = ownedLogPath(basePath, "old");
+      const legacyBackup = `${ownedLogPath(basePath, "preserved")}.20`;
+      const options = {
+        maxBytes: 100,
+        maxFiles: 1,
+        maxAgeMs: 1,
+        maxTotalBytes: 1,
+        retentionCheckIntervalMs: 1,
+        batchWindowMs: 0,
+      };
+
+      try {
+        yield* TestClock.setTime(1_800_000_000_000);
+        NodeFS.writeFileSync(oldPath, "old history");
+        NodeFS.writeFileSync(legacyBackup, "legacy backup");
+        NodeFS.utimesSync(oldPath, 1, 1);
+        const store = yield* makeEventNdjsonLogStore(basePath, options);
+        for (let index = 0; index < 12; index += 1) {
+          yield* store.logger("native").write({ id: `preserved-${index}` }, threadId);
+        }
+        yield* TestClock.adjust("2 millis");
+        yield* store.logger("native").write({ id: "after-retention" }, ThreadId.make("other"));
+        yield* store.close();
+        const restarted = yield* makeEventNdjsonLogStore(basePath, options);
+        yield* restarted.logger("native").write({ id: "after-restart" }, threadId);
+        yield* restarted.close();
+
+        assert.equal(NodeFS.readFileSync(oldPath, "utf8"), "old history");
+        assert.equal(NodeFS.readFileSync(legacyBackup, "utf8"), "legacy backup");
+        const history = NodeFS.readdirSync(tempDir)
+          .map((file) => NodeFS.readFileSync(NodePath.join(tempDir, file), "utf8"))
+          .join("\n");
+        for (let index = 0; index < 12; index += 1) {
+          assert.include(history, `"id":"preserved-${index}"`);
+        }
+        assert.include(history, '"id":"after-retention"');
+        assert.include(history, '"id":"after-restart"');
+      } finally {
+        NodeFS.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }),
+  );
+
   it.effect("summarizes circular events without exposing their contents in diagnostics", () => {
     const messages: Array<unknown> = [];
     const logCapture = Logger.make<unknown, void>(({ message }) => {
@@ -673,6 +721,7 @@ describe("EventNdjsonLogger", () => {
         const store = yield* makeEventNdjsonLogStore(basePath, {
           maxBytes: 120,
           maxFiles: 2,
+          keepForever: false,
           batchWindowMs: 0,
         });
         const native = store.logger("native");
@@ -744,6 +793,7 @@ describe("EventNdjsonLogger", () => {
         const store = yield* makeEventNdjsonLogStore(basePath, {
           maxAgeMs: 10_000,
           maxTotalBytes: 60,
+          keepForever: false,
         });
         yield* store.close();
 
@@ -771,6 +821,7 @@ describe("EventNdjsonLogger", () => {
           batchWindowMs: 0,
           maxAgeMs: 1,
           retentionCheckIntervalMs: 1,
+          keepForever: false,
         });
         const logger = store.logger("native");
 

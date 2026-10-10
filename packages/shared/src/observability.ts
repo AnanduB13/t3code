@@ -133,6 +133,7 @@ export function causeErrorTag(cause: Cause.Cause<unknown>): string {
 }
 
 export interface TraceSinkOptions {
+  readonly keepForever?: boolean;
   readonly filePath: string;
   readonly maxBytes: number;
   readonly maxFiles: number;
@@ -364,6 +365,7 @@ function spanToTraceRecord(span: SerializableSpan): EffectTraceRecord {
 
 export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: TraceSinkOptions) {
   const sink = new RotatingFileSink({
+    keepForever: options.keepForever ?? false,
     filePath: options.filePath,
     maxBytes: options.maxBytes,
     maxFiles: options.maxFiles,
@@ -534,6 +536,7 @@ export const makeLocalFileTracer = Effect.fn("makeLocalFileTracer")(function* (
   const sink =
     options.sink ??
     (yield* makeTraceSink({
+      keepForever: options.keepForever ?? false,
       filePath: options.filePath,
       maxBytes: options.maxBytes,
       maxFiles: options.maxFiles,

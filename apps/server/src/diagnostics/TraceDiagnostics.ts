@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
 import type {
   ServerTraceDiagnosticsErrorKind,
   ServerTraceDiagnosticsFailureSummary,
@@ -423,7 +425,20 @@ export const make = Effect.gen(function* () {
     function* (options) {
       const readAt = options.readAt ?? (yield* DateTime.now);
       const slowSpanThresholdMs = options.slowSpanThresholdMs ?? DEFAULT_SLOW_SPAN_THRESHOLD_MS;
-      const paths = toRotatedTracePaths(options.traceFilePath, options.maxFiles);
+      const legacyPaths = toRotatedTracePaths(options.traceFilePath, options.maxFiles);
+      const entries = yield* fileSystem
+        .readDirectory(NodePath.dirname(options.traceFilePath))
+        .pipe(Effect.catch(() => Effect.succeed([] as Array<string>)));
+      const prefix = `${NodePath.basename(options.traceFilePath)}.`;
+      const additionalBackups = entries
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => name.slice(prefix.length))
+        .filter((suffix) => /^\d+$/u.test(suffix))
+        .map(Number)
+        .filter((index) => Number.isSafeInteger(index) && index > options.maxFiles)
+        .toSorted((left, right) => left - right)
+        .map((index) => `${options.traceFilePath}.${index}`);
+      const paths = [...legacyPaths.slice(0, -1), ...additionalBackups, options.traceFilePath];
       const aggregator = makeTraceDiagnosticsAggregator(slowSpanThresholdMs);
       const results = yield* Effect.forEach(
         paths,
@@ -440,7 +455,7 @@ export const make = Effect.gen(function* () {
             ),
             Effect.result,
           ),
-        // Every file feeds one aggregator, so read them one at a time, oldest first.
+        // Every file feeds one aggregator, so read them one at a time.
         { concurrency: 1 },
       );
       const foundFile = results.some((result) => Result.isSuccess(result) && result.success);

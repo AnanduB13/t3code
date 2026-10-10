@@ -39,6 +39,7 @@ export const ObservabilityLive = Layer.unwrap(
     const tracerLayer = Layer.unwrap(
       Effect.gen(function* () {
         const sink = yield* makeTraceSink({
+          keepForever: true,
           filePath: config.serverTracePath,
           maxBytes: config.traceMaxBytes,
           maxFiles: config.traceMaxFiles,

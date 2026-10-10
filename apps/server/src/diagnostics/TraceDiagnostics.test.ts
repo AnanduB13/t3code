@@ -63,6 +63,34 @@ function readTraces(fileSystem: Partial<FileSystem.FileSystem>) {
 }
 
 describe("TraceDiagnostics", () => {
+  it.effect("reads preserved backups beyond the legacy rotation count", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* readTraces({
+        readDirectory: () =>
+          Effect.succeed([
+            "server.trace.ndjson.12",
+            "server.trace.ndjson.11",
+            "server.trace.ndjson.invalid",
+            "other.trace.ndjson.50",
+          ]),
+        stream: (path) =>
+          Stream.make(
+            new TextEncoder().encode(
+              record({ name: path, traceId: path, spanId: path, startMs: 1_000, durationMs: 50 }),
+            ),
+          ),
+      });
+
+      assert.equal(diagnostics.recordCount, 4);
+      assert.deepStrictEqual(diagnostics.scannedFilePaths, [
+        `${traceFilePath}.1`,
+        `${traceFilePath}.11`,
+        `${traceFilePath}.12`,
+        traceFilePath,
+      ]);
+    }),
+  );
+
   it.effect("aggregates failures, slow spans, log levels, and parse errors", () =>
     Effect.sync(() => {
       const diagnostics = aggregateLines([

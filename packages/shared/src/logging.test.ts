@@ -36,6 +36,28 @@ afterEach(() => {
 });
 
 describe("RotatingFileSink", () => {
+  it("keeps every backup across rotations and restarts when keepForever is enabled", () => {
+    const directory = makeTempDirectory();
+    const filePath = NodePath.join(directory, "log.ndjson");
+    NodeFS.writeFileSync(`${filePath}.1`, "recent legacy backup");
+    NodeFS.writeFileSync(`${filePath}.99`, "older legacy backup");
+    const options = { filePath, maxBytes: 1, maxFiles: 1, keepForever: true };
+    const sink = new RotatingFileSink(options);
+    sink.write("a");
+    sink.write("b");
+    sink.write("c");
+
+    const restarted = new RotatingFileSink(options);
+    restarted.write("d");
+
+    expect(NodeFS.readFileSync(`${filePath}.1`, "utf8")).toBe("recent legacy backup");
+    expect(NodeFS.readFileSync(`${filePath}.99`, "utf8")).toBe("older legacy backup");
+    expect(NodeFS.readFileSync(`${filePath}.100`, "utf8")).toBe("a");
+    expect(NodeFS.readFileSync(`${filePath}.101`, "utf8")).toBe("b");
+    expect(NodeFS.readFileSync(`${filePath}.102`, "utf8")).toBe("c");
+    expect(NodeFS.readFileSync(filePath, "utf8")).toBe("d");
+  });
+
   it.each([
     { option: "maxBytes" as const, maxBytes: 0, maxFiles: 1 },
     { option: "maxFiles" as const, maxBytes: 1, maxFiles: 0 },

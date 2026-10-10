@@ -583,7 +583,8 @@ Local trace file:
 
 - `T3CODE_TRACE_FILE`: override trace file path
 - `T3CODE_TRACE_MAX_BYTES`: per-file rotation size, default `10485760`
-- `T3CODE_TRACE_MAX_FILES`: rotated file count, default `10`
+- Server traces and provider activity logs retain all rotated files without automatic age or size deletion. Their disk usage grows until you remove files manually.
+- `T3CODE_TRACE_MAX_FILES`: legacy rotation count, default `10`; the server preserves all backups regardless of this value
 - `T3CODE_TRACE_BATCH_WINDOW_MS`: flush window, default `200`
 - `T3CODE_TRACE_MIN_LEVEL`: minimum trace level, default `Info`
 - `T3CODE_TRACE_TIMING_ENABLED`: enable timing metadata, default `true`

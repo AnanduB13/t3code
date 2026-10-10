@@ -76,6 +76,8 @@ export interface EventNdjsonLogStore {
 }
 
 export interface EventNdjsonLogStoreOptions {
+  /** Defaults to true: age, size, and rotation never delete saved records. */
+  readonly keepForever?: boolean;
   readonly maxBytes?: number;
   readonly maxFiles?: number;
   readonly batchWindowMs?: number;
@@ -122,6 +124,7 @@ export type EventNdjsonLogStoreError =
   | EventNdjsonLogDirectoryError;
 
 interface ResolvedOptions {
+  readonly keepForever: boolean;
   readonly maxBytes: number;
   readonly maxFiles: number;
   readonly batchWindowMs: number;
@@ -420,6 +423,7 @@ function isProviderLogFile(filePath: string, fileName: string, filePrefix: strin
 }
 
 function enforceRetention(input: {
+  readonly keepForever: boolean;
   readonly directory: string;
   readonly maxTotalBytes: number;
   readonly maxAgeMs: number;
@@ -427,6 +431,7 @@ function enforceRetention(input: {
   readonly filePrefix: string;
   readonly now: number;
 }): RetentionResult {
+  if (input.keepForever) return { failures: [] };
   const failures: Array<FileOperationFailure> = [];
   const files: Array<{ filePath: string; mtimeMs: number; size: number }> = [];
 
@@ -492,6 +497,7 @@ function resolveOptions(
   options: EventNdjsonLogStoreOptions,
 ): Effect.Effect<ResolvedOptions, EventNdjsonLogConfigurationError> {
   const resolved = {
+    keepForever: options.keepForever ?? true,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
     maxFiles: options.maxFiles ?? DEFAULT_MAX_FILES,
     batchWindowMs: options.batchWindowMs ?? DEFAULT_BATCH_WINDOW_MS,
@@ -555,6 +561,7 @@ function drainPending(input: {
     if (!sink) {
       try {
         sink = new RotatingFileSink({
+          keepForever: input.options.keepForever,
           filePath,
           maxBytes: input.options.maxBytes,
           maxFiles: input.options.maxFiles,
@@ -590,6 +597,7 @@ function drainPending(input: {
     input.now - input.state.lastRetentionAt >= input.options.retentionCheckIntervalMs;
   const retention = retentionDue
     ? enforceRetention({
+        keepForever: input.options.keepForever,
         directory: input.directory,
         maxTotalBytes: input.options.maxTotalBytes,
         maxAgeMs: input.options.maxAgeMs,
@@ -648,6 +656,7 @@ export const makeEventNdjsonLogStore = Effect.fnUntraced(function* (
   const initializedAt = yield* Clock.currentTimeMillis;
   const initialRetention = yield* Effect.sync(() =>
     enforceRetention({
+      keepForever: resolved.keepForever,
       directory,
       maxTotalBytes: resolved.maxTotalBytes,
       maxAgeMs: resolved.maxAgeMs,
