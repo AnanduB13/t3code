@@ -43,7 +43,7 @@ const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-git-vcs-driver-test-",
 });
 const TestLayer = GitVcsDriver.layer.pipe(
-  Layer.provide(ServerConfigLayer),
+  Layer.provideMerge(ServerConfigLayer),
   Layer.provideMerge(NodeServices.layer),
 );
 
@@ -2279,6 +2279,191 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
+    it.effect("groups new worktrees by repository from roots, subdirectories, and worktrees", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const config = yield* ServerConfig;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const cwd = path.join(yield* makeTmpDir(), "my-project");
+        yield* fs.makeDirectory(cwd);
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const first = yield* driver.createWorktree({
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "feature/first",
+        });
+        yield* fs.makeDirectory(path.join(cwd, "src"));
+        const second = yield* driver.createWorktree({
+          cwd: path.join(cwd, "src"),
+          path: null,
+          refName: initialBranch,
+          newRefName: "feature/second",
+        });
+        const third = yield* driver.createWorktree({
+          cwd: first.worktree.path,
+          path: null,
+          refName: initialBranch,
+          newRefName: "feature/third",
+        });
+
+        const group = path.dirname(first.worktree.path);
+        assert.equal(path.dirname(group), config.worktreesDir);
+        assert.match(path.basename(group), /^my-project-worktrees-[a-f0-9]{12}$/);
+        assert.equal(path.dirname(second.worktree.path), group);
+        assert.equal(path.dirname(third.worktree.path), group);
+        assert.equal(path.basename(first.worktree.path), "feature-first");
+        for (const created of [first, second, third]) {
+          assert.equal(
+            yield* git(created.worktree.path, ["branch", "--show-current"]),
+            created.worktree.refName,
+          );
+        }
+
+        yield* driver.removeWorktree({ cwd, path: third.worktree.path });
+        assert.equal(yield* fs.exists(third.worktree.path), false);
+        assert.equal(yield* fs.exists(first.worktree.path), true);
+        assert.equal(yield* fs.exists(second.worktree.path), true);
+      }),
+    );
+
+    it.effect("keeps same-named repositories in separate worktree groups", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const root = yield* makeTmpDir();
+        const groups: string[] = [];
+        for (const parent of ["one", "two"]) {
+          const cwd = path.join(root, parent, "my-project");
+          yield* fs.makeDirectory(cwd, { recursive: true });
+          const { initialBranch } = yield* initRepoWithCommit(cwd);
+          yield* writeTextFile(cwd, "README.md", parent);
+          yield* git(cwd, ["commit", "-am", parent]);
+          const created = yield* driver.createWorktree({
+            cwd,
+            path: null,
+            refName: initialBranch,
+            newRefName: "feature/shared-name",
+          });
+          groups.push(path.dirname(created.worktree.path));
+          assert.equal(
+            yield* fs.readFileString(path.join(created.worktree.path, "README.md")),
+            parent,
+          );
+        }
+        assert.notEqual(groups[0], groups[1]);
+      }),
+    );
+
+    it.effect(
+      "preserves legacy worktree paths and uncommitted files when creating new worktrees",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const config = yield* ServerConfig;
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const cwd = yield* makeTmpDir();
+          const { initialBranch } = yield* initRepoWithCommit(cwd);
+          const legacyPath = path.join(config.worktreesDir, path.basename(cwd), "feature-existing");
+          const legacy = yield* driver.createWorktree({
+            cwd,
+            path: legacyPath,
+            refName: initialBranch,
+            newRefName: "feature/existing",
+          });
+          assert.equal(legacy.worktree.path, legacyPath);
+          yield* driver.removeWorktree({ cwd, path: legacyPath });
+          const recreated = yield* driver.createWorktree({
+            cwd,
+            path: legacyPath,
+            refName: legacy.worktree.refName,
+          });
+          assert.equal(recreated.worktree.path, legacyPath);
+          yield* writeTextFile(legacyPath, "README.md", "unfinished work\n");
+          yield* writeTextFile(legacyPath, "notes.txt", "keep me\n");
+          const head = yield* git(legacyPath, ["rev-parse", "HEAD"]);
+          const gitFile = yield* fs.readFileString(path.join(legacyPath, ".git"));
+
+          const created = yield* driver.createWorktree({
+            cwd: legacyPath,
+            path: null,
+            refName: initialBranch,
+            newRefName: "feature/new-layout",
+          });
+          assert.notEqual(path.dirname(created.worktree.path), path.dirname(legacyPath));
+          const duplicate = yield* driver
+            .createWorktree({ cwd, path: null, refName: "feature/existing" })
+            .pipe(Effect.result);
+          assert.equal(Result.isFailure(duplicate), true);
+
+          const refs = yield* driver.listRefs({ cwd, refresh: true });
+          const listedPath = refs.refs.find((ref) => ref.name === "feature/existing")?.worktreePath;
+          if (!listedPath) {
+            return assert.fail("expected the legacy worktree to remain registered");
+          }
+          assert.equal(
+            NodeFS.realpathSync.native(listedPath),
+            NodeFS.realpathSync.native(legacyPath),
+          );
+          assert.equal(yield* git(legacyPath, ["rev-parse", "HEAD"]), head);
+          assert.equal(yield* fs.readFileString(path.join(legacyPath, ".git")), gitFile);
+          assert.equal(
+            yield* fs.readFileString(path.join(legacyPath, "README.md")),
+            "unfinished work\n",
+          );
+          assert.equal(yield* fs.readFileString(path.join(legacyPath, "notes.txt")), "keep me\n");
+        }),
+    );
+
+    it.effect("avoids occupied folders and colliding branch folder names", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const first = yield* driver.createWorktree({
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "feature/collision",
+        });
+        yield* writeTextFile(first.worktree.path, "README.md", "keep this change\n");
+        const second = yield* driver.createWorktree({
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "feature-collision",
+        });
+        assert.equal(second.worktree.path, `${first.worktree.path}-2`);
+        assert.equal(
+          yield* fs.readFileString(path.join(first.worktree.path, "README.md")),
+          "keep this change\n",
+        );
+        assert.equal(
+          yield* git(second.worktree.path, ["branch", "--show-current"]),
+          "feature-collision",
+        );
+
+        const occupied = path.join(path.dirname(first.worktree.path), "reserved");
+        yield* writeTextFile(occupied, "notes.txt", "keep this folder\n");
+        const third = yield* driver.createWorktree({
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "reserved",
+        });
+        assert.equal(third.worktree.path, `${occupied}-2`);
+        assert.equal(
+          yield* fs.readFileString(path.join(occupied, "notes.txt")),
+          "keep this folder\n",
+        );
+      }),
+    );
+
     it.effect("uses parallel checkout without skipping filters or hooks", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
