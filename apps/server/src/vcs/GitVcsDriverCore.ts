@@ -3345,12 +3345,72 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  // Resolve the group from Git so subdirectories and linked worktrees share
+  // one location. This only allocates new paths; recorded paths stay intact.
+  const resolveDefaultWorktreePath = Effect.fn("resolveDefaultWorktreePath")(function* (
+    cwd: string,
+    parentDir: string,
+    branch: string,
+  ) {
+    const gitCommonDir = yield* resolveGitCommonDir(cwd);
+    const worktrees = yield* runGitStdout("GitVcsDriver.createWorktree.listWorktrees", cwd, [
+      "worktree",
+      "list",
+      "--porcelain",
+      "-z",
+    ]);
+    const mainWorktreePath = worktrees.split("\0")[0]?.slice("worktree ".length);
+    if (!mainWorktreePath) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.createWorktree.listWorktrees",
+          cwd,
+          args: ["worktree", "list", "--porcelain", "-z"],
+        }),
+        detail: "Failed to resolve the main repository path for worktree storage.",
+      });
+    }
+    const repoName = path.basename(mainWorktreePath).replace(/\.git$/, "") || "project";
+    const repoHash = yield* crypto.digest("SHA-256", new TextEncoder().encode(gitCommonDir)).pipe(
+      Effect.map((digest) => Hex.encode(digest).slice(0, 12)),
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            operation: "GitVcsDriver.createWorktree.hashRepository",
+            command: "crypto.digest SHA-256",
+            cwd,
+            detail: "Failed to identify the repository for worktree storage.",
+            cause,
+          }),
+      ),
+    );
+    const basePath = path.join(parentDir, `${repoName}-worktrees-${repoHash}`, branch);
+    let worktreePath = basePath;
+    let suffix = 2;
+    while (
+      yield* fileSystem.exists(worktreePath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree.resolvePath",
+              command: "filesystem.exists",
+              cwd,
+              detail: "Failed to check whether the worktree path is available.",
+              cause,
+            }),
+        ),
+      )
+    ) {
+      worktreePath = `${basePath}-${suffix++}`;
+    }
+    return worktreePath;
+  });
+
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input, options) {
     const targetBranch = input.newRefName ?? input.refName;
     const sanitizedBranch = targetBranch.replace(/\//g, "-");
-    const repoName = path.basename(input.cwd);
     let worktreePath = input.path;
     if (worktreePath == null) {
       const parentDir = resolveWorktreesDirectory(
@@ -3366,7 +3426,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           detail: `The worktree location "${options?.worktreesDirectory}" must be an absolute folder on this machine, not a drive root. Change it in Settings → Storage.`,
         });
       }
-      worktreePath = path.join(parentDir, repoName, sanitizedBranch);
+      worktreePath = yield* resolveDefaultWorktreePath(input.cwd, parentDir, sanitizedBranch);
     }
     const args = input.newRefName
       ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
