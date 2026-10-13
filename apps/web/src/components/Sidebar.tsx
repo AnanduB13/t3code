@@ -2776,8 +2776,8 @@ export default function Sidebar() {
     },
     [isMobile, router, setOpenMobile],
   );
-  // Anchor for the scope popup: the header search field, not its icon trigger.
-  const headerSearchRef = useRef<HTMLDivElement | null>(null);
+  // Anchor for the scope popup, matching the sidebar's padded header width.
+  const headerRef = useRef<HTMLDivElement | null>(null);
   // Safari can send a click after Ctrl+click opens settings. Ignore that one
   // selection, then clear the guard when the picker opens again.
   const suppressNextScopeChangeRef = useRef(false);
@@ -4742,7 +4742,7 @@ export default function Sidebar() {
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
-              searchFieldRef={headerSearchRef}
+              headerRef={headerRef}
               hasProjects={projectGroups.length > 0}
               showProjectScope={sidebarMode === "projects"}
               projectScope={
@@ -4793,12 +4793,10 @@ export default function Sidebar() {
                   </ComboboxTrigger>
                   <ComboboxPopup
                     align="start"
-                    // Anchored to the search field, not the 28px trigger: the
-                    // popup opens under the field, is at least as wide as it,
-                    // and grows to fit project names up to a cap, past which
-                    // the rows truncate.
-                    anchor={headerSearchRef}
-                    className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
+                    // Match the header row so resizing the sidebar keeps the
+                    // popup inside it and long project names truncate.
+                    anchor={headerRef}
+                    className="w-(--anchor-width) overflow-hidden"
                   >
                     <ComboboxSearchInput
                       aria-label="Search projects"
