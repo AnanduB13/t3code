@@ -113,9 +113,6 @@ import { randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
-import { EnvironmentSummaryWidget } from "~/components/chat/EnvironmentSummaryPopover";
-import { useDiffPanelStore } from "~/diffPanelStore";
-import { useRightPanelStore } from "~/rightPanelStore";
 import { useOpenLink } from "~/browser/useOpenLink";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 
@@ -1635,25 +1632,6 @@ export default function GitActionsControl({
 
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
 
-  const openChanges = useCallback(() => {
-    if (!activeThreadRef) return;
-    useDiffPanelStore
-      .getState()
-      .selectGitScope(
-        activeThreadRef,
-        gitStatusForActions?.hasWorkingTreeChanges ? "unstaged" : "branch",
-      );
-    useRightPanelStore.getState().open(activeThreadRef, "diff");
-  }, [activeThreadRef, gitStatusForActions?.hasWorkingTreeChanges]);
-
-  const activeWorktreePath = activeServerThread?.worktreePath ?? activeDraftThread?.worktreePath;
-  const workspaceDetail = activeWorktreePath
-    ? (activeWorktreePath
-        .replace(/[\\/]+$/, "")
-        .split(/[\\/]/)
-        .at(-1) ?? activeWorktreePath)
-    : gitCwd;
-
   const initializeGit = () => {
     void (async () => {
       const result = await initAction.run();
@@ -1865,24 +1843,6 @@ export default function GitActionsControl({
           </Menu>
         </Group>
       )}
-      <EnvironmentSummaryWidget
-        threadRef={activeThreadRef}
-        status={gitStatusForActions}
-        workspaceLabel={activeWorktreePath ? "Worktree" : "Local checkout"}
-        workspaceDetail={workspaceDetail}
-        providerName={sourceControlPresentation.providerName}
-        ProviderIcon={SourceControlIcon}
-        quickActionLabel={isRepo ? quickAction.label : "Initialize Git"}
-        quickActionDisabled={
-          isRepo ? isGitActionRunning || quickAction.disabled : initAction.isPending
-        }
-        refreshing={gitStatusQuery.isPending}
-        onRefresh={() => requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd)}
-        onOpenChanges={openChanges}
-        onRunQuickAction={isRepo ? runQuickAction : initializeGit}
-        onOpenPullRequest={() => void openExistingPr()}
-      />
-
       <Dialog
         open={isCommitDialogOpen}
         onOpenChange={(open) => {
