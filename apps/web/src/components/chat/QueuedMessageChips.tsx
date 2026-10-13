@@ -34,6 +34,7 @@ import type { MessageId, OrchestrationQueuedMessage } from "@t3tools/contracts";
 
 import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** Queues longer than this collapse into a single summary row until expanded. */
@@ -110,7 +111,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   return (
     <section
       aria-label="Prompt queue"
-      className="pointer-events-auto relative z-0 mx-auto mb-1.5 w-[calc(100%_-_1.5rem)] max-w-[46.5rem] overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
+      className="pointer-events-auto relative z-20 mx-auto w-[calc(100%_-_1.5rem)] max-w-[46.5rem] overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
     >
       {collapsed ? (
         <button
@@ -122,7 +123,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
         >
           <ListEndIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="shrink-0 text-xs text-muted-foreground">Next</span>
-          <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
+          <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
             {queuedMessageLabel(nextMessage)}
           </span>
           <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs font-medium tabular-nums text-muted-foreground group-hover:text-foreground">
@@ -167,20 +168,28 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                   <SortableQueuedMessageRow
                     key={queuedMessage.messageId}
                     id={queuedMessage.messageId}
+                    disabled={editingId !== null}
                   >
                     {({ attributes, listeners, setNodeRef, style, isDragging }) => (
                       <li
                         ref={setNodeRef}
                         style={style}
-                        className={`flex min-w-0 items-center gap-2 px-3 py-2 ${isDragging ? "relative z-10 bg-card shadow-md" : ""}`}
+                        className={cn(
+                          "min-w-0 gap-2 px-3 py-2",
+                          editingId === queuedMessage.messageId
+                            ? "grid grid-cols-[1.25rem_minmax(0,1fr)] items-start"
+                            : "flex items-center",
+                          isDragging && "relative z-10 bg-card shadow-md",
+                        )}
                       >
                         <Tooltip>
                           <TooltipTrigger
                             render={
                               <button
                                 type="button"
-                                className="flex size-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-accent/40 hover:text-foreground active:cursor-grabbing"
+                                className="flex size-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-accent/40 hover:text-foreground active:cursor-grabbing disabled:cursor-default disabled:opacity-40"
                                 aria-label={`Reorder queued prompt ${index + 1}`}
+                                disabled={editingId !== null}
                                 {...attributes}
                                 {...listeners}
                               />
@@ -193,17 +202,23 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                         {editingId === queuedMessage.messageId ? (
                           <textarea
                             autoFocus
-                            rows={2}
+                            rows={3}
                             value={draftText}
                             onChange={(event) => setDraftText(event.target.value)}
                             onKeyDown={(event) => {
-                              if (event.key === "Escape") setEditingId(null);
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setEditingId(null);
+                              }
                               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                                event.preventDefault();
+                                event.stopPropagation();
                                 saveEdit(queuedMessage);
                               }
                             }}
                             aria-label={`Edit queued prompt ${index + 1}`}
-                            className="min-h-10 min-w-0 flex-1 resize-y rounded-md border border-border/70 bg-background/70 px-2 py-1.5 text-[13px] leading-5 outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
+                            className="col-start-2 min-h-20 w-full min-w-0 resize-y rounded-lg border border-border/70 bg-background/70 px-2 py-1.5 text-sm leading-5 outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
                           />
                         ) : (
                           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -218,14 +233,13 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                                     <img
                                       key={attachment.id}
                                       src={attachmentUrl}
-                                      alt=""
-                                      title={attachment.name}
+                                      alt={attachment.name}
                                       className="size-6 rounded-md border border-border/80 bg-muted object-cover"
                                     />
                                   ) : (
                                     <span
                                       key={attachment.id}
-                                      title={attachment.name}
+                                      aria-label={attachment.name}
                                       className="flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-muted-foreground"
                                     >
                                       {attachment.type === "pdf" ? (
@@ -237,23 +251,28 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                                   );
                                 })}
                                 {queuedMessage.attachments.length > 3 ? (
-                                  <span className="relative flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-[10px] text-muted-foreground">
+                                  <span className="relative flex size-6 items-center justify-center rounded-md border border-border/80 bg-muted text-3xs text-muted-foreground">
                                     +{queuedMessage.attachments.length - 3}
                                   </span>
                                 ) : null}
                               </span>
                             ) : null}
-                            <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
+                            <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
                               {queuedMessageLabel(queuedMessage)}
                             </span>
                           </div>
                         )}
-                        <div className="flex shrink-0 items-center gap-1">
+                        <div
+                          className={cn(
+                            "flex shrink-0 items-center gap-1",
+                            editingId === queuedMessage.messageId && "col-start-2 justify-end",
+                          )}
+                        >
                           {editingId === queuedMessage.messageId ? (
                             <>
                               <Button
-                                size="icon-xs"
-                                variant="ghost"
+                                size="xs"
+                                variant="secondary"
                                 aria-label="Save queued prompt"
                                 disabled={
                                   draftText.trim().length === 0 &&
@@ -262,79 +281,80 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                                 onClick={() => saveEdit(queuedMessage)}
                               >
                                 <CheckIcon className="size-3" />
+                                Save
                               </Button>
                               <Button
-                                size="icon-xs"
+                                size="xs"
                                 variant="ghost"
                                 aria-label="Cancel editing queued prompt"
                                 onClick={() => setEditingId(null)}
                               >
                                 <XIcon className="size-3" />
+                                Cancel
                               </Button>
                             </>
                           ) : (
-                            <Tooltip>
-                              <TooltipTrigger
-                                render={
-                                  <Button
-                                    size="icon-xs"
-                                    variant="ghost"
-                                    aria-label="Edit queued message"
-                                    onClick={() => {
-                                      setEditingId(queuedMessage.messageId);
-                                      setDraftText(queuedMessage.text);
-                                    }}
-                                  />
-                                }
-                              >
-                                <PencilIcon className="size-3" />
-                              </TooltipTrigger>
-                              <TooltipPopup side="top">Edit queued prompt</TooltipPopup>
-                            </Tooltip>
+                            <>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size="icon-xs"
+                                      variant="ghost"
+                                      aria-label="Edit queued message"
+                                      onClick={() => {
+                                        setEditingId(queuedMessage.messageId);
+                                        setDraftText(queuedMessage.text);
+                                      }}
+                                    />
+                                  }
+                                >
+                                  <PencilIcon className="size-3" />
+                                </TooltipTrigger>
+                                <TooltipPopup side="top">Edit queued prompt</TooltipPopup>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size="xs"
+                                      variant="ghost"
+                                      disabled={steerDisabled}
+                                      aria-label={`Steer queued prompt ${index + 1}`}
+                                      onClick={() => {
+                                        if (queuedMessages.length === 1)
+                                          onSteer(queuedMessage.messageId);
+                                        else setSteerSelection([queuedMessage.messageId]);
+                                      }}
+                                    />
+                                  }
+                                >
+                                  <CornerUpRightIcon className="size-3" />
+                                  Steer
+                                </TooltipTrigger>
+                                <TooltipPopup side="top" className="max-w-72 whitespace-normal">
+                                  {steerDisabled
+                                    ? "Waiting for the agent to start"
+                                    : "Send this prompt into the active turn"}
+                                </TooltipPopup>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size="icon-xs"
+                                      variant="ghost"
+                                      aria-label="Remove queued message"
+                                      onClick={() => onRemove(queuedMessage.messageId)}
+                                    />
+                                  }
+                                >
+                                  <Trash2Icon className="size-3" />
+                                </TooltipTrigger>
+                                <TooltipPopup side="top">Remove from queue</TooltipPopup>
+                              </Tooltip>
+                            </>
                           )}
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  size="xs"
-                                  variant="ghost"
-                                  disabled={steerDisabled}
-                                  aria-label={`Steer queued prompt ${index + 1}`}
-                                  onClick={() => {
-                                    if (queuedMessages.length === 1)
-                                      onSteer(queuedMessage.messageId);
-                                    else setSteerSelection([queuedMessage.messageId]);
-                                  }}
-                                />
-                              }
-                            >
-                              <CornerUpRightIcon className="size-3" />
-                              Steer
-                            </TooltipTrigger>
-                            <TooltipPopup
-                              side="top"
-                              className="max-w-72 whitespace-normal leading-tight"
-                            >
-                              {steerDisabled
-                                ? "Waiting for the agent to start"
-                                : "Send this prompt into the active turn"}
-                            </TooltipPopup>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  size="icon-xs"
-                                  variant="ghost"
-                                  aria-label="Remove queued message"
-                                  onClick={() => onRemove(queuedMessage.messageId)}
-                                />
-                              }
-                            >
-                              <Trash2Icon className="size-3" />
-                            </TooltipTrigger>
-                            <TooltipPopup side="top">Remove from queue</TooltipPopup>
-                          </Tooltip>
                         </div>
                       </li>
                     )}
@@ -351,53 +371,55 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
           if (!open) setSteerSelection(null);
         }}
       >
-        <DialogPopup className="p-4">
-          <DialogTitle>Choose prompts to steer</DialogTitle>
-          <DialogDescription>
-            Selected prompts are sent in queue order. Unselected prompts stay queued.
-          </DialogDescription>
-          <div className="my-4 max-h-64 space-y-2 overflow-y-auto">
-            {queuedMessages.map((message, index) => (
-              <label
-                key={message.messageId}
-                className="flex items-start gap-3 rounded-md border border-border p-3 text-sm"
+        <DialogPopup>
+          <div className="p-4">
+            <DialogTitle>Choose prompts to steer</DialogTitle>
+            <DialogDescription>
+              Selected prompts are sent in queue order. Unselected prompts stay queued.
+            </DialogDescription>
+            <div className="my-4 max-h-64 space-y-2 overflow-y-auto">
+              {queuedMessages.map((message, index) => (
+                <label
+                  key={message.messageId}
+                  className="flex items-start gap-3 rounded-md border border-border p-3 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 shrink-0"
+                    checked={steerSelection?.includes(message.messageId) ?? false}
+                    onChange={(event) =>
+                      setSteerSelection((current) =>
+                        event.target.checked
+                          ? [...(current ?? []), message.messageId]
+                          : (current ?? []).filter((id) => id !== message.messageId),
+                      )
+                    }
+                  />
+                  <span className="min-w-0 whitespace-pre-wrap break-words">
+                    {index + 1}. {queuedMessageLabel(message)}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setSteerSelection(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={steerDisabled || selectedMessages.length === 0}
+                onClick={() => {
+                  const target = selectedMessages.at(-1);
+                  if (!target) return;
+                  onSteer(
+                    target.messageId,
+                    selectedMessages.map((message) => message.messageId),
+                  );
+                  setSteerSelection(null);
+                }}
               >
-                <input
-                  type="checkbox"
-                  className="mt-1 shrink-0"
-                  checked={steerSelection?.includes(message.messageId) ?? false}
-                  onChange={(event) =>
-                    setSteerSelection((current) =>
-                      event.target.checked
-                        ? [...(current ?? []), message.messageId]
-                        : (current ?? []).filter((id) => id !== message.messageId),
-                    )
-                  }
-                />
-                <span className="min-w-0 whitespace-pre-wrap break-words">
-                  {index + 1}. {queuedMessageLabel(message)}
-                </span>
-              </label>
-            ))}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setSteerSelection(null)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={steerDisabled || selectedMessages.length === 0}
-              onClick={() => {
-                const target = selectedMessages.at(-1);
-                if (!target) return;
-                onSteer(
-                  target.messageId,
-                  selectedMessages.map((message) => message.messageId),
-                );
-                setSteerSelection(null);
-              }}
-            >
-              Steer selected ({selectedMessages.length})
-            </Button>
+                Steer selected ({selectedMessages.length})
+              </Button>
+            </div>
           </div>
         </DialogPopup>
       </Dialog>
@@ -407,9 +429,11 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
 
 function SortableQueuedMessageRow({
   id,
+  disabled,
   children,
 }: {
   readonly id: MessageId;
+  readonly disabled: boolean;
   readonly children: (bag: {
     attributes: ReturnType<typeof useSortable>["attributes"];
     listeners: ReturnType<typeof useSortable>["listeners"];
@@ -418,7 +442,7 @@ function SortableQueuedMessageRow({
     isDragging: boolean;
   }) => ReactNode;
 }) {
-  const sortable = useSortable({ id });
+  const sortable = useSortable({ id, disabled });
   return children({
     attributes: sortable.attributes,
     listeners: sortable.listeners,

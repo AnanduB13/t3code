@@ -10091,7 +10091,7 @@ export default function ChatView(props: ChatViewProps) {
               >
                 <div
                   data-chat-composer-stack="true"
-                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-max-width)"
+                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto flex w-full max-w-(--chat-max-width) flex-col gap-2"
                 >
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
