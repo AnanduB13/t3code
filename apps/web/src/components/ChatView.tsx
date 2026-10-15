@@ -11479,7 +11479,7 @@ export default function ChatView(props: ChatViewProps) {
               >
                 <div
                   data-chat-composer-stack="true"
-                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
+                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-2"
                 >
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full">
@@ -11498,6 +11498,17 @@ export default function ChatView(props: ChatViewProps) {
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {isServerThread && activeThread ? (
+                    <QueuedMessageChips
+                      queuedMessages={queuedPrompts}
+                      attachmentUrlById={queuedAttachmentUrlById}
+                      steerDisabled={phase !== "running"}
+                      onSteer={onSteerQueuedMessage}
+                      onRemove={onRemoveQueuedMessage}
+                      onUpdate={onUpdateQueuedMessage}
+                      onReorder={onReorderQueuedMessages}
+                    />
                   ) : null}
                   <div
                     ref={draftHeroTransition.composerAnchorRef}
@@ -11588,19 +11599,6 @@ export default function ChatView(props: ChatViewProps) {
                                           : projectCloneSendBlockReason
                               }
                               isPreparingWorktree={isPreparingWorktree}
-                              queuedRunsControl={
-                                isServerThread && activeThread ? (
-                                  <QueuedMessageChips
-                                    queuedMessages={queuedPrompts}
-                                    attachmentUrlById={queuedAttachmentUrlById}
-                                    steerDisabled={phase !== "running"}
-                                    onSteer={onSteerQueuedMessage}
-                                    onRemove={onRemoveQueuedMessage}
-                                    onUpdate={onUpdateQueuedMessage}
-                                    onReorder={onReorderQueuedMessages}
-                                  />
-                                ) : null
-                              }
                               bannerItems={composerBannerItems}
                               // With attachments or contexts aboard the pick just inserts the
                               // text, so it sends as a prompt like the typed path would.
