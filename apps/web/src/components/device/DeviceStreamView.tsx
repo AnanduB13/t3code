@@ -397,6 +397,12 @@ export function DeviceStreamView(props: {
         tabIndex={0}
         role="application"
         aria-label={`${props.platform === "ios" ? "iOS Simulator" : "Android Emulator"} screen`}
+        onFocus={(event) => {
+          // 3D canvases focus the host. Keep an editable target so chat's
+          // type-to-focus handler leaves device typing and paste alone.
+          if (event.target === event.currentTarget)
+            keyboardRef.current?.focus({ preventScroll: true });
+        }}
         onKeyDown={(event) => {
           event.stopPropagation();
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -416,26 +422,25 @@ export function DeviceStreamView(props: {
           clientRef.current?.sendKey(event.nativeEvent, "up");
         }}
       >
-        {props.platform === "android" ? (
-          <textarea
-            ref={keyboardRef}
-            aria-label="Android Emulator keyboard input"
-            className="pointer-events-none absolute size-px opacity-0"
-            autoComplete="off"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            onPaste={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              clientRef.current?.sendText(event.clipboardData.getData("text/plain"));
-            }}
-            onCompositionEnd={(event) => {
-              clientRef.current?.sendText(event.data);
-              event.currentTarget.value = "";
-            }}
-          />
-        ) : null}
+        <textarea
+          ref={keyboardRef}
+          aria-label={`${props.platform === "ios" ? "iOS Simulator" : "Android Emulator"} keyboard input`}
+          className="pointer-events-none absolute size-px opacity-0"
+          tabIndex={-1}
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onPaste={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            clientRef.current?.sendText(event.clipboardData.getData("text/plain"));
+          }}
+          onCompositionEnd={(event) => {
+            clientRef.current?.sendText(event.data);
+            event.currentTarget.value = "";
+          }}
+        />
         <div
           className={cn("relative select-none", showPhone && "invisible pointer-events-none")}
           style={{ width: frame.width, height: frame.height }}
