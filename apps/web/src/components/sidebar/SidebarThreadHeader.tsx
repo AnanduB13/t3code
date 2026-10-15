@@ -7,8 +7,8 @@
  * so the header still names the scope after the row that showed it is gone.
  *
  * The scope picker itself is passed in: its combobox state lives with the rest
- * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
- * the picker's popup can anchor to that width rather than to its 28px trigger.
+ * of the sidebar's scope logic. `headerRef` lands on the full row so the
+ * picker's popup can match its width rather than its 28px trigger.
  */
 import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
@@ -25,8 +25,8 @@ import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarThreadHeaderProps {
-  /** Lands on the search field so a popup can anchor to its width. */
-  searchFieldRef?: RefObject<HTMLDivElement | null>;
+  /** Lands on the full header row so a popup can match its width. */
+  headerRef?: RefObject<HTMLDivElement | null>;
   /** Without projects there is nothing to scope, so those controls stay out. */
   hasProjects: boolean;
   /** The project scope combobox, rendered as the first icon of the group. */
@@ -54,7 +54,7 @@ export interface SidebarThreadHeaderProps {
 }
 
 export function SidebarThreadHeader({
-  searchFieldRef,
+  headerRef,
   hasProjects,
   projectScope,
   showProjectScope,
@@ -84,11 +84,8 @@ export function SidebarThreadHeader({
     : "New thread";
 
   return (
-    <div className="flex items-center gap-1">
-      <div
-        ref={searchFieldRef}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-      >
+    <div ref={headerRef} className="flex items-center gap-1">
+      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground">
         <SearchIcon className="size-4 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
           ref={searchInputRef}
