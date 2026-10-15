@@ -4,6 +4,7 @@ import {
   type OrchestrationV2ThreadDetailSnapshot,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadStreamItem,
+  type ScopedThreadRef,
   type ThreadId as ThreadIdType,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -955,6 +956,14 @@ export function createEnvironmentThreadStateAtoms<R, E>(
     | R,
     E
   >,
+  options?: {
+    /**
+     * The thread's shell, or null when this client does not know the thread.
+     * A thread read before it exists (such as a draft's reserved id) is
+     * recorded as deleted; its shell appearing restarts the stream.
+     */
+    readonly threadShellAtom?: (ref: ScopedThreadRef) => Atom.Atom<object | null>;
+  },
 ) {
   // Cache definitions must outlive collectible live-atom definitions. The
   // registry retains these nodes without retaining environment or RPC scopes.
@@ -975,6 +984,14 @@ export function createEnvironmentThreadStateAtoms<R, E>(
         (get) => {
           get.mount(resumeAtom);
           const resume = get.once(resumeAtom);
+          const shellAtom = options?.threadShellAtom?.({ environmentId, threadId });
+          if (shellAtom !== undefined) {
+            get.subscribe(shellAtom, (shell) => {
+              if (shell === null || resume.snapshot?.state.status !== "deleted") return;
+              resume.snapshot = undefined;
+              get.refreshSelf();
+            });
+          }
           const live = threadStateChanges(environmentId, threadId, resume);
           return resume.snapshot === undefined
             ? live

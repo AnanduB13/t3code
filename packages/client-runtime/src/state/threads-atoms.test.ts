@@ -56,6 +56,7 @@ const SNAPSHOT: OrchestrationV2ThreadDetailSnapshot = { snapshotSequence: 7, pro
 const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?: {
   readonly snapshot?: OrchestrationV2ThreadDetailSnapshot;
   readonly snapshotUnavailable?: boolean;
+  readonly missingUntilCreated?: boolean;
 }) {
   const subscriptions = yield* Queue.unbounded<{
     readonly afterSequence: number | undefined;
@@ -68,6 +69,8 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     readonly closed: Deferred.Deferred<void>;
   }>();
   const snapshot = options?.snapshot ?? SNAPSHOT;
+  let created = options?.missingUntilCreated !== true;
+  const shellAtom = Atom.make<object | null>(created ? {} : null);
   let httpLoads = 0;
   let diskLoads = 0;
   let opened = 0;
@@ -195,6 +198,9 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
               if (options?.snapshotUnavailable === true) {
                 return { _tag: "unavailable" as const };
               }
+              if (!created) {
+                return { _tag: "missing" as const };
+              }
               return {
                 _tag: "present" as const,
                 snapshot,
@@ -213,7 +219,7 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
       ),
     ),
   );
-  const raw = createEnvironmentThreadStateAtoms(runtime);
+  const raw = createEnvironmentThreadStateAtoms(runtime, { threadShellAtom: () => shellAtom });
   const details = createEnvironmentThreadDetailAtoms(raw.stateAtom);
   const ref = { environmentId: TARGET.environmentId, threadId: THREAD_ID };
   const stateAtom = details.stateAtom(ref);
@@ -234,6 +240,10 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     olderLoads,
     loadEarlier: () => historyController.loadEarlier(TARGET.environmentId, THREAD_ID),
     counts: () => ({ httpLoads, diskLoads, opened, active }),
+    createThread: () => {
+      created = true;
+      registry.set(shellAtom, {});
+    },
   };
 });
 
@@ -276,6 +286,24 @@ describe("createEnvironmentThreadStateAtoms", () => {
       unmountStatus();
       yield* Deferred.await(first.closed);
       expect(h.counts().active).toBe(0);
+    }),
+  );
+
+  it.effect("recovers a thread that was read before it was created", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ missingUntilCreated: true });
+      const unmount = h.registry.mount(h.stateAtom);
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "deleted");
+      expect(h.counts()).toMatchObject({ httpLoads: 1, opened: 0 });
+
+      h.createThread();
+      const subscription = yield* Queue.take(h.subscriptions);
+      yield* Queue.offer(subscription.events, { kind: "synchronized" });
+      const state = yield* observeState(h.registry, h.stateAtom, (s) => s.status === "live");
+      expect(Option.getOrThrow(state.data)).toBe(THREAD);
+      expect(h.counts()).toMatchObject({ httpLoads: 2, opened: 1 });
+      unmount();
+      yield* Deferred.await(subscription.closed);
     }),
   );
 
