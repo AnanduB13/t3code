@@ -12,7 +12,7 @@ import { normalizeSkillName } from "@t3tools/shared/skillName";
 import { useMemo, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 

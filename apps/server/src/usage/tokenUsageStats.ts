@@ -40,26 +40,46 @@ export function summarizeTokenUsage(samples: ReadonlyArray<TokenUsageSample>): T
   };
 }
 
+interface LegacyTokenRow {
+  readonly threadId: string;
+  readonly totalProcessed: unknown;
+  readonly used: unknown;
+  readonly createdAt: string;
+}
+
+/**
+ * The last usable cumulative count of each V1 thread, from its
+ * `context-window.updated` activities in sequence order. The After Dark
+ * migration that preserves V1 totals stores these.
+ */
+export function latestLegacyTokenSamples(rows: ReadonlyArray<LegacyTokenRow>): ReadonlyArray<{
+  readonly threadId: string;
+  readonly tokens: number;
+  readonly sampledAt: string;
+}> {
+  const latest = new Map<string, { threadId: string; tokens: number; sampledAt: string }>();
+  for (const row of rows) {
+    const tokens = tokenCount(row.totalProcessed) ?? tokenCount(row.used);
+    if (tokens !== null) {
+      latest.set(row.threadId, { threadId: row.threadId, tokens, sampledAt: row.createdAt });
+    }
+  }
+  return [...latest.values()];
+}
+
 /**
  * Lifetime token usage across orchestration V2 provider threads and the
- * frozen V1 history copied into this database.
+ * frozen V1 totals the After Dark ledger preserved.
  */
 export const readTokenUsageStats = Effect.fn("readTokenUsageStats")(function* () {
   const sql = yield* SqlClient.SqlClient;
-  // V1 rows stop growing after the V2 cutover; the last snapshot per thread wins.
   const legacyRows = yield* sql<{
     readonly threadId: string;
-    readonly totalProcessed: unknown;
-    readonly used: unknown;
-    readonly createdAt: string;
+    readonly tokens: number;
+    readonly sampledAt: string;
   }>`
-    SELECT thread_id AS "threadId",
-      json_extract(payload_json, '$.totalProcessedTokens') AS "totalProcessed",
-      json_extract(payload_json, '$.usedTokens') AS "used",
-      created_at AS "createdAt"
-    FROM projection_thread_activities
-    WHERE kind = 'context-window.updated' AND json_valid(payload_json)
-    ORDER BY thread_id ASC, sequence ASC, created_at ASC, activity_id ASC
+    SELECT thread_id AS "threadId", tokens, sampled_at AS "sampledAt"
+    FROM after_dark_legacy_token_usage
   `;
   const providerRows = yield* sql<{
     readonly threadId: string | null;
@@ -75,18 +95,11 @@ export const readTokenUsageStats = Effect.fn("readTokenUsageStats")(function* ()
     WHERE json_valid(payload_json)
       AND json_extract(payload_json, '$.contextUsage') IS NOT NULL
   `;
-  const latestLegacy = new Map<string, TokenUsageSample>();
-  for (const row of legacyRows) {
-    const tokens = tokenCount(row.totalProcessed) ?? tokenCount(row.used);
-    if (tokens !== null) {
-      latestLegacy.set(row.threadId, {
-        threadId: row.threadId,
-        tokens,
-        date: row.createdAt.slice(0, 10),
-      });
-    }
-  }
-  const samples: Array<TokenUsageSample> = [...latestLegacy.values()];
+  const samples: Array<TokenUsageSample> = legacyRows.map((row) => ({
+    threadId: row.threadId,
+    tokens: row.tokens,
+    date: row.sampledAt.slice(0, 10),
+  }));
   for (const row of providerRows) {
     const tokens = tokenCount(row.totalProcessed) ?? tokenCount(row.used);
     if (tokens !== null && row.threadId !== null) {

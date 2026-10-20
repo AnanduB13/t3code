@@ -54,6 +54,7 @@ vi.mock("../WorkspaceBreadcrumb", () => ({
   WorkspaceBreadcrumb: "div",
   WorkspaceBreadcrumbItem: "div",
   WorkspaceBreadcrumbSeparator: "span",
+  WorkspaceBreadcrumbText: "span",
 }));
 vi.mock("./UsageProviderChart", () => ({ UsageProviderChart: "div" }));
 vi.mock("./UsageLimits", () => ({ UsageLimitsSection: () => <div>Account usage limits</div> }));
@@ -105,8 +106,8 @@ beforeEach(() => {
   testState.breakdown = "model";
   testState.windowSelection = 30;
   testState.useUsage.mockReset();
-  testState.useUsage.mockReturnValue({
-    merged: {
+  testState.useUsage.mockImplementation((window: unknown) => {
+    const merged = {
       ...mergeUsage([], USAGE_CONTRACT_VERSION),
       totalTokens: 24_000,
       cachedInputTokens: 18_000,
@@ -134,16 +135,34 @@ beforeEach(() => {
           tokenShare: 11 / 24,
         },
       ],
-    },
-    environments: [
-      { environmentId: "test", label: "Test", isPending: false, error: null, summary: null },
-    ],
-    selectedEnvironments: [
-      { environmentId: "test", label: "Test", isPending: false, error: null, summary: null },
-    ],
-    isPending: false,
-    isPartial: false,
-    refresh: vi.fn(),
+    };
+    return {
+      merged,
+      // An answered summary is what the page shows for the selected range.
+      shown: { window, merged },
+      environments: [
+        {
+          environmentId: "test",
+          label: "Test",
+          isPending: false,
+          error: null,
+          summary: null,
+          canReadDiagnostics: true,
+        },
+      ],
+      selectedEnvironments: [
+        {
+          environmentId: "test",
+          label: "Test",
+          isPending: false,
+          error: null,
+          summary: null,
+          canReadDiagnostics: true,
+        },
+      ],
+      isPartial: false,
+      refresh: vi.fn(),
+    };
   });
 });
 
@@ -188,6 +207,7 @@ describe("UsagePage restored dashboard", () => {
     expect(testState.useUsage).toHaveBeenCalledWith(
       expect.objectContaining({ sinceDay: "1970-01-01", resolution: "day" }),
       null,
+      expect.any(Set),
     );
   });
 

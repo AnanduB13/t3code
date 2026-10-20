@@ -13,8 +13,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -156,8 +156,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
     message: authMessage,
   } = resolveProviderSignInPresentation(provider, auth);
   const authMethod = readAntigravityAuthMethod(
-    config?.settings.providerInstances[instanceId]?.config ??
-      (instanceId === "antigravity" ? config?.settings.providers.antigravity : undefined),
+    config?.settings.providerInstances[instanceId]?.config,
   );
   const usesBrowser = authMethod === "oauth-personal" || authMethod === "oauth-business";
   const methodLabel =

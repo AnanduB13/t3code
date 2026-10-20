@@ -19,8 +19,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { parse as parseYamlDocument } from "yaml";
 
-import { writeFileStringAtomically } from "../atomicWrite.ts";
-import { expandHomePath } from "../pathExpansion.ts";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 const CODEX_SKILL_ROOT = ".agents/skills";
@@ -76,7 +76,7 @@ const resolveUserSkillRoot = Effect.fn("resolveUserSkillRoot")(function* (
       environmentValue(instance, "CODEX_HOME") ||
       process.env.CODEX_HOME?.trim() ||
       path.join(NodeOS.homedir(), ".codex");
-    return path.join(path.resolve(expandHomePath(configuredHome)), "skills");
+    return path.join(path.resolve(expandHomePath(configuredHome, NodeOS.homedir())), "skills");
   }
   if (
     provider === ProviderDriverKind.make("claudeAgent") ||
@@ -87,7 +87,7 @@ const resolveUserSkillRoot = Effect.fn("resolveUserSkillRoot")(function* (
       environmentValue(instance, "CLAUDE_CONFIG_DIR") ||
       process.env.CLAUDE_CONFIG_DIR?.trim() ||
       path.join(NodeOS.homedir(), ".claude");
-    return path.join(path.resolve(expandHomePath(configuredHome)), "skills");
+    return path.join(path.resolve(expandHomePath(configuredHome, NodeOS.homedir())), "skills");
   }
   return null;
 });

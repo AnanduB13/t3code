@@ -124,7 +124,7 @@ export const make = Effect.gen(function* () {
           Effect.acquireRelease(
             Effect.gen(function* () {
               const queue = yield* Queue.unbounded<ComputerUseStreamEvent>();
-              const connectionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+              const connectionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
               const connection = { host, connectionId, queue } satisfies Connection;
               yield* Queue.offer(queue, { type: "connected", connectionId });
               const previous = yield* SynchronizedRef.modify(state, (current) => {

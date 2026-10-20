@@ -58,42 +58,44 @@ export const releaseClaimedAttachments = Effect.fn("AttachmentClaims.releaseClai
  * AttachmentPrompt). Extraction is best effort; the PDF itself still reaches
  * the provider when it fails.
  */
-const writeExtractedPdfText = Effect.fn("AttachmentClaims.writeExtractedPdfText")(function* (input: {
-  readonly attachment: ChatAttachment;
-  readonly pdfPath: string;
-  readonly attachmentsDir: string;
-  readonly claimedPaths: Array<string>;
-}) {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const textPath = resolvePdfTextPath({
-    attachmentsDir: input.attachmentsDir,
-    attachmentId: input.attachment.id,
-  });
-  if (textPath === null) return;
-  yield* Effect.gen(function* () {
-    const bytes = yield* fileSystem.readFile(input.pdfPath);
-    const extracted = yield* Effect.tryPromise(() => extractPdfText(bytes));
-    yield* fileSystem.writeFileString(textPath, extracted.text).pipe(
-      Effect.andThen(Effect.sync(() => input.claimedPaths.push(textPath))),
-      Effect.uninterruptible,
-    );
-  }).pipe(
-    Effect.catch((cause) =>
-      Effect.logWarning(
-        "PDF text extraction failed; the original PDF remains available to the provider.",
-        { attachmentName: input.attachment.name, cause },
+const writeExtractedPdfText = Effect.fn("AttachmentClaims.writeExtractedPdfText")(
+  function* (input: {
+    readonly attachment: ChatAttachment;
+    readonly pdfPath: string;
+    readonly attachmentsDir: string;
+    readonly claimedPaths: Array<string>;
+  }) {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const textPath = resolvePdfTextPath({
+      attachmentsDir: input.attachmentsDir,
+      attachmentId: input.attachment.id,
+    });
+    if (textPath === null) return;
+    yield* Effect.gen(function* () {
+      const bytes = yield* fileSystem.readFile(input.pdfPath);
+      const extracted = yield* Effect.tryPromise(() => extractPdfText(bytes));
+      yield* fileSystem
+        .writeFileString(textPath, extracted.text)
+        .pipe(
+          Effect.andThen(Effect.sync(() => input.claimedPaths.push(textPath))),
+          Effect.uninterruptible,
+        );
+    }).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning(
+          "PDF text extraction failed; the original PDF remains available to the provider.",
+          { attachmentName: input.attachment.name, cause },
+        ),
       ),
-    ),
-  );
-});
+    );
+  },
+);
 
 /**
  * Claims pending uploads into the target thread's attachment store before the
- * command enters the orchestrator: verifies the staged file, copies it under a
- * thread-scoped id, and rewrites the attachment ref. A copy, not a move — the
- * pending file stays behind as the retry source for a failed bootstrap, and
- * the periodic pending sweep reclaims it later. Already-claimed attachments
- * pass through untouched.
+ * command enters the orchestrator.
+ * A copy, not a move — the pending file stays behind as the retry source for a
+ * failed bootstrap, and the periodic pending sweep reclaims it later.
  */
 export const claimPendingAttachments = Effect.fn("AttachmentClaims.claimPendingAttachments")(
   function* (input: {

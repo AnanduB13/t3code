@@ -58,6 +58,7 @@ const refresh = vi.fn();
 vi.mock("../../state/environments", () => ({
   usePrimaryEnvironmentId: () => local,
   useEnvironments: () => ({ environments, isReady: true }),
+  useEnvironmentProviders: () => new Map([[remote, [provider]]]),
 }));
 vi.mock("../../state/scheduledJobs", () => ({
   scheduledJobsEnvironment: {

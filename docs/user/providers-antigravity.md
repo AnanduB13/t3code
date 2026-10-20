@@ -61,14 +61,11 @@ agent authenticates. Mobile shows the selected method and its connect controls.
 | Gemini API key             | API key                                  | Choose **Connect**. No browser. |
 | Agent Platform (Vertex AI) | API key, or GCP project and GCP location | Choose **Connect**. No browser. |
 
-Gemini Enterprise resolves your license for the project and location you enter. Agent Platform
-with a project and location uses Application Default Credentials on the environment. API keys
-are stored in plain text in T3 Code settings on that environment and are passed only to the
-Antigravity agent process. Ambient `GEMINI_API_KEY` or `GOOGLE_*` variables on the environment
-are ignored.
-
-Changing the method stops the instance's sessions. Sign out or disconnect before you switch
-accounts.
+The environment stores the Antigravity API key outside its settings file, and
+clients only see whether one is saved. The agent uses the method and credentials selected for this instance;
+ambient `GEMINI_API_KEY` and Google credential variables do not override them.
+Changing the method stops the instance's sessions. Sign out before replacing an
+account.
 
 ## Runtime installation
 
@@ -165,9 +162,12 @@ that points into the managed runtime must be cleared first.
 
 ## Account access and errors
 
-Google controls account eligibility, models, and usage limits. T3 Code does not report your
-paid-plan tier or remaining subscription quota. See Google's [Antigravity plans][plans] and
-[personal Google sign-in guide][google-setup].
+Open **Usage > Limits** to see the remaining Gemini and shared Claude/GPT allowances
+for Google sign-ins. Each group has separate five-hour and weekly limits and reset
+times. Limits refresh with provider status and include usage outside T3 Code.
+
+A server restart keeps your Google sign-in. The provider shows the saved account
+until a session, a refresh, or a sign-out reports something new.
 
 To check access and reload models, use **Refresh provider status** in web or desktop
 provider settings, or **Refresh models** in mobile thread settings. If asked to

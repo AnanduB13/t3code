@@ -54,7 +54,7 @@ it.effect("upgrades the old After Dark ledger without losing queues, read state,
       yield* sql`SELECT migration_id FROM after_dark_migrations ORDER BY migration_id`;
     assert.deepEqual(
       forkLedger,
-      [1, 2, 3, 4, 5, 6, 7, 8].map((migration_id) => ({ migration_id })),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9].map((migration_id) => ({ migration_id })),
     );
     const latest = yield* sql`SELECT MAX(migration_id) AS id FROM effect_sql_migrations`;
     assert.deepEqual(latest, [{ id: migrationManifest.at(-1)?.[0] }]);
@@ -158,7 +158,7 @@ it.effect("migrates the deployed After Dark ledger through orchestration V2", ()
     assert.ok(threadColumns.some((column) => column.name === "auto_settle_disabled_at"));
     assert.deepEqual(
       yield* sql`SELECT migration_id FROM after_dark_migrations ORDER BY migration_id`,
-      [1, 2, 3, 4, 5, 6, 7, 8].map((migration_id) => ({ migration_id })),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9].map((migration_id) => ({ migration_id })),
     );
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

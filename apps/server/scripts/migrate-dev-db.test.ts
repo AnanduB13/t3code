@@ -14,8 +14,6 @@ const withDatabase = <A, E>(
   effect: Effect.Effect<A, E, SqlClient.SqlClient>,
 ) => effect.pipe(Effect.provide(NodeSqliteClient.layer({ filename: databasePath })));
 
-/** A migrated source db with one V2 thread per lifecycle state. Only
- * `stopped-thread` and its fork qualify for the clone. */
 const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(function* (
   baseDir: string,
 ) {
@@ -40,8 +38,6 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         '{"lineage":{"parentThreadId":"stopped-thread","relationshipToParent":"fork","rootThreadId":"stopped-thread"}}';
       const subagentPayload =
         '{"lineage":{"parentThreadId":"subagent-parent","relationshipToParent":"subagent","rootThreadId":"subagent-parent"},"forkedFrom":{"type":"node","nodeId":"node-1"}}';
-      // Excluded threads are newer than the kept family, so only the filters
-      // can keep them out of a one-family-per-project clone.
       const threads = [
         ["stopped-thread", "project-kept", "completed", "{}", "2026-08-01"],
         ["fork-thread", "project-kept", "completed", forkPayload, "2026-08-02"],
@@ -54,7 +50,6 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
           '{"limitRecovery":{"autoResume":true}}',
           "2026-08-05",
         ],
-        // Its result never reached the parent, so startup would deliver it.
         ["subagent-parent", "project-kept", "completed", "{}", "2026-08-05"],
         ["subagent-child", "project-kept", "completed", subagentPayload, "2026-08-05"],
         ["deleted-project-thread", "project-deleted", "completed", "{}", "2026-08-05"],
@@ -70,7 +65,6 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
           (event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at, actor_kind, payload_json, metadata_json)
           VALUES (${`event-${threadId}`}, 'thread', ${threadId}, 0, 'thread.created', '2026-08-01', 'user', '{}', '{}')`;
       }
-      // A provider session shared by two threads names its latest writer.
       yield* sql`INSERT INTO orchestration_v2_projection_provider_sessions
         (provider_session_id, thread_id, provider, status, updated_at, payload_json)
         VALUES ('session-shared', 'running-thread', 'codex', 'stopped', '2026-08-01', '{}')`;
@@ -94,51 +88,129 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
 });
 
 it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
-  it.effect("keeps stopped thread families from live projects and clears pending work", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-src-" });
-      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-dest-" });
-      const source = yield* createFixtureSource(sourceDir);
+  it.effect(
+    "accepts repaired After Dark history, keeps stopped families, and clears pending work",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-src-" });
+        const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-dest-" });
+        const source = yield* createFixtureSource(sourceDir);
 
-      const result = yield* runMigrateDevDb(
-        { baseDir: destDir, source, projects: 5, threadsPerProject: 1 },
-        { sharedHome: sourceDir },
-      );
+        yield* withDatabase(
+          source,
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            for (const [id, name] of [
+              [36, "ProjectionQueuedMessages"],
+              [41, "ProjectionQueuedMessages"],
+              [42, "EnsureProjectionThreadsPinned"],
+              [43, "ProjectionQueuedMessagePosition"],
+              [44, "AfterDarkUpstreamCompatibility"],
+              [45, "ProjectionThreadLastVisitedAt"],
+              [54, "AfterDarkMainCompatibility"],
+            ] as const) {
+              yield* sql`UPDATE effect_sql_migrations SET name = ${name} WHERE migration_id = ${id}`;
+            }
+          }),
+        );
 
-      assert.equal(result.databasePath, path.join(destDir, "userdata", "statev2.sqlite"));
-      const kept = yield* withDatabase(
-        result.databasePath,
-        Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient;
-          const threads = yield* sql<{ thread_id: string }>`
+        const result = yield* runMigrateDevDb(
+          { baseDir: destDir, source, projects: 5, threadsPerProject: 1 },
+          { sharedHome: sourceDir },
+        );
+
+        assert.equal(result.databasePath, path.join(destDir, "userdata", "statev2.sqlite"));
+        const kept = yield* withDatabase(
+          result.databasePath,
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            const threads = yield* sql<{ thread_id: string }>`
             SELECT thread_id FROM orchestration_v2_projection_threads ORDER BY thread_id`;
-          const events = yield* sql<{ stream_id: string }>`
+            const events = yield* sql<{ stream_id: string }>`
             SELECT stream_id FROM orchestration_events ORDER BY stream_id`;
-          const sessions = yield* sql<{ provider_session_id: string }>`
+            const sessions = yield* sql<{ provider_session_id: string }>`
             SELECT provider_session_id FROM orchestration_v2_projection_provider_sessions`;
-          const [leftovers] = yield* sql<{ auth: number; tasks: number; transfers: number }>`
+            const [leftovers] = yield* sql<{ auth: number; tasks: number; transfers: number }>`
             SELECT
               (SELECT COUNT(*) FROM auth_sessions) AS auth,
               (SELECT COUNT(*) FROM scheduled_tasks) AS tasks,
               (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers`;
-          return { threads, events, sessions, leftovers };
+            return { threads, events, sessions, leftovers };
+          }),
+        );
+        assert.deepStrictEqual(
+          kept.threads.map((row) => row.thread_id),
+          ["fork-thread", "stopped-thread"],
+        );
+        assert.deepStrictEqual(
+          kept.events.map((row) => row.stream_id),
+          ["fork-thread", "stopped-thread"],
+        );
+        assert.deepStrictEqual(
+          kept.sessions.map((row) => row.provider_session_id),
+          ["session-shared"],
+        );
+        assert.deepStrictEqual(kept.leftovers, { auth: 0, tasks: 0, transfers: 0 });
+      }),
+  );
+
+  it.effect("never copies a settled thread's rows, and new events append after the source's", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slice-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slice-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+      const [sourceSequence] = yield* withDatabase(
+        source,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* sql<{ seq: number }>`
+            SELECT seq FROM sqlite_sequence WHERE name = 'orchestration_events'`;
         }),
       );
-      assert.deepStrictEqual(
-        kept.threads.map((row) => row.thread_id),
-        ["fork-thread", "stopped-thread"],
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 100 },
+        { sharedHome: sourceDir },
       );
-      assert.deepStrictEqual(
-        kept.events.map((row) => row.stream_id),
-        ["fork-thread", "stopped-thread"],
+
+      const copied = yield* withDatabase(
+        result.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const [settledRows] = yield* sql<{ count: number }>`
+            SELECT
+              (SELECT COUNT(*) FROM orchestration_v2_projection_runs WHERE thread_id = 'settled-thread')
+              + (SELECT COUNT(*) FROM orchestration_events WHERE stream_id = 'settled-thread')
+              AS count`;
+          const [sequence] = yield* sql<{ seq: number }>`
+            SELECT seq FROM sqlite_sequence WHERE name = 'orchestration_events'`;
+          return { settledRows: settledRows?.count, sequence: sequence?.seq };
+        }),
       );
-      assert.deepStrictEqual(
-        kept.sessions.map((row) => row.provider_session_id),
-        ["session-shared"],
+      assert.equal(copied.settledRows, 0);
+      assert.equal(copied.sequence, sourceSequence?.seq);
+    }),
+  );
+
+  it.effect("upgrades a source from before the V2 thread tables", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-v1-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-v1-dest-" });
+      const stateDir = path.join(sourceDir, "userdata");
+      const source = path.join(stateDir, "statev2.sqlite");
+      yield* fs.makeDirectory(stateDir, { recursive: true });
+      yield* withDatabase(source, runMigrations({ toMigrationInclusive: 54 }));
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 10 },
+        { sharedHome: sourceDir },
       );
-      assert.deepStrictEqual(kept.leftovers, { auth: 0, tasks: 0, transfers: 0 });
+      assert.include(result.executedMigrations, "55_OrchestrationV2");
     }),
   );
 
@@ -148,8 +220,6 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slot-" });
       const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slot-dest-" });
       const source = yield* createFixtureSource(sourceDir);
-      // Simulate another branch having claimed slot 1 first: the id is
-      // recorded, so this checkout's migration 1 silently never runs.
       yield* withDatabase(
         source,
         Effect.gen(function* () {
@@ -178,7 +248,6 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-busy-" });
       const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-busy-dest-" });
       const source = yield* createFixtureSource(sourceDir);
-      // This test process stands in for a live dev server.
       const stateDir = path.join(destDir, "userdata");
       yield* fs.makeDirectory(stateDir, { recursive: true });
       yield* fs.writeFileString(
@@ -203,8 +272,6 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const path = yield* Path.Path;
       const sharedDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-overlap-" });
       const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-overlap-dest-" });
-      // A leftover snapshot from a prior failed run, passed as --source: it
-      // must not be deleted before it is read.
       const leftoverSnapshot = path.join(destDir, "userdata", "statev2.sqlite.migrate-dev-db-tmp");
       yield* fs.makeDirectory(path.dirname(leftoverSnapshot), { recursive: true });
       yield* fs.writeFileString(leftoverSnapshot, "not a real db");

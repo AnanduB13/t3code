@@ -22,7 +22,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as CodexClient from "effect-codex-app-server/client";
 
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import { resolveClaudeHomePath } from "./Drivers/ClaudeHome.ts";
@@ -258,7 +258,7 @@ export const makeCodexUsageReader = Effect.fn("makeCodexUsageReader")(function* 
     Effect.gen(function* () {
       const scope = yield* Scope.Scope;
       const resolvedHomePath = input.config.homePath
-        ? expandHomePath(input.config.homePath)
+        ? expandHomePath(input.config.homePath, NodeOS.homedir())
         : undefined;
       const env = {
         ...input.environment,

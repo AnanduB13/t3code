@@ -134,8 +134,14 @@ export const make = Effect.gen(function* () {
     if (run.state !== "started") return summary;
     // Follow the scheduled prompt's run, including archived threads. A later
     // conversation turn must not rewrite this run's result.
-    const removed = { ...summary, state: "interrupted" as const, message: "The run’s thread was removed." };
-    const shell = yield* threads.getThreadShell(run.threadId).pipe(Effect.orElseSucceed(() => null));
+    const removed = {
+      ...summary,
+      state: "interrupted" as const,
+      message: "The run’s thread was removed.",
+    };
+    const shell = yield* threads
+      .getThreadShell(run.threadId)
+      .pipe(Effect.orElseSucceed(() => null));
     if (shell === null || shell.deletedAt !== null) return removed;
     const records = yield* threads
       .getThreadRecords(run.threadId, ["runs"])
@@ -183,7 +189,7 @@ export const make = Effect.gen(function* () {
     return yield* runState(updated);
   });
   const enqueue = Effect.fn("ScheduledJobs.enqueue")(function* (job: ScheduledJob, at: string) {
-    const id = yield* crypto.randomUUIDv4;
+    const id = yield* crypto.randomUUIDv4();
     const run: StoredRun = {
       id,
       jobId: job.id,
@@ -216,7 +222,7 @@ export const make = Effect.gen(function* () {
       const previous = id ? yield* getJob(id) : null;
       const job: ScheduledJob = {
         ...input,
-        id: previous?.id ?? (yield* crypto.randomUUIDv4),
+        id: previous?.id ?? (yield* crypto.randomUUIDv4()),
         enabled: previous?.enabled ?? true,
         nextRunAt,
         createdAt: previous?.createdAt ?? at,

@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 
 import * as ComputerUseBroker from "../../ComputerUseBroker.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
   ComputerUseSnapshotToolkit,
   ComputerUseStandardToolkit,
@@ -27,28 +28,39 @@ const invoke = Effect.fn("ComputerUseToolkit.invoke")(function* <A>(
   return yield* broker.invoke<A>({ scope, operation, input });
 });
 
+// Every handler checks the thread's computer-use capability itself, so access
+// is declared as `reads`: no further caller checks apply.
 const handlers = {
-  computer_list_devices: () =>
+  computer_list_devices: McpToolAccess.reads(() =>
     context().pipe(Effect.flatMap(({ scope, broker }) => broker.listDevices(scope))),
-  computer_select_device: ({ deviceId }) =>
+  ),
+  computer_select_device: McpToolAccess.reads(({ deviceId }) =>
     context().pipe(Effect.flatMap(({ scope, broker }) => broker.selectDevice(scope, deviceId))),
-  computer_list_apps: () => invoke<ComputerUseAppList>("listApps", {}),
-  computer_get_app_state: (input) => invoke<ComputerUseAppState>("getAppState", input),
-  computer_move: (input) => invoke<ComputerUseActionResult>("move", input),
-  computer_click: (input) => invoke<ComputerUseActionResult>("click", input),
-  computer_drag: (input) => invoke<ComputerUseActionResult>("drag", input),
-  computer_press_key: (input) => invoke<ComputerUseActionResult>("pressKey", input),
-  computer_scroll: (input) => invoke<ComputerUseActionResult>("scroll", input),
-  computer_type_text: (input) => invoke<ComputerUseActionResult>("typeText", input),
-} satisfies Parameters<typeof ComputerUseToolkit.toLayer>[0];
+  ),
+  computer_list_apps: McpToolAccess.reads(() => invoke<ComputerUseAppList>("listApps", {})),
+  computer_get_app_state: McpToolAccess.reads((input) =>
+    invoke<ComputerUseAppState>("getAppState", input),
+  ),
+  computer_move: McpToolAccess.reads((input) => invoke<ComputerUseActionResult>("move", input)),
+  computer_click: McpToolAccess.reads((input) => invoke<ComputerUseActionResult>("click", input)),
+  computer_drag: McpToolAccess.reads((input) => invoke<ComputerUseActionResult>("drag", input)),
+  computer_press_key: McpToolAccess.reads((input) =>
+    invoke<ComputerUseActionResult>("pressKey", input),
+  ),
+  computer_scroll: McpToolAccess.reads((input) => invoke<ComputerUseActionResult>("scroll", input)),
+  computer_type_text: McpToolAccess.reads((input) =>
+    invoke<ComputerUseActionResult>("typeText", input),
+  ),
+} satisfies McpToolAccess.Handlers<typeof ComputerUseToolkit.tools>;
 
 const { computer_list_devices, computer_select_device, computer_list_apps, ...snapshotHandlers } =
   handlers;
-export const ComputerUseStandardToolkitHandlersLive = ComputerUseStandardToolkit.toLayer({
-  computer_list_devices,
-  computer_select_device,
-  computer_list_apps,
-});
-export const ComputerUseSnapshotToolkitHandlersLive =
-  ComputerUseSnapshotToolkit.toLayer(snapshotHandlers);
-export const ComputerUseToolkitHandlersLive = ComputerUseToolkit.toLayer(handlers);
+export const ComputerUseStandardToolkitHandlersLive = McpToolAccess.toLayer(
+  ComputerUseStandardToolkit,
+  { computer_list_devices, computer_select_device, computer_list_apps },
+);
+export const ComputerUseSnapshotToolkitHandlersLive = McpToolAccess.toLayer(
+  ComputerUseSnapshotToolkit,
+  snapshotHandlers,
+);
+export const ComputerUseToolkitHandlersLive = McpToolAccess.toLayer(ComputerUseToolkit, handlers);

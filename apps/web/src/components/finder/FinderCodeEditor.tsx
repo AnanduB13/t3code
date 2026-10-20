@@ -1,6 +1,5 @@
-import { Editor } from "@pierre/diffs/editor";
+import { Editor, type EditorChangeEvent, type EditorFactory } from "@pierre/diffs/edit";
 import { EditProvider, File, Virtualizer } from "@pierre/diffs/react";
-import { useEffect, useMemo } from "react";
 
 import { useTheme } from "~/hooks/useTheme";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS, resolveDiffThemeName } from "~/lib/diffRendering";
@@ -17,6 +16,13 @@ const FINDER_EDITOR_UNSAFE_CSS = `
   }
 `;
 
+const createFinderEditor: EditorFactory<undefined, undefined> = (
+  editorType,
+  options,
+  editStateKey,
+) => new Editor(editorType, options, editStateKey);
+
+/** Editable code view for Finder; `onChange` receives the full contents after each edit. */
 export function FinderCodeEditor(props: {
   readonly cacheKey: string;
   readonly contents: string;
@@ -25,31 +31,20 @@ export function FinderCodeEditor(props: {
   readonly onChange: (contents: string) => void;
 }) {
   const { resolvedTheme } = useTheme();
-  const editor = useMemo(
-    () =>
-      new Editor({
-        persistState: true,
-        persistStateStorage: "inMemory",
-        onChange: (file) => props.onChange(file.contents),
-      }),
-    [props.onChange],
-  );
-
-  useEffect(
-    () => () => {
-      editor.cleanUp();
-    },
-    [editor],
-  );
+  const handleEditChange = ({ file }: EditorChangeEvent<"file", undefined, undefined>) => {
+    props.onChange(file.contents);
+  };
 
   return (
-    <EditProvider editor={editor}>
+    <EditProvider createEditor={createFinderEditor}>
       <Virtualizer
         className="min-h-0 flex-1 overflow-auto"
         config={{ overscrollSize: 600, intersectionObserverMargin: 1200 }}
       >
         <File
           file={{ name: props.fileName, contents: props.contents, cacheKey: props.cacheKey }}
+          edit={!props.readOnly}
+          onEditChange={handleEditChange}
           options={{
             disableFileHeader: true,
             overflow: "scroll",
@@ -58,7 +53,6 @@ export function FinderCodeEditor(props: {
             unsafeCSS: FINDER_EDITOR_UNSAFE_CSS,
           }}
           className="min-h-full"
-          contentEditable={!props.readOnly}
         />
       </Virtualizer>
     </EditProvider>

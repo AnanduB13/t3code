@@ -1,8 +1,8 @@
 import type { ServerProvider } from "@t3tools/contracts";
 import { Pressable } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
-import { SymbolView } from "../../components/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { providerNeedsSetup } from "./provider-setup-state";
 

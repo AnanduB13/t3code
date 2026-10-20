@@ -1,52 +1,54 @@
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, type PreviewSessionSnapshot, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { selectThreadPreviewMiniPlayer, usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 
-import {
-  markPreviewTabAutomationOwned,
-  prepareCompletedThreadPreviewCleanup,
-  releaseAutomationOwnedPreviewTabs,
-} from "./previewAutomationOwnership";
+import { prepareCompletedThreadPreviewCleanup } from "./previewAutomationOwnership";
 
 const threadRef = {
   environmentId: EnvironmentId.make("environment-1"),
   threadId: ThreadId.make("thread-1"),
 };
 
-describe("preview automation ownership", () => {
+function session(
+  tabId: string,
+  extra: Pick<PreviewSessionSnapshot, "runtime" | "automationOwner">,
+): PreviewSessionSnapshot {
+  return {
+    threadId: threadRef.threadId,
+    tabId,
+    navStatus: { _tag: "Idle" },
+    canGoBack: false,
+    canGoForward: false,
+    updatedAt: "2026-10-18T00:00:00.000Z",
+    ...extra,
+  };
+}
+
+describe("prepareCompletedThreadPreviewCleanup", () => {
   beforeEach(() => {
     usePreviewMiniPlayerStore.setState({ byThreadKey: {} });
-    releaseAutomationOwnedPreviewTabs(threadRef);
   });
 
-  it("releases only tabs created by automation for the selected thread", () => {
-    const otherThreadRef = { ...threadRef, threadId: ThreadId.make("thread-2") };
-    markPreviewTabAutomationOwned(threadRef, "agent-tab-1");
-    markPreviewTabAutomationOwned(threadRef, "agent-tab-2");
-    markPreviewTabAutomationOwned(otherThreadRef, "other-agent-tab");
-
-    expect(releaseAutomationOwnedPreviewTabs(threadRef)).toEqual(["agent-tab-1", "agent-tab-2"]);
-    expect(releaseAutomationOwnedPreviewTabs(threadRef)).toEqual([]);
-    expect(releaseAutomationOwnedPreviewTabs(otherThreadRef)).toEqual(["other-agent-tab"]);
+  it("returns only server tabs an agent opened", () => {
+    const sessions = {
+      agent: session("agent", { runtime: "server", automationOwner: "agent-1" }),
+      user: session("user", { runtime: "server" }),
+      local: session("local", { automationOwner: "agent-1" }),
+    };
+    expect(prepareCompletedThreadPreviewCleanup(threadRef, sessions)).toEqual(["agent"]);
   });
 
-  it("hides a reused floating tab without treating it as automation-owned", () => {
+  it("hides a reused floating tab without treating it as agent-owned", () => {
     usePreviewMiniPlayerStore
       .getState()
       .open(threadRef, { kind: "browser", tabId: "reused-user-tab" });
 
-    expect(prepareCompletedThreadPreviewCleanup(threadRef)).toEqual([]);
     expect(
-      selectThreadPreviewMiniPlayer(usePreviewMiniPlayerStore.getState().byThreadKey, threadRef),
-    ).toBeNull();
-  });
-
-  it("hides the floating preview and returns automation-created tabs for closing", () => {
-    usePreviewMiniPlayerStore.getState().open(threadRef, { kind: "browser", tabId: "agent-tab" });
-    markPreviewTabAutomationOwned(threadRef, "agent-tab");
-
-    expect(prepareCompletedThreadPreviewCleanup(threadRef)).toEqual(["agent-tab"]);
+      prepareCompletedThreadPreviewCleanup(threadRef, {
+        "reused-user-tab": session("reused-user-tab", { runtime: "server" }),
+      }),
+    ).toEqual([]);
     expect(
       selectThreadPreviewMiniPlayer(usePreviewMiniPlayerStore.getState().byThreadKey, threadRef),
     ).toBeNull();

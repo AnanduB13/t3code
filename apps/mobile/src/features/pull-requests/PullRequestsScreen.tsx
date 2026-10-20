@@ -1,228 +1,376 @@
+import {
+  applyPullRequestDraftFilterChange,
+  parsePullRequestQuery,
+} from "@t3tools/client-runtime/pull-request-query";
+import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
+import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { useNavigation } from "@react-navigation/native";
-import type {
-  EnvironmentId,
-  PullRequestListCursors,
-  PullRequestListState,
-} from "@t3tools/contracts";
-import { useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, ScrollView, View } from "react-native";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import {
+  Keyboard,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  View,
+  type ScrollViewProps,
+} from "react-native";
+import { ScrollViewMarker } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppText as Text, AppTextInput } from "../../components/AppText";
-import { useEnvironments } from "../../state/environments";
-import { useRemoteEnvironmentRuntime } from "../../state/use-remote-environment-registry";
-import { useEnvironmentQuery } from "../../state/query";
-import { useAtomCommand } from "../../state/use-atom-command";
-import { pullRequestEnvironment } from "../../state/pull-requests";
-import { PrButton, PrNotice } from "./PullRequestControls";
 
-export function PullRequestsScreen() {
-  const { environments } = useEnvironments();
-  const [selection, setSelection] = useState<EnvironmentId | null>(null);
-  const environmentId =
-    environments.find((entry) => entry.environmentId === selection)?.environmentId ??
-    environments[0]?.environmentId;
+import { AppText as Text } from "../../components/ui/AppText";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
+import { useWorkspaceState } from "../../state/workspace";
+import { useProjects } from "../../state/entities";
+import { environmentServerConfigsAtom } from "../../state/server";
+import { PullRequestListRow } from "./PullRequestListRow";
+import { PullRequestListFilters } from "./PullRequestListFilters";
+import { usePullRequestList } from "./usePullRequestList";
+import { usePullRequestListControls } from "./usePullRequestListControls";
+import { usePullRequestListActions } from "./usePullRequestListActions";
+import {
+  filterPullRequestList,
+  pullRequestListFacets,
+  pullRequestListInput,
+  pullRequestListRowsAreEqual,
+  scopedPullRequestListKey as pullRequestKey,
+  type EnvironmentPullRequestListEntry,
+  withoutScratchProjectScope,
+} from "./pullRequestList";
+import { useDebouncedValue } from "../../state/queries";
+import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
+import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
+
+function PullRequestScrollView(props: ScrollViewProps) {
   const insets = useSafeAreaInsets();
   return (
-    <View
-      className="flex-1 bg-screen"
-      style={{ paddingTop: insets.top, paddingBottom: insets.bottom + 80 }}
-    >
-      <Text className="px-4 py-3 text-2xl font-t3-bold">Pull requests</Text>
-      <View>
-        <ScrollView
-          horizontal
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 12 }}
-        >
-          {environments.map((environment) => (
-            <PrButton
-              key={environment.environmentId}
-              label={environment.label}
-              selected={environmentId === environment.environmentId}
-              onPress={() => setSelection(environment.environmentId)}
-            />
-          ))}
-        </ScrollView>
-      </View>
-      {environmentId ? (
-        <EnvironmentPullRequests key={environmentId} environmentId={environmentId} />
-      ) : (
-        <View className="p-4">
-          <PrNotice>Connect an environment to browse its pull requests.</PrNotice>
-        </View>
-      )}
-    </View>
+    <ScrollViewMarker style={{ flex: 1 }}>
+      <ScrollView
+        {...props}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        contentOffset={props.contentOffset ?? { x: 0, y: -insets.top }}
+      />
+    </ScrollViewMarker>
   );
 }
 
-function EnvironmentPullRequests({ environmentId }: { readonly environmentId: EnvironmentId }) {
-  const runtime = useRemoteEnvironmentRuntime(environmentId);
-  const [state, setState] = useState<PullRequestListState>("open");
-  const [query, setQuery] = useState("");
-  const [search, setSearch] = useState("");
-  const supported = runtime?.serverConfig?.environment.capabilities.pullRequests === true;
-  return (
-    <View className="flex-1 gap-3">
-      <View className="flex-row flex-wrap gap-2 px-4">
-        {(["open", "closed", "merged", "all"] as const).map((value) => (
-          <PrButton
-            key={value}
-            label={value.charAt(0).toUpperCase() + value.slice(1)}
-            selected={state === value}
-            onPress={() => setState(value)}
-          />
-        ))}
-      </View>
-      <View className="flex-row items-center gap-2 px-4">
-        <AppTextInput
-          className="flex-1"
-          accessibilityLabel="Search pull requests"
-          placeholder="Search pull requests"
-          value={query}
-          maxLength={200}
-          onChangeText={setQuery}
-          returnKeyType="search"
-          onSubmitEditing={() => setSearch(query.trim())}
-        />
-        <PrButton label="Search" onPress={() => setSearch(query.trim())} />
-      </View>
-      {supported ? (
-        <PullRequestList
-          key={JSON.stringify([state, search])}
-          environmentId={environmentId}
-          state={state}
-          search={search}
-        />
-      ) : (
-        <View className="px-4">
-          <PrNotice>
-            {runtime?.serverConfig
-              ? "Update this environment’s T3 Code server to browse pull requests."
-              : "Waiting for the environment to connect…"}
-          </PrNotice>
-        </View>
-      )}
-    </View>
-  );
-}
-
-function PullRequestList({
-  environmentId,
-  state,
-  search,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly state: PullRequestListState;
-  readonly search: string;
-}) {
+export function PullRequestsScreen(
+  props: {
+    readonly sidebar?: boolean;
+    readonly selectedPullRequestKey?: string | null;
+  } = {},
+) {
   const navigation = useNavigation();
-  const [pages, setPages] = useState<readonly PullRequestListCursors[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const invalidate = useAtomCommand(pullRequestEnvironment.invalidate);
-  const result = useEnvironmentQuery(
-    pullRequestEnvironment.list({
-      environmentId,
-      input: {
-        state,
-        limit: 50,
-        ...(search ? { query: search } : {}),
-        ...(pages.length ? { cursors: pages[pages.length - 1] } : {}),
-      },
+  const primaryColumn = use(NativePrimaryColumnContext);
+  const workspace = useWorkspaceTabs()!;
+  const { environments } = useWorkspaceState();
+  const configs = useAtomValue(environmentServerConfigsAtom);
+  const insets = useSafeAreaInsets();
+  const [initialOffset] = useState(() => workspace.getScrollOffset("pullRequests"));
+  const [initialAnchor] = useState(() => workspace.getScrollAnchor("pullRequests"));
+  const listRef = useRef<LegendListRef>(null);
+  const tab = workspace.state.tabs.pullRequests;
+  const maintainVisiblePosition = useMemo(
+    () => ({
+      data: tab.searchMode === "resting",
+      shouldRestorePosition: () => workspace.getScrollOffset("pullRequests") > 0,
     }),
+    [tab.searchMode, workspace],
   );
-  const entries = useMemo(() => {
-    const data = result.data;
-    if (!data) return [];
-    const needle = search.toLowerCase();
-    return data.entries.filter((entry) => {
-      if (
-        !needle ||
-        data.providers.find((provider) => provider.host === entry.host)?.searchesOnHost
-      )
-        return true;
-      return `${entry.title} ${entry.repository} ${entry.number} ${entry.author?.login ?? ""}`
-        .toLowerCase()
-        .includes(needle);
-    });
-  }, [result.data, search]);
-  const refresh = async () => {
-    setRefreshing(true);
-    try {
-      const outcome = await invalidate({ environmentId, input: {} });
-      if (outcome._tag === "Success") result.refresh();
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const debouncedQuery = useDebouncedValue(tab.query.trim(), 180);
+  const query = tab.searchMode === "resting" ? "" : debouncedQuery;
+  const typedQuery = tab.searchMode === "resting" ? "" : tab.query;
+  const typedDraft = parsePullRequestQuery(typedQuery).filters.draft;
+  const listControls = usePullRequestListControls();
+  const selectedEnvironmentId = listControls.environmentId;
+  const environmentId = environments.some((item) => item.environmentId === selectedEnvironmentId)
+    ? selectedEnvironmentId
+    : null;
+  const selectAndroidWorkspace = useAndroidWorkspaceSelection();
+  const selectPullRequest = useCallback(
+    (item: EnvironmentPullRequestListEntry) => {
+      Keyboard.dismiss();
+      const params = {
+        environmentId: String(item.environmentId),
+        projectId: String(item.projectId),
+        repository: item.repository,
+        number: item.number,
+        host: item.host,
+        initialSummary: item,
+      };
+      if (Platform.OS === "android") selectAndroidWorkspace({ name: "PullRequest", params });
+      else navigation.navigate("PullRequest", params);
+    },
+    [navigation, selectAndroidWorkspace],
+  );
+  const allProjects = useProjects();
+  const savedControls = listControls.controlsFor(environmentId);
+  const controls = useMemo(
+    () => withoutScratchProjectScope(savedControls, allProjects),
+    [allProjects, savedControls],
+  );
+  const targets = useMemo(
+    () =>
+      environments
+        .filter(
+          (environment) =>
+            configs.get(environment.environmentId)?.environment.capabilities.pullRequests ===
+              true &&
+            (environmentId === null || environment.environmentId === environmentId) &&
+            (!controls.projectEnvironmentId ||
+              environment.environmentId === controls.projectEnvironmentId),
+        )
+        .sort((left, right) => left.environmentId.localeCompare(right.environmentId))
+        .map((environment) => ({
+          environmentId: environment.environmentId,
+          input: pullRequestListInput(controls, query),
+        })),
+    [environments, environmentId, configs, controls, query],
+  );
+  const result = usePullRequestList(targets);
+  const connectedTargets = targets.filter((target) =>
+    environments.some(
+      (environment) =>
+        environment.environmentId === target.environmentId &&
+        environment.connectionState === "connected",
+    ),
+  );
+  const { actions, select, busyKey } = usePullRequestListActions(
+    connectedTargets.map((target) => target.environmentId),
+    result.updateEntry,
+  );
+  const sidebar = props.sidebar === true || primaryColumn !== null;
+  const selectedKey = props.selectedPullRequestKey ?? primaryColumn?.selectedPullRequestKey;
+  const connectedKey = connectedTargets.map((target) => target.environmentId).join("\n");
+  const entries = useMemo(
+    () =>
+      filterPullRequestList(
+        result.entries,
+        controls,
+        result.data?.viewers ?? {},
+        query,
+        result.data.localSearchHosts,
+        new Set(connectedKey.split("\n")),
+      ),
+    [result.entries, controls, query, result.data, connectedKey],
+  );
+  const facets = useMemo(() => pullRequestListFacets(result.entries), [result.entries]);
+  const [knownFacets, setKnownFacets] = useState({ environmentId, source: facets, ...facets });
+  if (knownFacets.environmentId !== environmentId || knownFacets.source !== facets) {
+    setKnownFacets((previous) => ({
+      source: facets,
+      environmentId,
+      authors: [
+        ...new Set([
+          ...(previous.environmentId === environmentId ? previous.authors : []),
+          ...facets.authors,
+        ]),
+      ].sort(),
+      labels: [
+        ...new Set([
+          ...(previous.environmentId === environmentId ? previous.labels : []),
+          ...facets.labels,
+        ]),
+      ].sort(),
+    }));
+  }
+  const projects = allProjects.filter(
+    (project) =>
+      !project.isScratch && (environmentId === null || project.environmentId === environmentId),
+  );
+  const renderPullRequest = useCallback(
+    ({ item }: { readonly item: EnvironmentPullRequestListEntry }) => (
+      <PullRequestListRow
+        item={item}
+        onSelect={selectPullRequest}
+        getActions={actions}
+        onAction={select}
+        busy={busyKey === pullRequestKey(item)}
+        selected={selectedKey === pullRequestKey(item)}
+        sidebar={sidebar}
+      />
+    ),
+    [selectPullRequest, selectedKey, actions, select, busyKey, sidebar],
+  );
+  const previousSearchMode = useRef(tab.searchMode);
+  useEffect(() => {
+    const restoringSearch =
+      previousSearchMode.current !== "resting" && tab.searchMode === "resting";
+    previousSearchMode.current = tab.searchMode;
+    if (restoringSearch)
+      void listRef.current?.scrollToOffset({
+        offset: tab.scrollOffset - (Platform.OS === "ios" ? insets.top : 0),
+        animated: false,
+      });
+  }, [tab.searchMode, tab.scrollOffset, insets.top]);
+  const initialIndex = initialAnchor
+    ? entries.findIndex((entry) => pullRequestKey(entry) === initialAnchor.key)
+    : -1;
+
   return (
-    <FlatList
-      data={entries}
-      keyExtractor={(item) => JSON.stringify([item.host, item.repository, item.number])}
-      contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingBottom: 24 }}
-      refreshing={refreshing}
-      onRefresh={() => void refresh()}
-      ListHeaderComponent={
-        <View className="gap-2">
-          {result.error ? <PrNotice>{result.error}</PrNotice> : null}
-          {result.isPending ? <ActivityIndicator /> : null}
-          {result.data?.errors.map((error) => (
-            <PrNotice key={error.projectId}>{`${error.projectTitle}: ${error.message}`}</PrNotice>
-          ))}
-        </View>
-      }
-      ListEmptyComponent={
-        !result.isPending && !result.error ? (
-          <PrNotice>No pull requests found.</PrNotice>
-        ) : undefined
-      }
-      renderItem={({ item }) => (
-        <View className="gap-2 rounded-2xl border border-border bg-card p-4">
-          <Text className="text-xs text-foreground-muted">
-            {item.repository} · #{item.number} · {item.isDraft ? "Draft" : item.state}
-          </Text>
-          <Text className="text-base font-t3-bold">{item.title}</Text>
-          <Text className="text-xs text-foreground-muted">
-            {item.author?.login ?? "Unknown author"} · {item.headBranch} → {item.baseBranch}
-          </Text>
-          <PrButton
-            label="Review pull request"
-            onPress={() =>
-              navigation.navigate("PullRequest", {
-                environmentId,
-                projectId: item.projectId,
-                repository: item.repository,
-                number: String(item.number),
-              })
-            }
+    <View className={sidebar ? "flex-1 bg-drawer" : "flex-1 bg-screen"}>
+      <LegendList
+        ref={listRef}
+        data={entries}
+        extraData={`${selectedKey}:${busyKey}`}
+        keyExtractor={pullRequestKey}
+        itemsAreEqual={pullRequestListRowsAreEqual}
+        estimatedItemSize={88}
+        drawDistance={1_000}
+        maintainVisibleContentPosition={result.continued ? maintainVisiblePosition : false}
+        onEndReached={() => void result.loadMore()}
+        onEndReachedThreshold={0.5}
+        onViewableItemsChanged={result.onViewableItemsChanged}
+        refreshControl={
+          <RefreshControl
+            refreshing={result.refreshing}
+            onRefresh={() => void result.onRefresh()}
+            // The list already accounts for the navigation header in its content inset.
+            progressViewOffset={Platform.OS === "ios" ? 60 : undefined}
           />
-        </View>
-      )}
-      ListFooterComponent={
-        <View className="gap-3">
-          {result.data?.truncated ? (
-            <PrNotice>
-              More pull requests are available. Use the next page or narrow your search.
-            </PrNotice>
-          ) : null}
-          <View className="flex-row gap-2">
-            {pages.length > 0 ? (
-              <PrButton
-                label="Previous page"
-                onPress={() => setPages((current) => current.slice(0, -1))}
-              />
+        }
+        alwaysBounceVertical
+        recycleItems
+        renderScrollComponent={Platform.OS === "ios" ? PullRequestScrollView : undefined}
+        contentInsetAdjustmentBehavior="never"
+        contentInset={Platform.OS === "ios" ? { top: insets.top } : undefined}
+        initialScrollOffset={
+          !initialAnchor && initialOffset > 0
+            ? initialOffset - (Platform.OS === "ios" ? insets.top : 0)
+            : undefined
+        }
+        initialScrollIndex={
+          initialIndex >= 0 && initialAnchor
+            ? { index: initialIndex, viewOffset: initialAnchor.viewOffset, viewPosition: 0 }
+            : undefined
+        }
+        contentInsetStartAdjustment={Platform.OS === "ios" ? insets.top : 0}
+        contentContainerStyle={{
+          paddingBottom: Math.max(insets.bottom, workspace.bottomClearance),
+        }}
+        onScroll={(event) => {
+          workspace.recordScrollOffset(
+            "pullRequests",
+            Math.max(
+              0,
+              event.nativeEvent.contentOffset.y + (Platform.OS === "ios" ? insets.top : 0),
+            ),
+          );
+          const list = listRef.current?.getState();
+          const item = list ? entries[list.start] : undefined;
+          if (list && item)
+            workspace.recordScrollAnchor("pullRequests", {
+              key: pullRequestKey(item),
+              viewOffset: list.positionAtIndex(list.start) - event.nativeEvent.contentOffset.y,
+            });
+        }}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        renderItem={renderPullRequest}
+        ListHeaderComponent={
+          <>
+            <PullRequestListFilters
+              environments={environments.map((item) => ({
+                id: String(item.environmentId),
+                label: item.environmentLabel,
+              }))}
+              environmentId={environmentId}
+              onEnvironmentChange={listControls.setEnvironmentId}
+              value={
+                typedDraft
+                  ? { ...controls, filters: { ...controls.filters, draft: typedDraft } }
+                  : controls
+              }
+              onChange={(next) => {
+                const update = applyPullRequestDraftFilterChange(
+                  typedQuery,
+                  controls.filters,
+                  next.filters,
+                );
+                listControls.setControls(environmentId, { ...next, filters: update.filters });
+                if (update.query !== typedQuery)
+                  workspace.dispatch({ type: "query", tab: "pullRequests", query: update.query });
+                void listRef.current?.scrollToOffset({
+                  offset: Platform.OS === "ios" ? -insets.top : 0,
+                  animated: false,
+                });
+              }}
+              authors={
+                knownFacets.environmentId === environmentId ? knownFacets.authors : facets.authors
+              }
+              labels={
+                knownFacets.environmentId === environmentId ? knownFacets.labels : facets.labels
+              }
+              projects={projects}
+            />
+            {result.data?.errors.length ? (
+              <Text className="px-4 py-3 text-sm text-foreground-muted">
+                {result.data.errors
+                  .map(
+                    (error) =>
+                      `${error.projectTitle || environments.find((environment) => environment.environmentId === error.environmentId)?.environmentLabel || "Environment"}: ${error.message}`,
+                  )
+                  .join("\n")}
+              </Text>
             ) : null}
-            {result.data && Object.keys(result.data.nextCursors).length > 0 ? (
-              <PrButton
-                label="Next page"
-                disabled={result.isPending}
-                onPress={() => {
-                  const nextCursors = result.data?.nextCursors;
-                  if (nextCursors) setPages((current) => [...current, nextCursors]);
-                }}
+          </>
+        }
+        ListFooterComponent={
+          result.loadingMore ? (
+            <View className="items-center py-5">
+              <AppActivityIndicator
+                colorClassName="accent-icon"
+                accessibilityLabel="Loading more pull requests"
               />
-            ) : null}
-          </View>
-        </View>
-      }
-    />
+            </View>
+          ) : result.loadMoreError ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading more pull requests"
+              onPress={() => void result.loadMore(true)}
+              className="items-center gap-2 px-8 py-4"
+            >
+              <Text className="text-xs text-foreground-muted">{result.loadMoreError}</Text>
+              <Text className="text-sm font-t3-medium text-link">Try again</Text>
+            </Pressable>
+          ) : undefined
+        }
+        ListEmptyComponent={
+          result.isPending && connectedTargets.length > 0 ? (
+            <View className="items-center py-12">
+              <AppActivityIndicator colorClassName="accent-icon" />
+            </View>
+          ) : (
+            <View className="px-8 py-12">
+              <EmptyState
+                title={
+                  result.error
+                    ? "Couldn't load pull requests"
+                    : targets.length && connectedTargets.length === 0
+                      ? "Environment offline"
+                      : targets.length
+                        ? query
+                          ? "No results"
+                          : "No matching pull requests"
+                        : "Connect an environment"
+                }
+                detail={
+                  result.error ??
+                  (targets.length && connectedTargets.length === 0
+                    ? "Reconnect to load pull requests that aren't saved on this device."
+                    : targets.length
+                      ? "Pull requests from the selected environments' projects appear here."
+                      : "Add an environment in Settings to browse its pull requests.")
+                }
+                variant="plain"
+              />
+            </View>
+          )
+        }
+      />
+    </View>
   );
 }

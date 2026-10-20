@@ -1,33 +1,25 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { PreviewSessionSnapshot, ScopedThreadRef } from "@t3tools/contracts";
 
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 
-const automationOwnedTabsByThread = new Map<string, Set<string>>();
-
-export function markPreviewTabAutomationOwned(threadRef: ScopedThreadRef, tabId: string): void {
-  const threadKey = scopedThreadKey(threadRef);
-  const tabs = automationOwnedTabsByThread.get(threadKey) ?? new Set<string>();
-  tabs.add(tabId);
-  automationOwnedTabsByThread.set(threadKey, tabs);
-}
-
-export function releaseAutomationOwnedPreviewTabs(threadRef: ScopedThreadRef): readonly string[] {
-  const threadKey = scopedThreadKey(threadRef);
-  const tabs = automationOwnedTabsByThread.get(threadKey);
-  if (!tabs) return [];
-  automationOwnedTabsByThread.delete(threadKey);
-  return [...tabs];
+/** Tabs an agent opened on the environment's browser; they carry its automation owner. */
+export function agentOwnedPreviewTabIds(
+  sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
+): readonly string[] {
+  return Object.values(sessions)
+    .filter((session) => session.runtime === "server" && session.automationOwner !== undefined)
+    .map((session) => session.tabId);
 }
 
 /**
- * A floating preview is turn-scoped presentation even when automation reused
- * a user-owned browser tab. Hide that presentation whenever the turn settles,
- * but return only automation-created tabs for destructive session cleanup.
+ * A floating preview is turn-scoped presentation even when the agent reused a
+ * user-owned browser tab. Hide that presentation whenever the turn settles,
+ * but return only agent-opened tabs for destructive session cleanup.
  */
 export function prepareCompletedThreadPreviewCleanup(
   threadRef: ScopedThreadRef,
+  sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
 ): readonly string[] {
   usePreviewMiniPlayerStore.getState().close(threadRef);
-  return releaseAutomationOwnedPreviewTabs(threadRef);
+  return agentOwnedPreviewTabIds(sessions);
 }

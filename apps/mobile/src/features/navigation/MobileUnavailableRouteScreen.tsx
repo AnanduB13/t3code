@@ -1,8 +1,8 @@
 import { Platform, View } from "react-native";
 
-import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 
 function MobileUnavailableRouteScreen(props: {

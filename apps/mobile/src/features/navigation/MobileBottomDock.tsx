@@ -13,11 +13,13 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuAction } from "@react-native-menu/menu";
 
-import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
-import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
-import { GlassSurface } from "../../components/GlassSurface";
+import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu";
+import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
+import { GlassSurface } from "../../components/ui/GlassSurface";
 import { cn } from "../../lib/cn";
+import { resetAndroidWorkspace } from "../../lib/android-workspace-navigation";
+import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import {
   mobileDockDestinationForPathname,
   type MobileDockDestination,
@@ -105,7 +107,18 @@ export function MobileBottomDock(props: {
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const activeDestination = mobileDockDestinationForPathname(props.pathname);
+  const workspace = useWorkspaceTabs();
+  // Upstream's Android workspace keeps threads and pull requests as tabs of the Home route;
+  // this dock replaces its native navigation bar and drives the same tab state.
+  const routeDestination = mobileDockDestinationForPathname(props.pathname);
+  const activeDestination =
+    routeDestination === "chat" && workspace?.state.selectedTab === "pullRequests"
+      ? "pull-requests"
+      : routeDestination;
+  const selectWorkspaceTab = (tab: "threads" | "pullRequests") => {
+    workspace?.dispatch({ type: "select", tab });
+    resetAndroidWorkspace(navigation);
+  };
   const homeModeActions: MenuAction[] = [
     {
       id: "projects",
@@ -128,10 +141,10 @@ export function MobileBottomDock(props: {
   const navigate = (destination: MobileDockDestination) => {
     switch (destination) {
       case "chat":
-        navigation.navigate("Home");
+        selectWorkspaceTab("threads");
         return;
       case "pull-requests":
-        navigation.navigate("PullRequests");
+        selectWorkspaceTab("pullRequests");
         return;
       case "usage":
         navigation.navigate("SettingsSheet", {

@@ -1,13 +1,14 @@
-import type { UsageSource } from "@t3tools/contracts";
+import type { UsageProviderKind, UsageSource } from "@t3tools/contracts";
 
-const SOURCE_LABEL = {
+const SOURCE_LABEL: Record<UsageProviderKind, string> = {
   codex: "Codex",
   claude: "Claude Code",
   grok: "Grok",
   cursor: "Cursor",
   opencode: "OpenCode",
   antigravity: "Antigravity",
-} as const;
+  pi: "Pi",
+};
 
 export function describeUsageSources(sources: readonly UsageSource[]): string {
   if (sources.length === 0) return "No local CLI histories reported";

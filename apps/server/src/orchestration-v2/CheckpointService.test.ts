@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it, vi } from "@effect/vitest";
 import {
   CheckpointScopeId,
@@ -15,7 +16,7 @@ import * as Layer from "effect/Layer";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as CheckpointService from "./CheckpointService.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 
 it.effect.each([false, true, "interrupt"] as const)(
   "materializes baseline, lookup fails=%s",
@@ -58,6 +59,7 @@ it.effect.each([false, true, "interrupt"] as const)(
           }),
         ),
       ),
+      Layer.provideMerge(NodeCrypto.layer),
     );
 
     return Effect.gen(function* () {
@@ -88,7 +90,7 @@ it.effect.each([false, true, "interrupt"] as const)(
       assert.equal(baseline.ordinalWithinScope, 2);
       assert.equal(
         baseline.ref,
-        CheckpointService.checkpointRefForScopeOrdinal({
+        yield* CheckpointService.checkpointRefForScopeOrdinal({
           scopeId: scope.id,
           ordinalWithinScope: 2,
         }),
@@ -116,9 +118,7 @@ it.effect("isolates each run's baseline from work done between runs", () => {
     cwd: "/repo",
     createdAt: DateTime.makeUnsafe("2026-07-28T00:00:00.000Z"),
   };
-  const refs = new Set<string>([
-    CheckpointService.checkpointRefForScopeOrdinal({ scopeId: scope.id, ordinalWithinScope: 1 }),
-  ]);
+  const refs = new Set<string>();
   const diffs: Array<string> = [];
   const deleted: Array<string> = [];
   const layerTest = CheckpointService.layer.pipe(
@@ -136,14 +136,24 @@ it.effect("isolates each run's baseline from work done between runs", () => {
             }),
           deleteCheckpointRefs: ({ checkpointRefs }) =>
             Effect.sync(() => void deleted.push(...checkpointRefs)),
+          listAuthoredPaths: () => Effect.succeed(null),
         }),
       ),
     ),
   );
   const baselineRef = (ordinalWithinScope: number) =>
-    CheckpointService.checkpointBaselineRefForScopeOrdinal({ scopeId: scope.id, ordinalWithinScope });
+    CheckpointService.checkpointBaselineRefForScopeOrdinal({
+      scopeId: scope.id,
+      ordinalWithinScope,
+    });
 
   return Effect.gen(function* () {
+    refs.add(
+      yield* CheckpointService.checkpointRefForScopeOrdinal({
+        scopeId: scope.id,
+        ordinalWithinScope: 1,
+      }),
+    );
     const checkpoints = yield* CheckpointService.CheckpointServiceV2;
     // Run 2 starts after run 1 completed: its own pre-run snapshot is taken.
     yield* checkpoints.captureBaseline({ scope, ordinalWithinScope: 1 });
@@ -160,5 +170,5 @@ it.effect("isolates each run's baseline from work done between runs", () => {
 
     yield* checkpoints.deleteStaleRefs({ scope, checkpoints: [checkpoint] });
     assert.deepEqual(deleted, [checkpoint.ref, baselineRef(1), baselineRef(2)]);
-  }).pipe(Effect.provide(layerTest));
+  }).pipe(Effect.provide(layerTest.pipe(Layer.provideMerge(NodeCrypto.layer))));
 });

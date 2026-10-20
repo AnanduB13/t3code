@@ -1,4 +1,9 @@
-import { EnvironmentId, ProjectId, type PullRequestListEntry } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  SourceControlProviderKind,
+  type PullRequestListEntry,
+} from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -6,7 +11,7 @@ import { PullRequestRow } from "./PullRequestRow";
 
 const entry = {
   environmentId: EnvironmentId.make("environment-1"),
-  provider: "github",
+  provider: SourceControlProviderKind.make("github"),
   host: "github.com",
   projectId: ProjectId.make("project-1"),
   projectTitle: "Payments Dashboard",
@@ -33,6 +38,7 @@ describe("PullRequestRow", () => {
     const markup = renderToStaticMarkup(
       <PullRequestRow
         entry={entry}
+        hostActions={new Set()}
         selected={false}
         showProjectTitle
         showProvider={false}

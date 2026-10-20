@@ -2,9 +2,9 @@ import type { QueuedPrompt } from "@t3tools/client-runtime/state/queued-prompts"
 import {
   formatComposerContextReference,
   replaceComposerContextReferences,
+  toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
 import { resolveUserMessageContext } from "../../lib/composerContextRecords";
-import { toKindScopedComposerContextId } from "../../lib/composerContextReferences";
 import { randomUUID } from "../../lib/utils";
 
 /** Prepare draft context while keeping the exact server text for compare-and-remove. */

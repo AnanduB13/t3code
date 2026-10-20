@@ -75,6 +75,7 @@ beforeEach(() => {
     "ResizeObserver",
     class {
       observe() {}
+      unobserve() {}
       disconnect() {}
     },
   );
@@ -123,6 +124,10 @@ async function renderDevice(phone: boolean, platform: DevicePlatform = "android"
   );
   socket = sockets.at(-1)!;
   await act(() => socket.onopen?.());
+  if (platform === "ios") {
+    // The simulator helper admits input before forwarding any HID event.
+    await act(() => socket.onmessage?.({ data: Uint8Array.of(0x83).buffer }));
+  }
   if (platform === "android") {
     await act(() => {
       // A real transport decoder reaches streaming after its first decoded frame.

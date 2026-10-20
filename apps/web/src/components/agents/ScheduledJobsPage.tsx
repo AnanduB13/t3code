@@ -6,7 +6,8 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { scheduledJobsEnvironment } from "../../state/scheduledJobs";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useProjects, useServerConfigs } from "../../state/entities";
+import { useProjects } from "../../state/entities";
+import { useEnvironmentProviders } from "../../state/environments";
 import { cn } from "../../lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { Badge } from "../ui/badge";
@@ -41,8 +42,7 @@ function ScheduledComputer({ environmentId }: { readonly environmentId: Environm
     connected && environmentId ? scheduledJobsEnvironment.list({ environmentId, input: {} }) : null,
   );
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
-  const configs = useServerConfigs();
-  const config = environmentId ? configs.get(environmentId) : undefined;
+  const providersByEnvironment = useEnvironmentProviders();
   const save = useAtomCommand(scheduledJobsEnvironment.save);
   const setEnabled = useAtomCommand(scheduledJobsEnvironment.setEnabled);
   const remove = useAtomCommand(scheduledJobsEnvironment.remove);
@@ -292,7 +292,7 @@ function ScheduledComputer({ environmentId }: { readonly environmentId: Environm
           job={editor.job}
           deviceLabel={environment?.label ?? "this computer"}
           projects={projects}
-          providers={config?.providers ?? []}
+          providers={environmentId ? (providersByEnvironment.get(environmentId) ?? []) : []}
           saving={pending}
           error={error}
           onClose={() => setEditor(null)}

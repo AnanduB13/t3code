@@ -1,15 +1,11 @@
+// @effect-diagnostics nodeBuiltinImport:off - Electron computer use drives native capture and input with Node timers and hashes.
 import type {
   ComputerUseActionResult,
   ComputerUseAppState,
   ComputerUseDevice,
   ComputerUseOperation,
 } from "@t3tools/contracts";
-import {
-  HostProcessArchitecture,
-  HostProcessEnvironment,
-  HostProcessHostname,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { app, desktopCapturer, screen as electronScreen, systemPreferences } from "electron";
 import Store from "electron-store";
 import * as Effect from "effect/Effect";
@@ -41,10 +37,10 @@ interface ComputerUseRuntime {
 }
 
 const readRuntime = (): ComputerUseRuntime => ({
-  platform: Effect.runSync(HostProcessPlatform),
-  architecture: Effect.runSync(HostProcessArchitecture),
-  hostname: Effect.runSync(HostProcessHostname),
-  environment: Effect.runSync(HostProcessEnvironment),
+  platform: Effect.runSync(HostProcess.Platform),
+  architecture: Effect.runSync(HostProcess.Architecture),
+  hostname: Effect.runSync(HostProcess.Hostname),
+  environment: Effect.runSync(HostProcess.Environment),
 });
 
 const platformName = (runtime: ComputerUseRuntime): ComputerUseDevice["platform"] =>

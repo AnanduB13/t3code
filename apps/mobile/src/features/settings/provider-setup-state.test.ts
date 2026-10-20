@@ -90,29 +90,13 @@ describe("resolveProviderSignInPresentation", () => {
 });
 
 describe("antigravityEnabledPatch", () => {
-  it("enables a legacy instance without losing its executable path or models", () => {
-    const settings = {
-      ...DEFAULT_SERVER_SETTINGS,
-      providers: {
-        ...DEFAULT_SERVER_SETTINGS.providers,
-        antigravity: {
-          ...DEFAULT_SERVER_SETTINGS.providers.antigravity,
-          enabled: false,
-          binaryPath: "/opt/google/agy-acp",
-          customModels: ["gemini-native"],
-        },
-      },
-    };
-    const patch = antigravityEnabledPatch(settings, provider, true);
+  it("enables the default instance without writing a stray enabled flag", () => {
+    const patch = antigravityEnabledPatch(DEFAULT_SERVER_SETTINGS, provider, true);
     const instance = patch?.providerInstances?.[provider.instanceId];
 
-    expect(instance).toMatchObject({
-      enabled: true,
-      config: { binaryPath: "/opt/google/agy-acp", customModels: ["gemini-native"] },
-    });
-    expect(instance?.config).not.toHaveProperty("enabled");
+    expect(instance).toMatchObject({ driver: "antigravity", enabled: true });
+    expect(instance).not.toHaveProperty("config");
     expect(instance && resolveProviderInstanceEnabled(instance)).toBe(true);
-    expect(settings.providers.antigravity.enabled).toBe(false);
   });
 
   it("keeps separate accounts and environment overrides when enabling a custom instance", () => {
@@ -141,7 +125,6 @@ describe("antigravityEnabledPatch", () => {
       config: { binaryPath: "/work/agy-acp", futureSetting: "keep" },
       environment: [{ name: "WORK_PROXY", value: "http://proxy", sensitive: false }],
     });
-    expect(patch?.providers).toBeUndefined();
   });
 
   it("does not change a different driver", () => {

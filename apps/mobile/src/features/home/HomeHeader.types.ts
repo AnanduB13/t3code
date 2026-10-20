@@ -9,6 +9,7 @@ export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
 export interface HomeHeaderProps {
   readonly mode?: MobileHomeMode;
+  readonly usesWorkspaceToolbar?: boolean;
   readonly environments: ReadonlyArray<HomeHeaderEnvironment>;
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly searchQuery: string;

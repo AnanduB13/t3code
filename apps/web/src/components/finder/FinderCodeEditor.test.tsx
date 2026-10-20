@@ -5,10 +5,8 @@ const testState = vi.hoisted(() => ({
   file: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@pierre/diffs/editor", () => ({
-  Editor: class {
-    cleanUp() {}
-  },
+vi.mock("@pierre/diffs/edit", () => ({
+  Editor: class {},
 }));
 
 vi.mock("@pierre/diffs/react", () => ({

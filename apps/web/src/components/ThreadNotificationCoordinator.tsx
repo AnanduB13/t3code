@@ -1,4 +1,8 @@
-import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import {
+  type PendingSubagentRequest,
+  presentThreadShell,
+} from "@t3tools/client-runtime/state/models";
+import { pendingSubagentRequestsByThread } from "@t3tools/client-runtime/state/threads";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
@@ -10,7 +14,7 @@ import {
   MessageCircleQuestionIcon,
   ShieldQuestionIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useEnvironmentIds } from "../state/environments";
@@ -25,6 +29,7 @@ import {
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { resolveThreadAttention, THREAD_ATTENTION_TITLES } from "./threadAttention.logic";
 import { toastManager } from "./ui/toast";
+import { useStableCallback } from "../hooks/useStableCallback";
 
 export function ThreadNotificationCoordinator() {
   const environmentIds = useEnvironmentIds();
@@ -38,14 +43,13 @@ export function ThreadNotificationCoordinator() {
   const pending = useRef(
     new Map<string, { environmentId: EnvironmentId; notification: Notification | null }>(),
   );
-  const onAlert = useCallback(
+  const onAlert = useStableCallback(
     (environmentId: EnvironmentId, tag: string, notification: Notification | null) => {
       const prior = pending.current.get(tag)?.notification ?? null;
       if (notification && prior !== notification) prior?.close();
       pending.current.set(tag, { environmentId, notification: notification ?? prior });
       setNotificationBadge(document.hasFocus() ? 0 : pending.current.size);
     },
-    [],
   );
 
   useEffect(() => {
@@ -59,8 +63,6 @@ export function ThreadNotificationCoordinator() {
     if (count !== pending.current.size) setNotificationBadge(pending.current.size);
   }, [environmentIds]);
 
-  // Re-runs on a mode change on purpose: changing alert settings starts a
-  // fresh badge, and turning alerts off clears it.
   useEffect(() => {
     const clear = () => {
       for (const { notification } of pending.current.values()) notification?.close();
@@ -75,6 +77,7 @@ export function ThreadNotificationCoordinator() {
       window.removeEventListener("focus", clear);
       clear();
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Changing alert settings starts a fresh badge, and turning alerts off clears it.
   }, [mode]);
 
   useEffect(() => {
@@ -96,6 +99,7 @@ export function ThreadNotificationCoordinator() {
 
 interface NotificationState {
   readonly raw: OrchestrationV2ThreadShell;
+  readonly subagentRequest: PendingSubagentRequest | null;
   readonly attention: string | null;
   readonly completion: number | null;
   readonly phase: ReturnType<typeof resolveThreadAwarenessPhaseV2>;
@@ -119,8 +123,6 @@ function EnvironmentNotifications({
   onAlert: (environmentId: EnvironmentId, tag: string, notification: Notification | null) => void;
 }) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
-  // The shell reducer keeps the thread list and unchanged thread objects
-  // stable, so this only rescans when a thread actually changed.
   const threads =
     shell.status === "live" && Option.isSome(shell.snapshot) ? shell.snapshot.value.threads : null;
   // Read by a desktop alert that waited on a permission prompt, so it can
@@ -138,12 +140,12 @@ function EnvironmentNotifications({
   // One toast per thread. Toasts that ask for the user stay until the thread
   // no longer needs them or the user opens it; completions time out.
   const toasts = useRef(new Map<string, { id: string; attention: string | null }>());
-  const closeToast = useCallback((threadId: string) => {
+  const closeToast = useStableCallback((threadId: string) => {
     const open = toasts.current.get(threadId);
     if (!open) return;
     toasts.current.delete(threadId);
     toastManager.close(open.id);
-  }, []);
+  });
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -170,15 +172,16 @@ function EnvironmentNotifications({
       return;
     }
     const next = new Map<ThreadId, NotificationState>();
+    const subagentRequests = pendingSubagentRequestsByThread(threads);
     for (const rawThread of threads) {
       if (rawThread.lineage.relationshipToParent === "subagent") continue;
       const prior = previous.current.get(rawThread.id);
-      // The same object cannot produce a new notification.
-      if (prior?.raw === rawThread) {
+      const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
+      if (prior?.raw === rawThread && prior.subagentRequest === subagentRequest) {
         next.set(rawThread.id, prior);
         continue;
       }
-      const thread = presentThreadShell(environmentId, rawThread);
+      const thread = presentThreadShell(environmentId, rawThread, subagentRequest);
       const phase = resolveThreadAwarenessPhaseV2(rawThread);
       const status = resolveThreadAttention(thread);
       const attention = status ? `${thread.latestRun?.runId ?? ""}:${status}` : null;
@@ -194,7 +197,7 @@ function EnvironmentNotifications({
         Number.isFinite(completedAt)
           ? completedAt
           : (prior?.completion ?? null);
-      next.set(thread.id, { raw: rawThread, attention, completion, phase });
+      next.set(thread.id, { raw: rawThread, subagentRequest, attention, completion, phase });
       if (!prior || thread.archivedAt !== null) continue;
       const kind =
         attention && attention !== prior.attention

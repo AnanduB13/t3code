@@ -7,6 +7,7 @@ import ClearAutomaticProjectModelDefaults from "./Migrations/044_ClearAutomaticP
 import ProjectionProjectsAutoPull from "./Migrations/045_ProjectionProjectsAutoPull.ts";
 import ProjectionThreadLastVisitedAt from "./Migrations/045_ProjectionThreadLastVisitedAt.ts";
 import ProjectionThreadsAutoSettleDisabledAt from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
+import LegacyTokenUsage from "./Migrations/AfterDarkLegacyTokenUsage.ts";
 import ScheduledJobs from "./Migrations/AfterDarkScheduledJobs.ts";
 
 const repairSkippedUpstreamMigrations = Effect.gen(function* () {
@@ -86,6 +87,7 @@ export const runAfterDarkMigrations = (throughUpstreamId?: number) =>
             "6_RepairLegacyMainCompatibility": repairLegacyMainCompatibility,
             "7_ScheduledJobs": ScheduledJobs,
             "8_LegacyQueueImports": legacyQueueImports,
+            "9_LegacyTokenUsage": LegacyTokenUsage,
           }
         : {}),
     }),

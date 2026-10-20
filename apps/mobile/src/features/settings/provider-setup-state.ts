@@ -1,7 +1,6 @@
 import {
   ANTIGRAVITY_AUTH_METHODS,
   type AntigravityAuthMethod,
-  DEFAULT_SERVER_SETTINGS,
   type ProviderAuthState,
   type ServerProvider,
   type ServerSettings,
@@ -32,7 +31,7 @@ export function resolveProviderSignInPresentation(
   };
 }
 
-/** Keep one enabled flag when a legacy provider becomes an explicit instance. */
+/** Enable or disable an Antigravity instance, keeping its config without a stray `enabled` key. */
 export function antigravityEnabledPatch(
   settings: ServerSettings,
   provider: ServerProvider,
@@ -40,11 +39,7 @@ export function antigravityEnabledPatch(
 ): ServerSettingsPatch | null {
   if (provider.driver !== "antigravity") return null;
 
-  const { enabled: _legacyEnabled, ...legacyConfig } = settings.providers.antigravity;
-  const instance = settings.providerInstances[provider.instanceId] ?? {
-    driver: provider.driver,
-    config: legacyConfig,
-  };
+  const instance = settings.providerInstances[provider.instanceId] ?? { driver: provider.driver };
   const config =
     instance.config !== null &&
     typeof instance.config === "object" &&
@@ -53,12 +48,9 @@ export function antigravityEnabledPatch(
       : instance.config;
 
   return {
-    ...(provider.instanceId === "antigravity"
-      ? { providers: { antigravity: DEFAULT_SERVER_SETTINGS.providers.antigravity } }
-      : {}),
     providerInstances: {
       ...settings.providerInstances,
-      [provider.instanceId]: { ...instance, enabled, config },
+      [provider.instanceId]: { ...instance, enabled, ...(config === undefined ? {} : { config }) },
     },
   };
 }

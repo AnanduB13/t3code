@@ -19,7 +19,7 @@ function usesLegacyLimits(config: ServerConfig): boolean {
 
 /** Prefer streamed quotas and credits; older environments still expose their legacy reader. */
 export const usageLimitsStateAtom = Atom.make((get) => {
-  const presentations = get(environmentPresentations.presentationsAtom);
+  const presentations = get(environmentPresentations.presentationsWithProvidersAtom);
   let pending = false;
   const limitsPresentations = new Map(presentations);
   for (const [environmentId, presentation] of presentations) {
@@ -61,7 +61,7 @@ export const usageLimitsStateAtom = Atom.make((get) => {
 }).pipe(Atom.withLabel("web-usage-limits"));
 
 export function useUsageLimitsRefresh(enabled: boolean) {
-  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders);
   const [now, setNow] = useState(Date.now);
   const [refreshing, setRefreshing] = useState(false);
