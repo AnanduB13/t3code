@@ -79,6 +79,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(IpcChannels.SET_NOTIFICATION_BADGE_CHANNEL, handler);
     return () => ipcRenderer.removeListener(IpcChannels.SET_NOTIFICATION_BADGE_CHANNEL, handler);
   },
+  setTaskActivity: (activity) =>
+    ipcRenderer.invoke(IpcChannels.SET_TASK_ACTIVITY_CHANNEL, activity),
+  onTaskActivityOpen: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, target: Parameters<typeof listener>[0]) =>
+      listener(target);
+    ipcRenderer.on(IpcChannels.TASK_ACTIVITY_OPEN_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(IpcChannels.TASK_ACTIVITY_OPEN_CHANNEL, handler);
+  },
   onTrackpadScrollEnd: (listener) => {
     const handler = () => listener();
     ipcRenderer.on(IpcChannels.TRACKPAD_SCROLL_END_CHANNEL, handler);
