@@ -13,7 +13,7 @@ import {
   ComputerUseTypeTextInput,
 } from "./computerUse.ts";
 import { SnapShotSource } from "./chatAttachment.ts";
-import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 import type {
   BrowserImportResult,
@@ -1037,12 +1037,35 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export const DesktopTaskTarget = Schema.Struct({
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+});
+export type DesktopTaskTarget = typeof DesktopTaskTarget.Type;
+
+export const DesktopTask = Schema.Struct({
+  ...DesktopTaskTarget.fields,
+  title: Schema.String.check(Schema.isMaxLength(240)),
+  project: Schema.String.check(Schema.isMaxLength(120)),
+  detail: Schema.String.check(Schema.isMaxLength(240)),
+  status: Schema.Literals(["running", "approval", "input", "monitoring"]),
+});
+export type DesktopTask = typeof DesktopTask.Type;
+
+export const DesktopTaskActivity = Schema.Struct({
+  enabled: Schema.Boolean,
+  tasks: Schema.Array(DesktopTask),
+});
+export type DesktopTaskActivity = typeof DesktopTaskActivity.Type;
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getPathForFile?: (file: File) => string;
   getClientPlatform?: () => string;
   setNotificationBadge?: (badge: { count: number; image: string | null }) => Promise<void>;
   onNotificationBadgeClear?: (listener: () => void) => () => void;
+  setTaskActivity?: (activity: DesktopTaskActivity) => Promise<void>;
+  onTaskActivityOpen?: (listener: (target: DesktopTaskTarget) => void) => () => void;
   onTrackpadScrollEnd?: (listener: () => void) => () => void;
   /**
    * The OS locale as a BCP-47 tag, which the renderer cannot read for itself:

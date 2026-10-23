@@ -41,6 +41,7 @@ import { DesktopUpdateLaunchNotice } from "../components/sidebar/updateEverythin
 import { LegacyThreadMigrationToast } from "../components/LegacyThreadMigrationToast";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
+import { DesktopTaskActivityCoordinator } from "../components/DesktopTaskActivityCoordinator";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { PullRequestGuideRunCoordinator } from "../components/pullRequest/guide/PullRequestGuideRunCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
@@ -245,6 +246,9 @@ function RootRouteView() {
           <SshPasswordPromptDialog />
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
+          {window.desktopBridge?.getClientPlatform?.() === "darwin" && (
+            <DesktopTaskActivityCoordinator />
+          )}
           <ThreadVisitSync />
           <ReopenClosedViewShortcut />
           <ConfirmDialogHost />

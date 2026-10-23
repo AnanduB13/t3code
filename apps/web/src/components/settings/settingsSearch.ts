@@ -380,6 +380,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification toast popup completion input approval failure"],
   },
   {
+    id: "notch-task-activity",
+    title: "Notch task activity",
+    to: "/settings/general",
+    desktopOnly: true,
+    macOnly: true,
+    searchTerms: ["mac macOS running tasks background minimized notch menu bar status activity"],
+  },
+  {
     id: "time-format",
     title: "Time format",
     to: "/settings/general",

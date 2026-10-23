@@ -565,6 +565,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
       ? ["In-app notifications"]
       : []),
+    ...(settings.macTaskActivityEnabled !== DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled
+      ? ["Notch task activity"]
+      : []),
     ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
       ? ["Visible threads"]
       : []),
@@ -726,6 +729,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
+      macTaskActivityEnabled: DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -2434,6 +2438,32 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="behavior" title="Behavior">
         <NotificationSettings />
+        {isElectron && window.desktopBridge?.getClientPlatform?.() === "darwin" ? (
+          <SettingsRow
+            {...searchableSetting("notch-task-activity")}
+            description="Show running tasks below the notch or menu bar while T3 Code is in the background. Select a task to open its thread."
+            resetAction={
+              settings.macTaskActivityEnabled !==
+              DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled ? (
+                <SettingResetButton
+                  label="notch task activity"
+                  onClick={() =>
+                    updateSettings({
+                      macTaskActivityEnabled: DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.macTaskActivityEnabled}
+                onCheckedChange={(checked) => updateSettings({ macTaskActivityEnabled: checked })}
+                aria-label="Notch task activity"
+              />
+            }
+          />
+        ) : null}
         <SettingsRow
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus. Toasts that need you stay until you handle them."

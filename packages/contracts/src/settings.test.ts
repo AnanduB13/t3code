@@ -299,6 +299,16 @@ describe("ClientSettings cite selected text", () => {
 });
 
 describe("ClientSettings notifications", () => {
+  it("enables macOS task activity by default and preserves an explicit opt-out", () => {
+    expect(decodeClientSettings({}).macTaskActivityEnabled).toBe(true);
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("macTaskActivityEnabled");
+    const settings = decodeClientSettings({ macTaskActivityEnabled: false });
+    expect(decodeClientSettings(encodeClientSettings(settings)).macTaskActivityEnabled).toBe(false);
+    expect(
+      decodeClientSettingsPatch({ macTaskActivityEnabled: false }).macTaskActivityEnabled,
+    ).toBe(false);
+  });
+
   it("defaults to system alerts without overriding an explicit opt-out", () => {
     expect(decodeClientSettings({}).notificationMode).toBe("notifications-and-sound");
     expect(decodeClientSettings({ notificationMode: "off" }).notificationMode).toBe("off");
