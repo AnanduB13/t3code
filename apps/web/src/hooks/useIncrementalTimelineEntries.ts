@@ -17,6 +17,19 @@ function sameInput(left: TimelineEntriesInput, right: TimelineEntriesInput): boo
   );
 }
 
+function createTimelineProjector() {
+  let previous: { threadKey: string | null; projection: TimelineEntriesProjection } | null = null;
+  return (threadKey: string | null, input: TimelineEntriesInput) => {
+    const projectionBefore = previous?.threadKey === threadKey ? previous.projection : null;
+    if (projectionBefore !== null && sameInput(projectionBefore.input, input)) {
+      return projectionBefore.entries;
+    }
+    const projection = deriveTimelineEntriesFromVisibleTurnItemsWithState(input, projectionBefore);
+    previous = { threadKey, projection };
+    return projection.entries;
+  };
+}
+
 /**
  * Timeline entries for a thread, derived from the previous projection so
  * unchanged rows keep their identity and memoized rows skip rendering. A new
@@ -26,17 +39,6 @@ export function useIncrementalTimelineEntries(
   threadKey: string | null,
   input: TimelineEntriesInput,
 ): TimelineEntriesProjection["entries"] {
-  const [state, setState] = useState(() => ({
-    threadKey,
-    projection: deriveTimelineEntriesFromVisibleTurnItemsWithState(input),
-  }));
-  if (state.threadKey === threadKey && sameInput(state.projection.input, input)) {
-    return state.projection.entries;
-  }
-  const projection = deriveTimelineEntriesFromVisibleTurnItemsWithState(
-    input,
-    state.threadKey === threadKey ? state.projection : null,
-  );
-  setState({ threadKey, projection });
-  return projection.entries;
+  const [project] = useState(createTimelineProjector);
+  return project(threadKey, input);
 }
