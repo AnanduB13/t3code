@@ -3,15 +3,18 @@ import * as Electron from "electron";
 import { EnvironmentId, ThreadId, type DesktopTaskActivity } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { TASK_ACTIVITY_OPEN_CHANNEL, TASK_ACTIVITY_PANEL_CHANNEL } from "../ipc/channels.ts";
-import { MacTaskActivity, taskPanelBounds } from "./MacTaskActivity.ts";
+import { MacTaskActivity, taskPanelLayout } from "./MacTaskActivity.ts";
+import { readMacScreenNotches, type MacScreenNotch } from "./MacScreenNotch.ts";
 
 const state = vi.hoisted(() => ({
   focused: null as object | null,
   display: {
+    id: 1,
     bounds: { x: 0, y: 0, width: 1512, height: 982 },
     workArea: { x: 0, y: 38, width: 1512, height: 944 },
   },
 }));
+vi.mock("./MacScreenNotch.ts", () => ({ readMacScreenNotches: vi.fn(async () => []) }));
 vi.mock("electron", async () => {
   const { EventEmitter } = await import("node:events");
   class BrowserWindow extends EventEmitter {
@@ -75,6 +78,7 @@ type MockWindow = NodeEvents.EventEmitter & {
   minimized: boolean;
   webContents: NodeEvents.EventEmitter & { mainFrame: object; send: ReturnType<typeof vi.fn> };
   setBounds: ReturnType<typeof vi.fn>;
+  setAlwaysOnTop: ReturnType<typeof vi.fn>;
   showInactive: ReturnType<typeof vi.fn>;
   hide: ReturnType<typeof vi.fn>;
   focus: ReturnType<typeof vi.fn>;
@@ -109,16 +113,19 @@ const ready = () => {
   return windows().at(-1)!;
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   windows().length = 0;
   state.focused = null;
   state.display = {
+    id: 1,
     bounds: { x: 0, y: 0, width: 1512, height: 982 },
     workArea: { x: 0, y: 38, width: 1512, height: 944 },
   };
   vi.clearAllMocks();
+  vi.mocked(readMacScreenNotches).mockResolvedValue([]);
   owner = new Electron.BrowserWindow({});
   controller = new MacTaskActivity("/bundle/task-activity-preload.cjs");
+  await Promise.resolve();
 });
 afterEach(() => controller.dispose());
 
@@ -138,8 +145,10 @@ describe("macOS task panel", () => {
       type: "panel",
       acceptFirstMouse: true,
       frame: false,
+      enableLargerThanScreen: true,
       skipTaskbar: true,
     });
+    expect(panel.setAlwaysOnTop).toHaveBeenCalledWith(true, "status");
     state.focused = owner;
     Electron.app.emit("browser-window-focus", {}, owner);
     expect(panel.hide).toHaveBeenCalled();
@@ -150,12 +159,12 @@ describe("macOS task panel", () => {
     const panel = ready();
     message("expand");
     expect(panel.setBounds).toHaveBeenLastCalledWith(
-      { x: 552, y: 40, width: 408, height: 368 },
+      { x: 552, y: 0, width: 408, height: 368 },
       false,
     );
     message("collapse");
     expect(panel.setBounds).toHaveBeenLastCalledWith(
-      { x: 596, y: 40, width: 320, height: 40 },
+      { x: 596, y: 0, width: 320, height: 40 },
       false,
     );
     const mockOwner = windows()[0]!;
@@ -196,23 +205,80 @@ describe("macOS task panel", () => {
     expect(windows()).toHaveLength(4);
   });
 
-  it("hides while locked and follows display changes on unlock", () => {
+  it("hides while locked and follows display changes on unlock", async () => {
     controller.update(activity, owner);
     const panel = ready();
     Electron.powerMonitor.emit("lock-screen");
     expect(panel.hide).toHaveBeenCalled();
     state.display = {
+      id: 2,
       bounds: { x: -1920, y: -900, width: 1920, height: 1080 },
       workArea: { x: -1920, y: -876, width: 1920, height: 1056 },
     };
     Electron.screen.emit("display-removed");
+    await Promise.resolve();
     expect(panel.showInactive).toHaveBeenCalledTimes(1);
     Electron.powerMonitor.emit("unlock-screen");
     expect(panel.setBounds).toHaveBeenLastCalledWith(
-      { x: -1120, y: -860, width: 320, height: 40 },
+      { x: -1120, y: -900, width: 320, height: 40 },
       false,
     );
     expect(panel.showInactive).toHaveBeenCalledTimes(2);
+  });
+
+  it("reserves the real camera width and removes the gap on an external display", async () => {
+    const notch: MacScreenNotch = { displayId: 1, x: 656, width: 200, height: 38 };
+    vi.mocked(readMacScreenNotches).mockResolvedValue([notch]);
+    Electron.screen.emit("display-metrics-changed");
+    await Promise.resolve();
+    controller.update(activity, owner);
+    const panel = ready();
+    expect(panel.setBounds).toHaveBeenLastCalledWith(
+      { x: 488, y: 0, width: 536, height: 40 },
+      false,
+    );
+    expect(panel.webContents.send).toHaveBeenLastCalledWith(TASK_ACTIVITY_PANEL_CHANNEL, {
+      tasks: activity.tasks,
+      expanded: false,
+      layout: { headerHeight: 40, notchWidth: 216, height: 40 },
+    });
+    message("expand");
+    expect(panel.setBounds).toHaveBeenLastCalledWith(
+      { x: 444, y: 0, width: 624, height: 112 },
+      false,
+    );
+    message("collapse");
+    controller.update(activity, owner);
+    expect(readMacScreenNotches).toHaveBeenCalledTimes(2);
+
+    state.display.id = 2;
+    owner.emit("move");
+    await Promise.resolve();
+    expect(panel.setBounds).toHaveBeenLastCalledWith(
+      { x: 596, y: 0, width: 320, height: 40 },
+      false,
+    );
+    expect(panel.webContents.send).toHaveBeenLastCalledWith(TASK_ACTIVITY_PANEL_CHANNEL, {
+      tasks: activity.tasks,
+      expanded: false,
+      layout: { headerHeight: 40, notchWidth: 0, height: 40 },
+    });
+  });
+
+  it("ignores stale screen geometry after another display change", async () => {
+    const stale = Promise.withResolvers<readonly MacScreenNotch[]>();
+    vi.mocked(readMacScreenNotches).mockReturnValueOnce(stale.promise);
+    Electron.screen.emit("display-metrics-changed");
+    Electron.screen.emit("display-metrics-changed");
+    await Promise.resolve();
+    stale.resolve([{ displayId: 1, x: 656, width: 200, height: 38 }]);
+    await stale.promise;
+    controller.update(activity, owner);
+    const panel = ready();
+    expect(panel.setBounds).toHaveBeenLastCalledWith(
+      { x: 596, y: 0, width: 320, height: 40 },
+      false,
+    );
   });
 
   it("cleans up native listeners and windows on disposal", () => {
@@ -227,15 +293,29 @@ describe("macOS task panel", () => {
   });
 });
 
-it("keeps a panel on narrow displays inside the screen with an auto-hidden menu bar", () => {
+it("keeps the expanded task list inside short, narrow displays", () => {
   expect(
-    taskPanelBounds(
+    taskPanelLayout(
       {
         bounds: { x: 0, y: 0, width: 300, height: 300 },
-        workArea: { x: 0, y: 0, width: 300, height: 300 },
       },
       true,
       50,
-    ),
-  ).toEqual({ x: 0, y: 40, width: 300, height: 260 });
+    ).bounds,
+  ).toEqual({ x: 0, y: 0, width: 300, height: 300 });
+});
+
+it("uses notch geometry on scaled displays above and to the left of the primary screen", () => {
+  expect(
+    taskPanelLayout({ bounds: { x: -1800, y: -1100, width: 1800, height: 1100 } }, true, 1, {
+      displayId: 2,
+      x: 780,
+      width: 240,
+      height: 48,
+    }),
+  ).toEqual({
+    bounds: { x: -1232, y: -1100, width: 664, height: 120 },
+    headerHeight: 48,
+    notchWidth: 256,
+  });
 });
