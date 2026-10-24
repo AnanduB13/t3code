@@ -147,7 +147,11 @@ export default defineConfig({
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/task-activity-preload.ts"],
       outputOptions: { codeSplitting: false },
-      deps: { neverBundle: ["electron"] },
+      // The panel's sandbox cannot require workspace packages at runtime.
+      deps: {
+        alwaysBundle: (id) => id !== "electron",
+        neverBundle: ["electron"],
+      },
     },
   ],
   test: {
