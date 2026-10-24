@@ -13,7 +13,19 @@ import {
   ComputerUseTypeTextInput,
 } from "./computerUse.ts";
 import { SnapShotSource } from "./chatAttachment.ts";
-import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  EnvironmentId,
+  RuntimeRequestId,
+  IsoDateTime,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
+import {
+  ProviderApprovalDecision,
+  ProviderApprovalOption,
+  ProviderRequestKind,
+} from "./providerPolicy.ts";
+import { UserInputQuestion } from "./providerRuntime.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 import type {
   BrowserImportResult,
@@ -1043,20 +1055,114 @@ export const DesktopTaskTarget = Schema.Struct({
 });
 export type DesktopTaskTarget = typeof DesktopTaskTarget.Type;
 
+// Inline images keep asset URLs and credentials out of the isolated panel.
+const DesktopTaskImage = Schema.String.check(
+  Schema.isMaxLength(32 * 1024),
+  Schema.isPattern(
+    /^data:image\/(?:png|jpeg|gif|webp|avif|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/]+={0,2}$/,
+  ),
+);
+
+// Question IDs and option values are provider-owned answer keys; preserve them verbatim.
+const DesktopTaskQuestion = Schema.Struct({
+  ...UserInputQuestion.fields,
+  id: Schema.String,
+  header: Schema.String,
+  question: Schema.String,
+  options: Schema.Array(
+    Schema.Struct({
+      ...UserInputQuestion.fields.options.value.fields,
+      label: Schema.String,
+    }),
+  ),
+});
+const DesktopTaskRequestFailure = Schema.Struct({
+  activityId: Schema.String,
+  message: Schema.String,
+});
+export const DesktopTaskRequest = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("input"),
+    requestId: RuntimeRequestId,
+    questions: Schema.Array(DesktopTaskQuestion),
+    dismissible: Schema.Boolean,
+    responseFailure: Schema.optionalKey(DesktopTaskRequestFailure),
+    responseUnavailableReason: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("approval"),
+    requestId: RuntimeRequestId,
+    requestKind: ProviderRequestKind,
+    detail: Schema.optionalKey(Schema.String),
+    appName: Schema.optionalKey(Schema.String),
+    options: Schema.optionalKey(Schema.Array(ProviderApprovalOption)),
+    responseFailure: Schema.optionalKey(DesktopTaskRequestFailure),
+    responseUnavailableReason: Schema.optionalKey(Schema.String),
+  }),
+]);
+export type DesktopTaskRequest = typeof DesktopTaskRequest.Type;
+
+export const DesktopTaskRequestTarget = Schema.Struct({
+  ...DesktopTaskTarget.fields,
+  requestId: RuntimeRequestId,
+});
+export type DesktopTaskRequestTarget = typeof DesktopTaskRequestTarget.Type;
+
+export const DesktopTaskResponse = Schema.Union([
+  Schema.Struct({
+    ...DesktopTaskRequestTarget.fields,
+    kind: Schema.Literal("input"),
+    answers: Schema.Record(
+      Schema.String,
+      Schema.Union([Schema.String, Schema.Array(Schema.String)]),
+    ),
+  }),
+  Schema.Struct({
+    ...DesktopTaskRequestTarget.fields,
+    kind: Schema.Literal("approval"),
+    decision: ProviderApprovalDecision,
+  }),
+  Schema.Struct({ ...DesktopTaskRequestTarget.fields, kind: Schema.Literal("dismiss") }),
+]);
+export type DesktopTaskResponse = typeof DesktopTaskResponse.Type;
+
+export const DesktopTaskResponseResult = Schema.Struct({
+  ...DesktopTaskRequestTarget.fields,
+  error: Schema.NullOr(Schema.String),
+});
+export type DesktopTaskResponseResult = typeof DesktopTaskResponseResult.Type;
+
 export const DesktopTask = Schema.Struct({
   ...DesktopTaskTarget.fields,
   title: Schema.String.check(Schema.isMaxLength(240)),
   project: Schema.String.check(Schema.isMaxLength(120)),
   detail: Schema.String.check(Schema.isMaxLength(240)),
   status: Schema.Literals(["running", "approval", "input", "monitoring"]),
+  model: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256))),
+  modelIcon: Schema.optionalKey(Schema.NullOr(DesktopTaskImage)),
+  startedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
+  projectIcon: Schema.optionalKey(Schema.NullOr(DesktopTaskImage)),
+  requests: Schema.optionalKey(Schema.Array(DesktopTaskRequest)),
 });
 export type DesktopTask = typeof DesktopTask.Type;
 
 export const DesktopTaskActivity = Schema.Struct({
   enabled: Schema.Boolean,
   tasks: Schema.Array(DesktopTask),
+  displayId: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  appName: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(120))),
 });
 export type DesktopTaskActivity = typeof DesktopTaskActivity.Type;
+
+export const DesktopTaskActivityDisplay = Schema.Struct({
+  id: Schema.Int,
+  label: Schema.String,
+  width: Schema.Finite,
+  height: Schema.Finite,
+  internal: Schema.Boolean,
+  primary: Schema.Boolean,
+});
+export type DesktopTaskActivityDisplay = typeof DesktopTaskActivityDisplay.Type;
 
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
@@ -1066,6 +1172,10 @@ export interface DesktopBridge {
   onNotificationBadgeClear?: (listener: () => void) => () => void;
   setTaskActivity?: (activity: DesktopTaskActivity) => Promise<void>;
   onTaskActivityOpen?: (listener: (target: DesktopTaskTarget) => void) => () => void;
+  onTaskActivityRespond?: (listener: (response: DesktopTaskResponse) => void) => () => void;
+  setTaskActivityResponseResult?: (result: DesktopTaskResponseResult) => Promise<void>;
+  getTaskActivityDisplays?: () => Promise<readonly DesktopTaskActivityDisplay[]>;
+  onTaskActivityDisplaysChanged?: (listener: () => void) => () => void;
   onTrackpadScrollEnd?: (listener: () => void) => () => void;
   /**
    * The OS locale as a BCP-47 tag, which the renderer cannot read for itself:

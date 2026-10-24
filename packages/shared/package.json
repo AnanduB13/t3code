@@ -498,6 +498,18 @@
     "./PtyAdapter": {
       "types": "./src/PtyAdapter.ts",
       "import": "./src/PtyAdapter.ts"
+    },
+    "./pendingUserInput": {
+      "types": "./src/pendingUserInput.ts",
+      "import": "./src/pendingUserInput.ts"
+    },
+    "./desktopTaskRequests": {
+      "types": "./src/desktopTaskRequests.ts",
+      "import": "./src/desktopTaskRequests.ts"
+    },
+    "./modelLogo": {
+      "types": "./src/modelLogo.ts",
+      "import": "./src/modelLogo.ts"
     }
   },
   "scripts": {

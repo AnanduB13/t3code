@@ -8,6 +8,7 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
+import { modelLogoDataUrl } from "@t3tools/shared/modelLogo";
 import { describe, expect, it } from "vite-plus/test";
 import {
   type DesktopTaskThread,
@@ -52,6 +53,9 @@ describe("desktop task activity", () => {
         project: "T3 Code",
         detail: "Agent is working",
         status: "running",
+        model: "gpt-5.4",
+        modelIcon: modelLogoDataUrl("gpt-5.4"),
+        startedAt: null,
       },
     ]);
   });
@@ -120,4 +124,31 @@ describe("desktop task activity", () => {
     expect(tasks[0]?.title).toHaveLength(240);
     expect(decodeTaskActivity({ enabled: true, tasks }).tasks).toEqual(tasks);
   });
+});
+
+it("uses the current run clock and model metadata on main", () => {
+  const tasks = projectDesktopTasks(environmentId, {
+    projects,
+    threads: [
+      thread({
+        modelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus-4-8" },
+        activityRunStartedAt: DateTime.makeUnsafe("2026-10-23T09:55:00.000Z"),
+        latestRunStartedAt: DateTime.makeUnsafe("2026-10-23T09:50:00.000Z"),
+      }),
+    ],
+  });
+  expect(tasks[0]).toMatchObject({
+    model: "claude-opus-4-8",
+    modelIcon: modelLogoDataUrl("claude-opus-4-8"),
+    startedAt: "2026-10-23T09:55:00.000Z",
+  });
+});
+it("uses the requested time while a new run is starting", () => {
+  const tasks = projectDesktopTasks(environmentId, {
+    projects,
+    threads: [
+      thread({ status: "starting", activityRunStatus: "starting", latestRunRequestedAt: now }),
+    ],
+  });
+  expect(tasks[0]?.startedAt).toBe("2026-10-23T10:00:00.000Z");
 });

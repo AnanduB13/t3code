@@ -1,3 +1,6 @@
+export const TASK_ACTIVITY_DISPLAYS_CHANNEL = "desktop:task-activity-displays";
+export const TASK_ACTIVITY_RESPOND_CHANNEL = "desktop:task-activity-respond";
+export const TASK_ACTIVITY_RESPONSE_RESULT_CHANNEL = "desktop:task-activity-response-result";
 export const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 export const SET_NOTIFICATION_BADGE_CHANNEL = "desktop:set-notification-badge";
 export const SET_TASK_ACTIVITY_CHANNEL = "desktop:set-task-activity";

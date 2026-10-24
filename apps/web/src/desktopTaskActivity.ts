@@ -3,11 +3,22 @@ import type {
   EnvironmentId,
   OrchestrationProjectShell,
   OrchestrationV2ThreadShell,
+  ServerProvider,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { resolveThreadAwarenessPhaseV2 } from "@t3tools/shared/agentAwareness";
+import { modelLogoDataUrl } from "@t3tools/shared/modelLogo";
 
 export type DesktopTaskThread = Parameters<typeof resolveThreadAwarenessPhaseV2>[0] &
-  Pick<OrchestrationV2ThreadShell, "archivedAt" | "lineage" | "projectId">;
+  Pick<
+    OrchestrationV2ThreadShell,
+    | "archivedAt"
+    | "lineage"
+    | "projectId"
+    | "activityRunStartedAt"
+    | "latestRunStartedAt"
+    | "latestRunRequestedAt"
+  >;
 
 /** Project only live shell summaries; transcripts never cross the desktop bridge. */
 export function projectDesktopTasks(
@@ -16,6 +27,7 @@ export function projectDesktopTasks(
     readonly projects: ReadonlyArray<Pick<OrchestrationProjectShell, "id" | "title">>;
     readonly threads: ReadonlyArray<DesktopTaskThread>;
   },
+  context: { providers?: readonly Pick<ServerProvider, "instanceId" | "models">[] } = {},
 ): DesktopTask[] {
   const projects = new Map(snapshot.projects.map((project) => [project.id, project.title]));
   const tasks: DesktopTask[] = [];
@@ -34,6 +46,19 @@ export function projectDesktopTasks(
               ? "running"
               : null;
     if (!status) continue;
+    const provider = context.providers?.find(
+      (provider) => provider.instanceId === thread.modelSelection.instanceId,
+    );
+    const model = provider?.models.find(
+      (model) =>
+        model.slug === thread.modelSelection.model ||
+        model.aliases?.includes(thread.modelSelection.model),
+    );
+    const startedAt =
+      thread.activityRunStartedAt ??
+      thread.latestRunStartedAt ??
+      thread.latestRunRequestedAt ??
+      thread.pendingRuntimeRequest?.createdAt;
     const detail =
       status === "approval"
         ? "Approval needed"
@@ -51,6 +76,9 @@ export function projectDesktopTasks(
       project: (projects.get(thread.projectId) ?? "T3 Code").slice(0, 120),
       detail,
       status,
+      model: (model?.shortName ?? model?.name ?? thread.modelSelection.model).slice(0, 256),
+      modelIcon: modelLogoDataUrl(thread.modelSelection.model, model?.name, model?.subProvider),
+      startedAt: startedAt ? DateTime.formatIso(startedAt) : null,
     });
   }
   return tasks;

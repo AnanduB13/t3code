@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { DEFAULT_APPROVAL_OPTIONS } from "@t3tools/shared/desktopTaskRequests";
 
 interface ComposerPendingApprovalActionsProps {
   requestId: RuntimeRequestId;
@@ -21,13 +22,6 @@ interface ComposerPendingApprovalActionsProps {
     decision: ProviderApprovalDecision,
   ) => Promise<unknown>;
 }
-
-const DEFAULT_APPROVAL_OPTIONS = [
-  { decision: "cancel", label: "Cancel" },
-  { decision: "decline", label: "Decline" },
-  { decision: "acceptForSession", label: "Always allow this session" },
-  { decision: "accept", label: "Approve" },
-] satisfies ReadonlyArray<ProviderApprovalOption>;
 
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,

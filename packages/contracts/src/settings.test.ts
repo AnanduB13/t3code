@@ -299,6 +299,15 @@ describe("ClientSettings cite selected text", () => {
 });
 
 describe("ClientSettings notifications", () => {
+  it("persists the notch display choice and supports returning to automatic placement", () => {
+    expect(decodeClientSettings({}).macTaskActivityDisplayId).toBeNull();
+    const saved = decodeClientSettings({ macTaskActivityDisplayId: 42 });
+    expect(decodeClientSettings(encodeClientSettings(saved)).macTaskActivityDisplayId).toBe(42);
+    const reset = decodeClientSettingsPatch({ macTaskActivityDisplayId: null });
+    expect(decodeClientSettings({ ...saved, ...reset }).macTaskActivityDisplayId).toBeNull();
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("macTaskActivityDisplayId");
+  });
+
   it("enables macOS task activity by default and preserves an explicit opt-out", () => {
     expect(decodeClientSettings({}).macTaskActivityEnabled).toBe(true);
     expect(decodeClientSettingsPatch({})).not.toHaveProperty("macTaskActivityEnabled");

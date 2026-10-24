@@ -93,6 +93,20 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   setTaskActivity: (activity) =>
     ipcRenderer.invoke(IpcChannels.SET_TASK_ACTIVITY_CHANNEL, activity),
+  setTaskActivityResponseResult: (result) =>
+    ipcRenderer.invoke(IpcChannels.TASK_ACTIVITY_RESPONSE_RESULT_CHANNEL, result),
+  onTaskActivityRespond: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, response: Parameters<typeof listener>[0]) =>
+      listener(response);
+    ipcRenderer.on(IpcChannels.TASK_ACTIVITY_RESPOND_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(IpcChannels.TASK_ACTIVITY_RESPOND_CHANNEL, handler);
+  },
+  getTaskActivityDisplays: () => ipcRenderer.invoke(IpcChannels.TASK_ACTIVITY_DISPLAYS_CHANNEL),
+  onTaskActivityDisplaysChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(IpcChannels.TASK_ACTIVITY_DISPLAYS_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(IpcChannels.TASK_ACTIVITY_DISPLAYS_CHANNEL, handler);
+  },
   onTaskActivityOpen: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, target: Parameters<typeof listener>[0]) =>
       listener(target);

@@ -1,3 +1,4 @@
+import { MacTaskActivityDisplaySetting } from "./MacTaskActivityDisplaySetting";
 import { SettingsGroup } from "./SettingsGroup";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
@@ -565,6 +566,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
       ? ["In-app notifications"]
       : []),
+    ...(settings.macTaskActivityDisplayId !== DEFAULT_UNIFIED_SETTINGS.macTaskActivityDisplayId
+      ? ["Notch display"]
+      : []),
     ...(settings.macTaskActivityEnabled !== DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled
       ? ["Notch task activity"]
       : []),
@@ -730,6 +734,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       macTaskActivityEnabled: DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled,
+      macTaskActivityDisplayId: DEFAULT_UNIFIED_SETTINGS.macTaskActivityDisplayId,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -2463,6 +2468,9 @@ export function GeneralSettingsPanel() {
               />
             }
           />
+        ) : null}
+        {isElectron && window.desktopBridge?.getClientPlatform?.() === "darwin" ? (
+          <MacTaskActivityDisplaySetting />
         ) : null}
         <SettingsRow
           {...searchableSetting("in-app-notifications")}

@@ -388,6 +388,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["mac macOS running tasks background minimized notch menu bar status activity"],
   },
   {
+    id: "notch-display",
+    title: "Notch display",
+    to: "/settings/general",
+    desktopOnly: true,
+    macOnly: true,
+    searchTerms: ["notch monitor display screen MacBook external primary activity"],
+  },
+  {
     id: "time-format",
     title: "Time format",
     to: "/settings/general",

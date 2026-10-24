@@ -223,9 +223,15 @@ for custom configuration.
 On macOS desktop, running threads and requests for input or approval appear at the
 top of the screen, beside the notch on MacBook displays, while T3 Code is minimized
 or in the background. Hover or click to expand the task list, then select a task to
-open its thread. This follows your connected environments while the app is running.
-Turn it off in
-**Settings → General → Notch task activity**.
+open its thread. Questions and approval requests expand automatically, with the
+project, thread, and model shown above the controls. Answer or approve directly in
+the panel; use **Later** to leave a request pending, or **Open chat** for the full
+conversation. This follows your connected environments while the app is running.
+The compact view shows each task's title, project icon, model, and elapsed time,
+cycling through active tasks every four seconds. Expand it to see all tasks at once.
+Turn it off in **Settings → General → Notch task activity**. Use **Notch display**
+to keep activity on a specific monitor, or choose **Follow T3 Code**. If your saved
+display is disconnected, activity follows the app until that display reconnects.
 
 On web and desktop, **Agents** discovers Hermes and OpenClaw on each computer
 connected through **Settings → Connections**. Each computer needs a running T3
