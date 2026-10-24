@@ -1,18 +1,48 @@
-import { DesktopTaskTarget, type DesktopTaskActivity } from "@t3tools/contracts";
+import {
+  DesktopTaskTarget,
+  DesktopTaskRequestTarget,
+  DesktopTaskResponse,
+  type DesktopTaskResponseResult,
+  type DesktopTaskActivity,
+  type DesktopTaskActivityDisplay,
+} from "@t3tools/contracts";
+import {
+  taskRequestKey,
+  taskRequests,
+  validTaskResponse,
+} from "@t3tools/shared/desktopTaskRequests";
 import * as Electron from "electron";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { TASK_ACTIVITY_OPEN_CHANNEL, TASK_ACTIVITY_PANEL_CHANNEL } from "../ipc/channels.ts";
+import {
+  TASK_ACTIVITY_DISPLAYS_CHANNEL,
+  TASK_ACTIVITY_OPEN_CHANNEL,
+  TASK_ACTIVITY_PANEL_CHANNEL,
+  TASK_ACTIVITY_RESPOND_CHANNEL,
+} from "../ipc/channels.ts";
 import { readMacScreenNotches, type MacScreenNotch } from "./MacScreenNotch.ts";
 import {
   taskPanelHtml,
   TASK_PANEL_HEADER_HEIGHT,
   TASK_PANEL_MAX_ROWS,
   TASK_PANEL_ROW_HEIGHT,
+  TASK_PANEL_ROW_GAP,
 } from "./taskPanelHtml.ts";
 
 const decodeTaskTarget = Schema.decodeUnknownOption(DesktopTaskTarget);
+const decodeShowRequest = Schema.decodeUnknownOption(
+  Schema.Struct({ action: Schema.Literal("show-request"), target: DesktopTaskRequestTarget }),
+);
+const decodeResponse = Schema.decodeUnknownOption(
+  Schema.Struct({ action: Schema.Literal("respond"), response: DesktopTaskResponse }),
+);
+const decodeCollapsed = Schema.decodeUnknownOption(
+  Schema.Struct({
+    action: Schema.Literal("collapsed"),
+    revision: Schema.Int,
+  }),
+);
 
 /** Anchor to the display edge, with equal content wings around the camera cutout. */
 export function taskPanelLayout(
@@ -20,15 +50,28 @@ export function taskPanelLayout(
   expanded: boolean,
   taskCount: number,
   notch?: MacScreenNotch,
+  interactive = false,
 ) {
   const notchWidth = notch ? Math.ceil(notch.width) + 16 : 0;
   const headerHeight = Math.max(TASK_PANEL_HEADER_HEIGHT, Math.ceil(notch?.height ?? 0));
-  const width = Math.min((expanded ? 408 : 320) + notchWidth, display.bounds.width);
-  const height = Math.min(
-    headerHeight +
-      (expanded ? Math.min(taskCount, TASK_PANEL_MAX_ROWS) * TASK_PANEL_ROW_HEIGHT + 8 : 0),
+  // Keep the header and camera gap stationary throughout a hover reveal.
+  const compactWidth = Math.min(240 + notchWidth, display.bounds.width);
+  const expandedWidth = Math.min(
+    Math.max(interactive ? 440 : 400, compactWidth),
+    display.bounds.width,
+  );
+  const width = expanded ? expandedWidth : compactWidth;
+  const rows = Math.min(taskCount, TASK_PANEL_MAX_ROWS);
+  const expandedHeight = Math.min(
+    interactive
+      ? headerHeight + 460
+      : headerHeight +
+          rows * TASK_PANEL_ROW_HEIGHT +
+          Math.max(0, rows - 1) * TASK_PANEL_ROW_GAP +
+          16,
     display.bounds.height,
   );
+  const height = expanded ? expandedHeight : Math.min(headerHeight, display.bounds.height);
   const center = notch ? notch.x + notch.width / 2 : display.bounds.width / 2;
   return {
     bounds: {
@@ -41,25 +84,38 @@ export function taskPanelLayout(
     },
     headerHeight,
     notchWidth,
+    compactWidth,
+    expandedWidth,
+    expandedHeight,
   };
 }
 
-/** One non-activating panel. Its state comes only from the main renderer's live shells. */
+/** Background panel; keyboard focus is enabled only while answering a live request. */
 export class MacTaskActivity {
   private panel: Electron.BrowserWindow | undefined;
   private owner: Electron.BrowserWindow | undefined;
   private activity: DesktopTaskActivity = { enabled: false, tasks: [] };
   private expanded = false;
+  private collapsing = false;
+  private revision = 0;
   private ready = false;
   private locked = false;
   private disposed = false;
   private notches: readonly MacScreenNotch[] | undefined;
   private displayGeneration = 0;
   private unbindOwner = () => {};
+  private activeRequest: DesktopTaskRequestTarget | null = null;
+  private closingRequest: DesktopTaskRequestTarget | null = null;
+  private seenRequests = new Set<string>();
+  private pendingResponses = new Set<string>();
   private readonly preload: string;
+  private readonly appIcon: string | null;
 
-  constructor(preload: string) {
+  constructor(preload: string, iconPath?: string) {
     this.preload = preload;
+    const icon = iconPath ? Electron.nativeImage.createFromPath(iconPath) : null;
+    this.appIcon =
+      icon && !icon.isEmpty() ? icon.resize({ width: 32, height: 32 }).toDataURL() : null;
     Electron.app.on("browser-window-focus", this.sync);
     Electron.app.on("browser-window-blur", this.syncAfterEvent);
     Electron.screen.on("display-added", this.refreshDisplays);
@@ -77,12 +133,29 @@ export class MacTaskActivity {
     const generation = ++this.displayGeneration;
     this.notches = undefined;
     this.panel?.hide();
+    this.expanded = false;
+    this.collapsing = false;
+    if (this.owner && !this.owner.isDestroyed()) {
+      this.owner.webContents.send(TASK_ACTIVITY_DISPLAYS_CHANNEL);
+    }
     void readMacScreenNotches().then((notches) => {
       if (this.disposed || generation !== this.displayGeneration) return;
       this.notches = notches;
       this.sync();
     });
   };
+
+  getDisplays(): readonly DesktopTaskActivityDisplay[] {
+    const primary = Electron.screen.getPrimaryDisplay().id;
+    return Electron.screen.getAllDisplays().map((display, index) => ({
+      id: display.id,
+      label: display.label || (display.internal ? "Built-in display" : `Display ${index + 1}`),
+      width: display.bounds.width,
+      height: display.bounds.height,
+      internal: display.internal,
+      primary: display.id === primary,
+    }));
+  }
 
   update(activity: DesktopTaskActivity, owner: Electron.BrowserWindow) {
     if (this.disposed) return;
@@ -109,6 +182,24 @@ export class MacTaskActivity {
       };
     }
     this.activity = activity;
+    const requests = taskRequests(activity.tasks);
+    const keys = new Set(requests.map(({ target }) => taskRequestKey(target)));
+    const wasResponding = this.activeRequest !== null;
+    if (this.activeRequest && !keys.has(taskRequestKey(this.activeRequest)))
+      this.activeRequest = null;
+    const next = this.activeRequest
+      ? undefined
+      : (requests.find(({ target }) => !this.seenRequests.has(taskRequestKey(target))) ??
+        (wasResponding ? requests[0] : undefined));
+    if (next) {
+      this.activeRequest = next.target;
+      this.closingRequest = null;
+      this.expanded = true;
+      this.collapsing = false;
+      this.revision++;
+    }
+    this.seenRequests = keys;
+    for (const key of this.pendingResponses) if (!keys.has(key)) this.pendingResponses.delete(key);
     if (!activity.enabled || activity.tasks.length === 0) this.destroyPanel();
     this.sync();
   }
@@ -132,6 +223,11 @@ export class MacTaskActivity {
   private destroyPanel() {
     this.ready = false;
     this.expanded = false;
+    this.collapsing = false;
+    this.activeRequest = null;
+    this.closingRequest = null;
+    this.seenRequests.clear();
+    this.pendingResponses.clear();
     this.panel?.destroy();
     this.panel = undefined;
   }
@@ -146,31 +242,48 @@ export class MacTaskActivity {
       !this.activity.enabled ||
       this.activity.tasks.length === 0 ||
       this.locked ||
-      focused ||
+      (focused && focused !== this.panel) ||
       !this.notches
     ) {
       this.expanded = false;
+      this.collapsing = false;
       this.panel?.hide();
+      this.panel?.setFocusable(false);
       return;
     }
     if (!this.panel) this.createPanel();
     const panel = this.panel;
     if (!panel || !this.ready) return;
-    const display = Electron.screen.getDisplayMatching(owner.getBounds());
+    if (this.activeRequest) this.expanded = true;
+    panel.setFocusable(this.expanded && this.activeRequest !== null);
+    const display =
+      Electron.screen
+        .getAllDisplays()
+        .find((candidate) => candidate.id === this.activity.displayId) ??
+      Electron.screen.getDisplayMatching(owner.getBounds());
     const layout = taskPanelLayout(
       display,
-      this.expanded,
+      this.expanded || this.collapsing,
       this.activity.tasks.length,
       this.notches.find((notch) => notch.displayId === display.id),
+      this.activeRequest !== null || this.closingRequest !== null,
     );
     panel.setBounds(layout.bounds, false);
     panel.webContents.send(TASK_ACTIVITY_PANEL_CHANNEL, {
       tasks: this.activity.tasks,
+      branding: { name: this.activity.appName?.trim() || "T3 Code", icon: this.appIcon },
       expanded: this.expanded,
+      collapsing: this.collapsing,
+      revision: this.revision,
+      ...(this.activeRequest || this.closingRequest
+        ? { activeRequest: this.activeRequest ?? this.closingRequest }
+        : {}),
       layout: {
         headerHeight: layout.headerHeight,
         notchWidth: layout.notchWidth,
-        height: layout.bounds.height,
+        compactWidth: layout.compactWidth,
+        width: layout.expandedWidth,
+        height: layout.expandedHeight,
       },
     });
     if (!panel.isVisible()) panel.showInactive();
@@ -178,7 +291,7 @@ export class MacTaskActivity {
 
   private createPanel() {
     const panel = new Electron.BrowserWindow({
-      width: 320,
+      width: 240,
       height: TASK_PANEL_HEADER_HEIGHT,
       show: false,
       frame: false,
@@ -215,6 +328,7 @@ export class MacTaskActivity {
         this.panel = undefined;
         this.ready = false;
         this.expanded = false;
+        this.collapsing = false;
       }
     });
     void panel
@@ -233,9 +347,74 @@ export class MacTaskActivity {
     )
       return;
     if (action === "ready") this.ready = true;
-    else if (action === "expand") this.expanded = true;
-    else if (action === "collapse") this.expanded = false;
-    else {
+    else if (action === "expand") {
+      if (this.expanded) return;
+      this.revision++;
+      this.expanded = true;
+      this.collapsing = false;
+      this.activeRequest ??= this.closingRequest;
+      this.closingRequest = null;
+    } else if (action === "collapse") {
+      if (!this.expanded) return;
+      this.revision++;
+      this.expanded = false;
+      this.collapsing = true;
+      this.closingRequest = this.activeRequest;
+      this.activeRequest = null;
+    } else {
+      const showRequest = decodeShowRequest(action);
+      if (Option.isSome(showRequest)) {
+        const target = showRequest.value.target;
+        if (
+          !taskRequests(this.activity.tasks).some(
+            (entry) => taskRequestKey(entry.target) === taskRequestKey(target),
+          )
+        )
+          return;
+        this.activeRequest = target;
+        this.closingRequest = null;
+        this.expanded = true;
+        this.collapsing = false;
+        this.revision++;
+        this.sync();
+        return;
+      }
+      const response = decodeResponse(action);
+      if (Option.isSome(response)) {
+        const value = response.value.response;
+        const owner = this.owner;
+        if (!owner || owner.isDestroyed()) return;
+        if (
+          !this.activity.enabled ||
+          this.locked ||
+          !validTaskResponse(this.activity.tasks, value)
+        ) {
+          panel.webContents.send(TASK_ACTIVITY_PANEL_CHANNEL, {
+            action: "response-result",
+            result: {
+              environmentId: value.environmentId,
+              threadId: value.threadId,
+              requestId: value.requestId,
+              error:
+                "This request is no longer available. Open the chat to check its latest state.",
+            },
+          });
+          return;
+        }
+        const key = taskRequestKey(value);
+        if (this.pendingResponses.has(key)) return;
+        this.pendingResponses.add(key);
+        owner.webContents.send(TASK_ACTIVITY_RESPOND_CHANNEL, value);
+        return;
+      }
+      const collapsed = decodeCollapsed(action);
+      if (Option.isSome(collapsed)) {
+        if (this.expanded || collapsed.value.revision !== this.revision) return;
+        this.collapsing = false;
+        this.closingRequest = null;
+        this.sync();
+        return;
+      }
       const target = decodeTaskTarget(action);
       const owner = this.owner;
       if (Option.isNone(target) || !owner || owner.isDestroyed()) return;
@@ -257,6 +436,14 @@ export class MacTaskActivity {
     }
     this.sync();
   };
+
+  responseResult(result: DesktopTaskResponseResult) {
+    if (!this.pendingResponses.delete(taskRequestKey(result))) return;
+    this.panel?.webContents.send(TASK_ACTIVITY_PANEL_CHANNEL, {
+      action: "response-result",
+      result,
+    });
+  }
 
   dispose() {
     this.disposed = true;

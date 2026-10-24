@@ -1,6 +1,7 @@
 import { SettingsGroup } from "./SettingsGroup";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
+import { MacTaskActivityDisplaySetting } from "./MacTaskActivityDisplaySetting";
 import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
@@ -566,6 +567,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.macTaskActivityEnabled !== DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled
         ? ["Notch task activity"]
         : []),
+      ...(settings.macTaskActivityDisplayId !== DEFAULT_UNIFIED_SETTINGS.macTaskActivityDisplayId
+        ? ["Notch display"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -700,6 +704,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
       settings.macTaskActivityEnabled,
+      settings.macTaskActivityDisplayId,
       settings.wordWrap,
       followSystem,
       theme,
@@ -777,6 +782,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       macTaskActivityEnabled: DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled,
+      macTaskActivityDisplayId: DEFAULT_UNIFIED_SETTINGS.macTaskActivityDisplayId,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
@@ -2447,6 +2453,9 @@ export function GeneralSettingsPanel() {
               />
             }
           />
+        ) : null}
+        {isElectron && window.desktopBridge?.getClientPlatform?.() === "darwin" ? (
+          <MacTaskActivityDisplaySetting />
         ) : null}
         <SettingsRow
           {...searchableSetting("in-app-notifications")}

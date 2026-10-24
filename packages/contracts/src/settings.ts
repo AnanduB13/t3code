@@ -301,6 +301,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   inAppNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   macTaskActivityEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  macTaskActivityDisplayId: Schema.NullOr(Schema.Int).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   diffColorScheme: DiffColorScheme.pipe(
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
@@ -1598,6 +1601,7 @@ export const ClientSettingsPatch = Schema.Struct({
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   macTaskActivityEnabled: Schema.optionalKey(Schema.Boolean),
+  macTaskActivityDisplayId: Schema.optionalKey(Schema.NullOr(Schema.Int)),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),

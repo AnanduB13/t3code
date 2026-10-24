@@ -3,6 +3,18 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./pendingUserInput": {
+      "types": "./src/pendingUserInput.ts",
+      "import": "./src/pendingUserInput.ts"
+    },
+    "./desktopTaskRequests": {
+      "types": "./src/desktopTaskRequests.ts",
+      "import": "./src/desktopTaskRequests.ts"
+    },
+    "./modelLogo": {
+      "types": "./src/modelLogo.ts",
+      "import": "./src/modelLogo.ts"
+    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"
