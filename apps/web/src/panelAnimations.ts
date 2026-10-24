@@ -49,6 +49,8 @@ export function usePanelPresence<T>(
   const [retained, setRetained] = useState<{ scopeKey: string | null; value: T | null } | null>(
     open ? { scopeKey, value } : null,
   );
+  // Shallow, so a caller that rebuilds `value` each render (one the React
+  // Compiler skipped) settles instead of updating during every render.
   if (open && (retained?.scopeKey !== scopeKey || !shallow(retained.value, value))) {
     setRetained({ scopeKey, value });
   }

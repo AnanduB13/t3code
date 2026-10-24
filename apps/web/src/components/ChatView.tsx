@@ -3339,6 +3339,148 @@ export default function ChatView(props: ChatViewProps) {
   const focusComposerStable = useStableCallback(focusComposer);
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
+  const prepareQueuedRestore = async (messages: ReadonlyArray<QueuedPrompt>) => {
+    if (composerRef.current?.hasPendingAttachments())
+      throw new Error(
+        "Queued messages will stay paused while composer attachments finish preparing.",
+      );
+    const connection = readPreparedConnection(environmentId);
+    if (!connection && messages.some((message) => message.attachments.length > 0))
+      throw new Error("Reconnect the environment to restore queued attachments.");
+    const store = useComposerDraftStore.getState();
+    const draft = store.getComposerDraft(composerDraftTarget);
+    let available =
+      PROVIDER_SEND_TURN_MAX_ATTACHMENTS - (draft?.images.length ?? 0) - (draft?.files.length ?? 0);
+    const prepared: Array<{ message: QueuedPrompt; expectedText: string; files: File[] }> = [];
+    for (const queuedMessage of messages) {
+      const context = prepareQueuedMessageContext(queuedMessage);
+      if (!context) continue;
+      const { message, expectedText } = context;
+      if (message.attachments.length > available) continue;
+      const files =
+        message.attachments.length === 0
+          ? []
+          : await prepareRevertedMessageAttachments({
+              message: {
+                id: message.messageId,
+                role: "user",
+                text: message.text,
+                attachments: message.attachments,
+                runId: null,
+                createdAt: message.queuedAt,
+                updatedAt: message.queuedAt,
+                streaming: false,
+              },
+              environmentId,
+              httpBaseUrl: connection!.httpBaseUrl,
+              createAssetUrl: createAttachmentAssetUrl,
+            });
+      prepared.push({ message, expectedText, files });
+      available -= files.length;
+    }
+    // Upload preparation can outlive edits in the composer. Recheck its room
+    // before asking the server to remove anything from the durable queue.
+    const current = store.getComposerDraft(composerDraftTarget);
+    available =
+      PROVIDER_SEND_TURN_MAX_ATTACHMENTS -
+      (current?.images.length ?? 0) -
+      (current?.files.length ?? 0);
+    const fitting = prepared.filter(({ files }) => {
+      if (files.length > available) return false;
+      available -= files.length;
+      return true;
+    });
+    return {
+      messageIds: fitting.map(({ message }) => message.messageId),
+      expectedTextByMessageId: Object.fromEntries(
+        fitting.map(({ message, expectedText }) => [message.messageId, expectedText]),
+      ),
+      restore: (confirmedMessageIds?: ReadonlyArray<MessageId>) => {
+        const confirmed =
+          confirmedMessageIds === undefined
+            ? fitting
+            : fitting.filter(({ message }) => confirmedMessageIds.includes(message.messageId));
+        const current = store.getComposerDraft(composerDraftTarget);
+        const images: ComposerImageAttachment[] = [];
+        const files: ComposerFileAttachment[] = [];
+        const terminalContexts = [...(current?.terminalContexts ?? [])];
+        const previewAnnotations = [...(current?.previewAnnotations ?? [])];
+        const reviewComments = [...(current?.reviewComments ?? [])];
+        for (const { message, files: restoredFiles } of confirmed) {
+          const records = (message.context?.records ?? []).flatMap((record) => {
+            const known = asKnownContextRecord(record);
+            return known ? [known] : [];
+          });
+          for (const record of records) {
+            if (record.kind === "terminal")
+              terminalContexts.push(
+                terminalContextDraftFromRecord(record, routeThreadRef.threadId),
+              );
+            else if (record.kind === "preview-annotation")
+              previewAnnotations.push(previewAnnotationFromRecord(record));
+            else if (record.kind === "review-comment")
+              reviewComments.push(reviewCommentFromRecord(record));
+          }
+          restoredFiles.forEach((file, index) => {
+            const attachment = message.attachments[index]!;
+            const record = records.find(
+              (record) =>
+                (record.kind === "image" || record.kind === "file") &&
+                record.attachmentId === attachment.id,
+            );
+            const id = record
+              ? producerIdFromComposerContextId(record.kind, record.contextId)
+              : `restored-${attachment.id}`;
+            const common = {
+              id,
+              name: attachment.name,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes,
+              file,
+              uploadedAttachmentId: attachment.id,
+              uploadEnvironmentId: environmentId,
+            };
+            if (attachment.type === "image")
+              images.push({ ...common, type: "image", previewUrl: URL.createObjectURL(file) });
+            else files.push({ ...common, type: "file" });
+          });
+        }
+        store.addImages(composerDraftTarget, images, { allowDuplicates: true });
+        store.addFiles(composerDraftTarget, files, { allowDuplicates: true });
+        store.setTerminalContexts(composerDraftTarget, terminalContexts);
+        store.setPreviewAnnotations(composerDraftTarget, previewAnnotations);
+        store.setReviewComments(composerDraftTarget, reviewComments);
+        const nextPrompt = [
+          current?.prompt ?? "",
+          ...confirmed.map(({ message }) =>
+            recallableComposerPrompt(
+              message.text,
+              new Set(message.context?.records.map((record) => record.contextId)),
+            ),
+          ),
+        ]
+          .filter((text) => text.trim().length > 0)
+          .join("\n\n");
+        store.setPrompt(composerDraftTarget, nextPrompt);
+        if (currentRouteThreadKeyRef.current === routeThreadKey) {
+          promptRef.current = nextPrompt;
+          composerImagesRef.current = [...(current?.images ?? []), ...images];
+          composerFilesRef.current = [...(current?.files ?? []), ...files];
+          composerTerminalContextsRef.current = terminalContexts;
+          composerRef.current?.resetCursorState({ prompt: nextPrompt, cursor: nextPrompt.length });
+        }
+        if (fitting.length < messages.length)
+          toastManager.add(
+            stackedThreadToast({
+              type: "info",
+              title: "Some messages stayed queued",
+              description:
+                "Make room for attachments, or choose Steer to keep the full message context.",
+            }),
+          );
+      },
+    };
+  };
   const [isRestoringQueuedMessages, setIsRestoringQueuedMessages] = useState(false);
   const interruptInFlightRef = useRef(false);
   // Stop also hands queued prompts back to the composer: they are removed from
@@ -3353,8 +3495,7 @@ export default function ChatView(props: ChatViewProps) {
       return;
     interruptInFlightRef.current = true;
     setIsRestoringQueuedMessages(true);
-    try {
-      // prepareQueuedRestore is defined below, once the composer draft helpers exist.
+    const restoreQueueAndInterrupt = async () => {
       let restored: Awaited<ReturnType<typeof prepareQueuedRestore>> = {
         messageIds: [],
         expectedTextByMessageId: {},
@@ -3389,10 +3530,13 @@ export default function ChatView(props: ChatViewProps) {
       } else {
         restored.restore(result.value.clearedQueuedMessageIds);
       }
-    } finally {
+    };
+    // Promise.finally rather than a finally clause: the React Compiler skips any
+    // component containing one, and ChatView relies on it for stable props.
+    await restoreQueueAndInterrupt().finally(() => {
       interruptInFlightRef.current = false;
       setIsRestoringQueuedMessages(false);
-    }
+    });
   };
   const onInterruptStable = useStableCallback(onInterrupt);
   useEffect(() => subscribeSnapShotComposerFocus(focusComposerStable), [focusComposerStable]);
@@ -7207,149 +7351,6 @@ export default function ChatView(props: ChatViewProps) {
       );
       if (!sendQueuesBehindSetup) resetLocalDispatch();
     }
-  };
-
-  const prepareQueuedRestore = async (messages: ReadonlyArray<QueuedPrompt>) => {
-    if (composerRef.current?.hasPendingAttachments())
-      throw new Error(
-        "Queued messages will stay paused while composer attachments finish preparing.",
-      );
-    const connection = readPreparedConnection(environmentId);
-    if (!connection && messages.some((message) => message.attachments.length > 0))
-      throw new Error("Reconnect the environment to restore queued attachments.");
-    const store = useComposerDraftStore.getState();
-    const draft = store.getComposerDraft(composerDraftTarget);
-    let available =
-      PROVIDER_SEND_TURN_MAX_ATTACHMENTS - (draft?.images.length ?? 0) - (draft?.files.length ?? 0);
-    const prepared: Array<{ message: QueuedPrompt; expectedText: string; files: File[] }> = [];
-    for (const queuedMessage of messages) {
-      const context = prepareQueuedMessageContext(queuedMessage);
-      if (!context) continue;
-      const { message, expectedText } = context;
-      if (message.attachments.length > available) continue;
-      const files =
-        message.attachments.length === 0
-          ? []
-          : await prepareRevertedMessageAttachments({
-              message: {
-                id: message.messageId,
-                role: "user",
-                text: message.text,
-                attachments: message.attachments,
-                runId: null,
-                createdAt: message.queuedAt,
-                updatedAt: message.queuedAt,
-                streaming: false,
-              },
-              environmentId,
-              httpBaseUrl: connection!.httpBaseUrl,
-              createAssetUrl: createAttachmentAssetUrl,
-            });
-      prepared.push({ message, expectedText, files });
-      available -= files.length;
-    }
-    // Upload preparation can outlive edits in the composer. Recheck its room
-    // before asking the server to remove anything from the durable queue.
-    const current = store.getComposerDraft(composerDraftTarget);
-    available =
-      PROVIDER_SEND_TURN_MAX_ATTACHMENTS -
-      (current?.images.length ?? 0) -
-      (current?.files.length ?? 0);
-    const fitting = prepared.filter(({ files }) => {
-      if (files.length > available) return false;
-      available -= files.length;
-      return true;
-    });
-    return {
-      messageIds: fitting.map(({ message }) => message.messageId),
-      expectedTextByMessageId: Object.fromEntries(
-        fitting.map(({ message, expectedText }) => [message.messageId, expectedText]),
-      ),
-      restore: (confirmedMessageIds?: ReadonlyArray<MessageId>) => {
-        const confirmed =
-          confirmedMessageIds === undefined
-            ? fitting
-            : fitting.filter(({ message }) => confirmedMessageIds.includes(message.messageId));
-        const current = store.getComposerDraft(composerDraftTarget);
-        const images: ComposerImageAttachment[] = [];
-        const files: ComposerFileAttachment[] = [];
-        const terminalContexts = [...(current?.terminalContexts ?? [])];
-        const previewAnnotations = [...(current?.previewAnnotations ?? [])];
-        const reviewComments = [...(current?.reviewComments ?? [])];
-        for (const { message, files: restoredFiles } of confirmed) {
-          const records = (message.context?.records ?? []).flatMap((record) => {
-            const known = asKnownContextRecord(record);
-            return known ? [known] : [];
-          });
-          for (const record of records) {
-            if (record.kind === "terminal")
-              terminalContexts.push(
-                terminalContextDraftFromRecord(record, routeThreadRef.threadId),
-              );
-            else if (record.kind === "preview-annotation")
-              previewAnnotations.push(previewAnnotationFromRecord(record));
-            else if (record.kind === "review-comment")
-              reviewComments.push(reviewCommentFromRecord(record));
-          }
-          restoredFiles.forEach((file, index) => {
-            const attachment = message.attachments[index]!;
-            const record = records.find(
-              (record) =>
-                (record.kind === "image" || record.kind === "file") &&
-                record.attachmentId === attachment.id,
-            );
-            const id = record
-              ? producerIdFromComposerContextId(record.kind, record.contextId)
-              : `restored-${attachment.id}`;
-            const common = {
-              id,
-              name: attachment.name,
-              mimeType: attachment.mimeType,
-              sizeBytes: attachment.sizeBytes,
-              file,
-              uploadedAttachmentId: attachment.id,
-              uploadEnvironmentId: environmentId,
-            };
-            if (attachment.type === "image")
-              images.push({ ...common, type: "image", previewUrl: URL.createObjectURL(file) });
-            else files.push({ ...common, type: "file" });
-          });
-        }
-        store.addImages(composerDraftTarget, images, { allowDuplicates: true });
-        store.addFiles(composerDraftTarget, files, { allowDuplicates: true });
-        store.setTerminalContexts(composerDraftTarget, terminalContexts);
-        store.setPreviewAnnotations(composerDraftTarget, previewAnnotations);
-        store.setReviewComments(composerDraftTarget, reviewComments);
-        const nextPrompt = [
-          current?.prompt ?? "",
-          ...confirmed.map(({ message }) =>
-            recallableComposerPrompt(
-              message.text,
-              new Set(message.context?.records.map((record) => record.contextId)),
-            ),
-          ),
-        ]
-          .filter((text) => text.trim().length > 0)
-          .join("\n\n");
-        store.setPrompt(composerDraftTarget, nextPrompt);
-        if (currentRouteThreadKeyRef.current === routeThreadKey) {
-          promptRef.current = nextPrompt;
-          composerImagesRef.current = [...(current?.images ?? []), ...images];
-          composerFilesRef.current = [...(current?.files ?? []), ...files];
-          composerTerminalContextsRef.current = terminalContexts;
-          composerRef.current?.resetCursorState({ prompt: nextPrompt, cursor: nextPrompt.length });
-        }
-        if (fitting.length < messages.length)
-          toastManager.add(
-            stackedThreadToast({
-              type: "info",
-              title: "Some messages stayed queued",
-              description:
-                "Make room for attachments, or choose Steer to keep the full message context.",
-            }),
-          );
-      },
-    };
   };
 
   const onSteerQueuedMessage = async (
