@@ -1,6 +1,7 @@
 import { ipcRenderer } from "electron";
 import type { DesktopTask } from "@t3tools/contracts";
 import { TASK_ACTIVITY_PANEL_CHANNEL } from "./ipc/channels.ts";
+import type { TaskPanelMetrics } from "./activity/taskPanelHtml.ts";
 
 // A dedicated sandboxed preload: the panel cannot access the general desktop bridge.
 window.addEventListener("DOMContentLoaded", () => {
@@ -20,7 +21,17 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   ipcRenderer.on(
     TASK_ACTIVITY_PANEL_CHANNEL,
-    (_event, { tasks, expanded }: { tasks: readonly DesktopTask[]; expanded: boolean }) => {
+    (
+      _event,
+      {
+        tasks,
+        expanded,
+        layout,
+      }: { tasks: readonly DesktopTask[]; expanded: boolean; layout: TaskPanelMetrics },
+    ) => {
+      panel.style.setProperty("--header-height", `${layout.headerHeight}px`);
+      panel.style.setProperty("--notch-width", `${layout.notchWidth}px`);
+      panel.style.setProperty("--panel-height", `${layout.height}px`);
       panel.toggleAttribute("data-expanded", expanded);
       summary.setAttribute("aria-expanded", String(expanded));
       summary.setAttribute(
@@ -39,6 +50,7 @@ window.addEventListener("DOMContentLoaded", () => {
       ]
         .filter(Boolean)
         .join(" · ");
+      summary.title = counts.textContent;
       status.dataset.status = attention[0]?.status ?? tasks[0]?.status ?? "running";
       const buttons = tasks.map((task) => {
         const button = document.createElement("button");

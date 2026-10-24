@@ -2441,7 +2441,7 @@ export function GeneralSettingsPanel() {
         {isElectron && window.desktopBridge?.getClientPlatform?.() === "darwin" ? (
           <SettingsRow
             {...searchableSetting("notch-task-activity")}
-            description="Show running tasks below the notch or menu bar while T3 Code is in the background. Select a task to open its thread."
+            description="Show running tasks at the top of the screen, beside the notch on MacBook displays, while T3 Code is in the background. Select a task to open its thread."
             resetAction={
               settings.macTaskActivityEnabled !==
               DEFAULT_UNIFIED_SETTINGS.macTaskActivityEnabled ? (

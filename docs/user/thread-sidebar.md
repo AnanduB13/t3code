@@ -220,10 +220,11 @@ for custom configuration.
 
 ## Inspect agent work
 
-On macOS desktop, running threads and requests for input or approval appear below
-the notch or menu bar while T3 Code is minimized or in the background. Hover or
-click to expand the task list, then select a task to open its thread. This follows
-your connected environments while the app is running. Turn it off in
+On macOS desktop, running threads and requests for input or approval appear at the
+top of the screen, beside the notch on MacBook displays, while T3 Code is minimized
+or in the background. Hover or click to expand the task list, then select a task to
+open its thread. This follows your connected environments while the app is running.
+Turn it off in
 **Settings → General → Notch task activity**.
 
 On web and desktop, **Agents** discovers Hermes and OpenClaw on each computer
