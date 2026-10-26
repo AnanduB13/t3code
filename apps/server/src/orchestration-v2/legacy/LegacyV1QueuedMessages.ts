@@ -36,12 +36,9 @@ export const legacyQueuedMessageCommandId = (messageId: string) =>
   CommandId.make(`migration:v1:queued:${messageId}`);
 
 /**
- * Re-queues the prompts After Dark's V1 queue still held at the V2 cutover.
- * Each becomes a held queued run on its thread through the normal
- * `message.dispatch` path, in its V1 order, so nothing sends until the user
- * resumes the queue. V1 rows stay in place as the import source;
- * `after_dark_legacy_queue_imports` records each attempt so a prompt the user
- * later cancels never returns.
+ * Imports V1 prompts as held V2 runs, preserving order until the user resumes.
+ * V1 rows remain as source data; the import ledger prevents cancelled prompts
+ * from returning on later startups.
  */
 export const importLegacyQueuedMessages = Effect.fn("importLegacyQueuedMessages")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -70,8 +67,7 @@ export const importLegacyQueuedMessages = Effect.fn("importLegacyQueuedMessages"
   `;
   let imported = 0;
   for (const row of rows) {
-    const context =
-      row.context_json === null ? Option.none() : decodeContext(row.context_json);
+    const context = row.context_json === null ? Option.none() : decodeContext(row.context_json);
     const modelSelection =
       row.model_selection_json === null
         ? Option.none()

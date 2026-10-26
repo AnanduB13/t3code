@@ -15,6 +15,8 @@ import {
   normalizeHermesSession,
 } from "./HermesClient.ts";
 
+const isHermesAgentError = Schema.is(HermesAgentError);
+
 describe("HermesClient", () => {
   it("normalizes Hermes session and message payloads", () => {
     assert.deepStrictEqual(
@@ -427,8 +429,8 @@ describe("HermesClient", () => {
       () => null,
       (cause: unknown) => cause,
     );
-    assert.isTrue(Schema.is(HermesAgentError)(error));
-    if (!Schema.is(HermesAgentError)(error)) return;
+    assert.isTrue(isHermesAgentError(error));
+    if (!isHermesAgentError(error)) return;
     assert.strictEqual(error.status, 401);
     assert.strictEqual(error.message, "bad key");
   });

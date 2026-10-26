@@ -19,7 +19,8 @@ allprojects {
   }
 }
 // END T3 React Native fbjni compatibility`;
-    const pattern = /\/\/ BEGIN T3 React Native fbjni compatibility[\s\S]*?\/\/ END T3 React Native fbjni compatibility/;
+    const pattern =
+      /\/\/ BEGIN T3 React Native fbjni compatibility[\s\S]*?\/\/ END T3 React Native fbjni compatibility/;
     const contents = nextConfig.modResults.contents;
     nextConfig.modResults.contents = pattern.test(contents)
       ? contents.replace(pattern, block)

@@ -9,7 +9,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -164,9 +164,11 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
     "Google account";
 
   // Return URLs never enter saved drafts, navigation params, or diagnostics.
-  useEffect(() => {
+  const [callbackAuth, setCallbackAuth] = useState({ flowId: auth?.flowId, phase: auth?.phase });
+  if (callbackAuth.flowId !== auth?.flowId || callbackAuth.phase !== auth?.phase) {
+    setCallbackAuth({ flowId: auth?.flowId, phase: auth?.phase });
     setCallbackUrl("");
-  }, [auth?.flowId, auth?.phase]);
+  }
 
   const perform = useCallback(
     async (command: () => Promise<AtomCommandResult<unknown, unknown>>, failureMessage: string) => {
@@ -189,7 +191,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
         setBusy(false);
       }
     },
-    [canOperate, isConnected],
+    [canOperate, isConnected, setBusy, setError],
   );
 
   const setEnabled = (enabled: boolean) => {

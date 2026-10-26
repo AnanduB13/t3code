@@ -15,6 +15,7 @@ export function DirectNotificationSettings() {
   const save = useAtomSet(updateMobilePreferencesAtom);
   const [granted, setGranted] = useState(false);
   const [busy, setBusy] = useState(false);
+  // oxlint-disable-next-line t3code/react-effect-budget -- Read native system permission and refresh it after returning from OS settings.
   useEffect(() => {
     if (Platform.OS !== "android" && Platform.OS !== "ios") return;
     let disposed = false;

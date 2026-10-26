@@ -10,10 +10,8 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  v2Now,
-  v2Projection,
-} from "../../../packages/client-runtime/src/state/orchestrationV2TestFixtures";
+import * as DateTime from "effect/DateTime";
+const v2Now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
 import { projectDesktopTaskRequests } from "./desktopTaskRequests";
 
 const requestId = RuntimeRequestId.make("q1");
@@ -30,7 +28,7 @@ const request: OrchestrationV2RuntimeRequest = {
 };
 const item: OrchestrationV2TurnItem = {
   id: TurnItemId.make("question-item"),
-  threadId: v2Projection.thread.id,
+  threadId: ThreadId.make("thread-v2"),
   runId: null,
   nodeId: NodeId.make("question-node"),
   providerThreadId: null,

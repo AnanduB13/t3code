@@ -8,6 +8,7 @@ const SOURCE_LABEL: Record<UsageProviderKind, string> = {
   opencode: "OpenCode",
   antigravity: "Antigravity",
   pi: "Pi",
+  muse: "Muse",
 };
 
 export function describeUsageSources(sources: readonly UsageSource[]): string {

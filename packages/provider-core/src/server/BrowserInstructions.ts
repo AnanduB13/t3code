@@ -17,11 +17,8 @@ Do not switch to global browser skills, Chrome, Node REPL browser automation, st
 `;
 
 /**
- * The browser block is omitted entirely when the preview tools aren't attached.
- * Describing `preview_*` tools that aren't in the turn's tool list would be
- * worse than saying nothing: the instructions actively steer the model away
- * from Playwright and agent-browser, so leaving them in would talk it out of
- * the only browser automation it still has.
+ * Omit this block without preview tools so agents can use other available
+ * browser automation instead of being directed to tools they do not have.
  */
 export const browserToolInstructions = (browserToolsAvailable: boolean): string =>
   browserToolsAvailable ? T3_CODE_BROWSER_TOOL_INSTRUCTIONS : "";

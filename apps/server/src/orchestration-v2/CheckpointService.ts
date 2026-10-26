@@ -179,11 +179,9 @@ export const checkpointRefForScopeOrdinal = Effect.fn("checkpointRefForScopeOrdi
 );
 
 /**
- * After Dark: the workspace as it was right before the run after
- * `ordinalWithinScope` started. A shared workspace can change between two
- * runs of one thread (another thread, the user), so a run's own diff starts
- * here rather than at the previous run's completed checkpoint. Restores keep
- * using the completed checkpoints.
+ * Captures the workspace immediately before a run, since other threads can
+ * change it after the previous checkpoint. Diffs use this baseline; restores
+ * use the completed checkpoint.
  */
 export function checkpointBaselineRefForScopeOrdinal(input: {
   readonly scopeId: CheckpointScopeId;
@@ -221,7 +219,7 @@ function checkpointIdForScopeOrdinal(
   });
 }
 
-function makeRootRunScope(input: {
+const makeRootRunScope = Effect.fn("CheckpointService.makeRootRunScope")(function* (input: {
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly threadId: ThreadId;
   readonly runId: RunId;
@@ -230,26 +228,24 @@ function makeRootRunScope(input: {
   readonly cwd: string;
   readonly createdAt: DateTime.Utc;
 }) {
-  return Effect.gen(function* () {
-    const scopeId = yield* input.idAllocator.allocate.checkpointScope({
-      threadId: input.threadId,
-      name: ROOT_CHECKPOINT_SCOPE_NAME,
-    });
-    return {
-      id: scopeId,
-      threadId: input.threadId,
-      runId: input.runId,
-      nodeId: input.rootNodeId,
-      parentScopeId: null,
-      providerThreadId: input.providerThreadId,
-      kind: "root_run",
-      ordinalWithinParent: 0,
-      advancesAppRunCount: true,
-      cwd: input.cwd,
-      createdAt: input.createdAt,
-    } satisfies OrchestrationV2CheckpointScope;
+  const scopeId = yield* input.idAllocator.allocate.checkpointScope({
+    threadId: input.threadId,
+    name: ROOT_CHECKPOINT_SCOPE_NAME,
   });
-}
+  return {
+    id: scopeId,
+    threadId: input.threadId,
+    runId: input.runId,
+    nodeId: input.rootNodeId,
+    parentScopeId: null,
+    providerThreadId: input.providerThreadId,
+    kind: "root_run",
+    ordinalWithinParent: 0,
+    advancesAppRunCount: true,
+    cwd: input.cwd,
+    createdAt: input.createdAt,
+  } satisfies OrchestrationV2CheckpointScope;
+});
 
 function makeCheckpoint(input: {
   readonly id: CheckpointId;
@@ -319,10 +315,12 @@ export const layer: Layer.Layer<
           });
           if (!exists) {
             // Nothing ran since this snapshot, so it doubles as the isolated baseline.
-            yield* checkpointStore.captureCheckpoint({
-              cwd: input.scope.cwd,
-              checkpointRef,
-            });
+            yield* checkpointStore
+              .captureCheckpoint({
+                cwd: input.scope.cwd,
+                checkpointRef,
+              })
+              .pipe(Effect.catchTags({ VcsUnsupportedOperationError: () => Effect.void }));
             return;
           }
 
@@ -337,10 +335,12 @@ export const layer: Layer.Layer<
               checkpointRef: baselineRef,
             }))
           ) {
-            yield* checkpointStore.captureCheckpoint({
-              cwd: input.scope.cwd,
-              checkpointRef: baselineRef,
-            });
+            yield* checkpointStore
+              .captureCheckpoint({
+                cwd: input.scope.cwd,
+                checkpointRef: baselineRef,
+              })
+              .pipe(Effect.catchTags({ VcsUnsupportedOperationError: () => Effect.void }));
           }
         }),
       ).pipe(
@@ -453,23 +453,26 @@ export const layer: Layer.Layer<
             });
           }
 
-          const captured = yield* checkpointStore
+          const captureStatus = yield* checkpointStore
             .captureCheckpoint({
               cwd: input.scope.cwd,
               checkpointRef,
             })
             .pipe(
-              Effect.as(true),
+              Effect.as("ready" as const),
+              Effect.catchTags({
+                VcsUnsupportedOperationError: () => Effect.succeed("missing" as const),
+              }),
               Effect.catch((cause) =>
                 Effect.logWarning("orchestration V2 checkpoint capture failed", {
                   scopeId: input.scope.id,
                   checkpointRef,
                   cause: String(cause),
-                }).pipe(Effect.as(false)),
+                }).pipe(Effect.as("error" as const)),
               ),
             );
 
-          if (!captured) {
+          if (captureStatus !== "ready") {
             return makeCheckpoint({
               id: checkpointId,
               scope: input.scope,
@@ -479,7 +482,7 @@ export const layer: Layer.Layer<
               ordinalWithinScope: input.ordinalWithinScope,
               appRunOrdinal: input.appRunOrdinal,
               ref: checkpointRef,
-              status: "error",
+              status: captureStatus,
               files: [],
               capturedAt: input.capturedAt,
             });

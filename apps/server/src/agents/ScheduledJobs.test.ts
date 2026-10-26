@@ -86,7 +86,7 @@ function makeOrchestration() {
   const layer = Layer.mergeAll(
     Layer.mock(ThreadLaunchService)({
       launch: (launch) =>
-        Effect.gen(function* () {
+        Effect.sync(() => {
           launches.push(launch);
           // Launches are idempotent per command id, like the V2 receipt store.
           if (!threads.has(launch.threadId!)) {

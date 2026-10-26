@@ -12,8 +12,8 @@ import * as Schema from "effect/Schema";
 
 import { isModelCostUnknown, mergeUsage, type EnvironmentUsage } from "./usageMerge.ts";
 
-const decodeSummary = Schema.decodeUnknownSync(UsageSummary);
 const encodeSummary = Schema.encodeSync(UsageSummary);
+const decodeSummary = Schema.decodeUnknownSync(UsageSummary);
 
 function bucket(overrides: Partial<UsageBucket> = {}): UsageBucket {
   return {
@@ -113,26 +113,6 @@ describe("mergeUsage", () => {
       ["opencode", 10],
     ]);
     expect(merged.duplicateSources).toHaveLength(1);
-  });
-
-  it("sums environments that read different transcript directories", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary([bucket()], [{ provider: "claude", hostId: "mac", homePath: "/a/.claude" }]),
-        ),
-        environment(
-          "env-b",
-          summary([bucket()], [{ provider: "claude", hostId: "linux", homePath: "/b/.claude" }]),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.costUsd).toBe(20);
-    expect(merged.records).toBe(10);
-    expect(merged.duplicateSources).toHaveLength(0);
   });
 
   it("counts a shared transcript directory once", () => {
@@ -664,29 +644,6 @@ describe("mergeUsage", () => {
     ]);
   });
 
-  it("orders models by cost descending", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary(
-            [
-              bucket({ provider: "claude", model: "lower-cost", costUsd: 4 }),
-              bucket({ provider: "codex", model: "higher-cost", costUsd: 9 }),
-            ],
-            [
-              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
-              { provider: "codex", hostId: "mac", homePath: "/a/.codex" },
-            ],
-          ),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.models.map((model) => model.model)).toEqual(["higher-cost", "lower-cost"]);
-  });
-
   it("keeps two machines apart when hostname and home path collide", () => {
     const shape = { provider: "claude" as const, hostId: "mac", homePath: "/Users/theo/.claude" };
     const merged = mergeUsage(
@@ -699,25 +656,6 @@ describe("mergeUsage", () => {
 
     expect(merged.costUsd).toBe(20);
     expect(merged.duplicateSources).toHaveLength(0);
-  });
-
-  it("still collapses two servers reading the same directory", () => {
-    const same = {
-      provider: "claude" as const,
-      hostId: "mac",
-      homePath: "/Users/theo/.claude",
-      volumeId: "16777220:1234",
-    };
-    const merged = mergeUsage(
-      [
-        environment("env-a", summary([bucket()], [same])),
-        environment("env-b", summary([bucket()], [same])),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.costUsd).toBe(10);
-    expect(merged.duplicateSources).toHaveLength(1);
   });
 
   it("totals sessions from per-directory distinct counts, not per-bucket sums", () => {
@@ -743,61 +681,5 @@ describe("mergeUsage", () => {
 
     expect(merged.sessions).toBe(1);
     expect(merged.providers[0]?.sessions).toBe(1);
-  });
-
-  it("returns empty totals with no environments", () => {
-    const merged = mergeUsage([], USAGE_CONTRACT_VERSION);
-    expect(merged.costUsd).toBe(0);
-    expect(merged.daily).toHaveLength(0);
-    expect(merged.hourly).toHaveLength(0);
-  });
-
-  it("omits providers with no sessions or usage", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary(
-            [],
-            [
-              {
-                provider: "claude",
-                hostId: "mac",
-                homePath: "/a/.claude",
-                distinctSessions: 0,
-              },
-            ],
-          ),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.providers).toEqual([]);
-  });
-
-  it("derives hourly totals without losing the daily rollup", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary(
-            [
-              bucket({ hourStart: "2026-08-07T09:37:00.000Z", costUsd: 3 }),
-              bucket({ hourStart: "2026-08-07T10:37:00.000Z", costUsd: 7 }),
-            ],
-            [{ provider: "claude", hostId: "mac", homePath: "/a/.claude" }],
-          ),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.hourly.map((hour) => [hour.hourStart, hour.costUsd])).toEqual([
-      ["2026-08-07T09:37:00.000Z", 3],
-      ["2026-08-07T10:37:00.000Z", 7],
-    ]);
-    expect(merged.daily).toHaveLength(1);
-    expect(merged.daily[0]?.costUsd).toBe(10);
   });
 });

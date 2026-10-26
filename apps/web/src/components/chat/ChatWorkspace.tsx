@@ -5,7 +5,6 @@ import {
   useEffect,
   useLayoutEffect,
   memo,
-  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -54,6 +53,7 @@ function ChatWorkspaceDivider(props: {
   const position = dividerPosition(props.weights, props.dividerIndex);
   const vertical = props.axis === "columns";
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- A resize owns window listeners and pointer capture until it ends or the divider unmounts.
   useEffect(() => () => cleanupRef.current?.(), []);
 
   const resizeByKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -247,9 +247,11 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
 
 export function ChatWorkspace({
   routeThreadRef,
+  background = false,
   routePane,
 }: {
   readonly routeThreadRef: ScopedThreadRef;
+  readonly background?: boolean;
   readonly routePane?: RoutePane;
 }) {
   const navigate = useNavigate();
@@ -267,46 +269,37 @@ export function ChatWorkspace({
   const [previewWeights, setPreviewWeights] = useState<{
     readonly axis: ChatWorkspaceAxis;
     readonly weights: readonly number[];
+    readonly columns: number;
+    readonly rows: number;
   } | null>(null);
   const routeEnvironmentId = routeThreadRef.environmentId;
   const routeThreadId = routeThreadRef.threadId;
-  const layout = useMemo(
-    () =>
-      normalizeChatWorkspaceLayout(
-        { paneThreadKeys, activePaneIndex, columns, columnWeights, rowWeights },
-        { environmentId: routeEnvironmentId, threadId: routeThreadId },
-      ),
-    [
-      activePaneIndex,
-      columnWeights,
-      columns,
-      paneThreadKeys,
-      routeEnvironmentId,
-      routeThreadId,
-      rowWeights,
-    ],
+  const layout = normalizeChatWorkspaceLayout(
+    { paneThreadKeys, activePaneIndex, columns, columnWeights, rowWeights },
+    { environmentId: routeEnvironmentId, threadId: routeThreadId },
   );
 
   // Pane activation updates before URL navigation completes. Reconcile only when the URL itself
   // changes so the outgoing route never replaces and remounts the newly active pane.
+  // oxlint-disable-next-line t3code/react-effect-budget -- Reconcile the external pane store before paint only when the router changes its thread.
   useLayoutEffect(
     () => syncRoute({ environmentId: routeEnvironmentId, threadId: routeThreadId }),
     [routeEnvironmentId, routeThreadId, syncRoute],
   );
 
-  const paneEntries = useMemo(() => {
-    const occurrences = new Map<string, number>();
-    return layout.paneThreadKeys.flatMap((threadKey, index) => {
-      const threadRef = parseScopedThreadKey(threadKey);
-      if (!threadRef) return [];
-      const occurrence = occurrences.get(threadKey) ?? 0;
-      occurrences.set(threadKey, occurrence + 1);
-      return [{ threadRef, index, instanceKey: `${threadKey}#${occurrence}` }];
-    });
-  }, [layout.paneThreadKeys]);
+  const occurrences = new Map<string, number>();
+  const paneEntries = layout.paneThreadKeys.flatMap((threadKey, index) => {
+    const threadRef = parseScopedThreadKey(threadKey);
+    if (!threadRef) return [];
+    const occurrence = occurrences.get(threadKey) ?? 0;
+    occurrences.set(threadKey, occurrence + 1);
+    return [{ threadRef, index, instanceKey: `${threadKey}#${occurrence}` }];
+  });
   const visibleColumns = isMobile ? 1 : layout.columns;
   const visiblePaneCount = isMobile ? 1 : paneEntries.length;
   const rows = Math.ceil(visiblePaneCount / visibleColumns);
+  if (previewWeights && (previewWeights.columns !== visibleColumns || previewWeights.rows !== rows))
+    setPreviewWeights(null);
   const visibleColumnWeights = isMobile
     ? [1]
     : previewWeights?.axis === "columns"
@@ -318,10 +311,8 @@ export function ChatWorkspace({
       ? previewWeights.weights
       : layout.rowWeights;
 
-  useEffect(() => setPreviewWeights(null), [visibleColumns, rows]);
-
   const previewAxisWeights = (axis: ChatWorkspaceAxis, weights: readonly number[]) => {
-    setPreviewWeights({ axis, weights });
+    setPreviewWeights({ axis, weights, columns: visibleColumns, rows });
   };
   const commitAxisWeights = (axis: ChatWorkspaceAxis, weights: readonly number[]) => {
     setAxisWeights(axis, weights);
@@ -339,7 +330,10 @@ export function ChatWorkspace({
 
   return (
     <DiffWorkerPoolProvider>
-      <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh">
+      <SidebarInset
+        inert={background}
+        className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh"
+      >
         <div
           ref={gridRef}
           className="relative grid min-h-0 min-w-0 flex-1 bg-border"

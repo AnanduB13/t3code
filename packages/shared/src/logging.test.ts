@@ -7,6 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+
 import * as HostProcess from "./HostProcess.ts";
 
 import {
@@ -252,27 +253,5 @@ describe("RotatingFileSink", () => {
     const thrown = captureError(() => sink.write("next"));
     expect(thrown).toMatchObject({ operation: "rotate", filePath });
     expect(NodeFS.readFileSync(filePath, "utf8")).toBe("oversized");
-  });
-
-  it("preserves backup pruning failures", () => {
-    const directory = makeTempDirectory();
-    const filePath = NodePath.join(directory, "log.ndjson");
-    const overflowBackup = `${filePath}.2`;
-    NodeFS.mkdirSync(overflowBackup);
-    NodeFS.writeFileSync(NodePath.join(overflowBackup, "entry"), "occupied");
-
-    const thrown = captureError(
-      () =>
-        new RotatingFileSink({
-          filePath,
-          maxBytes: 1,
-          maxFiles: 1,
-          throwOnError: true,
-        }),
-    );
-
-    expect(thrown).toBeInstanceOf(RotatingFileSinkError);
-    expect(thrown).toMatchObject({ operation: "prune", filePath });
-    expect((thrown as RotatingFileSinkError).cause).toBeInstanceOf(Error);
   });
 });

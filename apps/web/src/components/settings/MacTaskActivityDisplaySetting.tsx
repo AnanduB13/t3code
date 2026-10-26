@@ -1,7 +1,7 @@
 import type { DesktopTaskActivityDisplay } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
-import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import { useClientSettings, updateClientSettings } from "../../hooks/useSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
@@ -9,11 +9,12 @@ import { searchableSetting } from "./settingsSearch";
 /** Display preferences belong to this desktop client, regardless of the connected environment. */
 export function MacTaskActivityDisplaySetting() {
   const displayId = useClientSettings((settings) => settings.macTaskActivityDisplayId);
-  const updateSettings = useUpdateClientSettings();
+  const updateSettings = updateClientSettings;
   const bridge = window.desktopBridge;
   const [displays, setDisplays] = useState<readonly DesktopTaskActivityDisplay[] | null>(null);
   const [failed, setFailed] = useState(false);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- The Electron display list is external state; subscribe until this settings control unmounts.
   useEffect(() => {
     let active = true;
     let request = 0;

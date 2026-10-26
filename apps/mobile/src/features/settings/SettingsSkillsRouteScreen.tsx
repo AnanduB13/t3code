@@ -105,24 +105,17 @@ export function SettingsSkillsRouteScreen() {
   const normalizedName = normalizeSkillName(name);
   const duplicate = skills.some((skill) => skill.name === normalizedName);
 
-  useEffect(() => {
-    if (environmentId === null && environments[0]) setEnvironmentId(environments[0].environmentId);
-  }, [environmentId, environments]);
-  useEffect(() => {
-    if (selectedProvider && selectedProvider.instanceId !== instanceId) {
-      setInstanceId(selectedProvider.instanceId);
-    }
-  }, [instanceId, selectedProvider]);
-  useEffect(() => {
-    setSelectedPath((current) =>
-      current && skills.some((skill) => skill.path === current)
-        ? current
-        : (skills[0]?.path ?? null),
-    );
-  }, [skills]);
+  if (environmentId === null && environments[0]) setEnvironmentId(environments[0].environmentId);
+  if (selectedProvider && selectedProvider.instanceId !== instanceId) {
+    setInstanceId(selectedProvider.instanceId);
+  }
+  const nextSelectedPath = selectedSkill?.path ?? null;
+  if (nextSelectedPath !== selectedPath) setSelectedPath(nextSelectedPath);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- The editor reads skill content from the selected remote environment.
   useEffect(() => {
     if (!environmentId || !selectedProvider || !selectedSkill) {
+      // oxlint-disable-next-line react/set-state-in-effect -- Clear the remote editor when no skill is selected.
       setContent("");
       setSavedContent("");
       setEditable(false);

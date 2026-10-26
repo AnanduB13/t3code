@@ -1,4 +1,6 @@
-import { useNavigation } from "@react-navigation/native";
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
+import { useSelectWorkspaceTab } from "../workspace/useSelectWorkspaceTab";
+import { useEnabledNavigationTabs } from "../workspace/navigation-tabs";
 import { Pressable, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import Animated, {
@@ -18,7 +20,6 @@ import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { GlassSurface } from "../../components/ui/GlassSurface";
 import { cn } from "../../lib/cn";
-import { resetAndroidWorkspace } from "../../lib/android-workspace-navigation";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import {
   mobileDockDestinationForPathname,
@@ -32,7 +33,7 @@ const ITEMS: ReadonlyArray<{
   readonly label: string;
 }> = [
   { destination: "chat", icon: "text.bubble", label: "Chat" },
-  { destination: "pull-requests", icon: "arrow.triangle.pull", label: "PR" },
+  { destination: "pull-requests", icon: PullRequestGlyph.pullRequest, label: "PR" },
   { destination: "usage", icon: "chart.bar.xaxis", label: "Usage" },
   { destination: "settings", icon: "gearshape", label: "Settings" },
 ];
@@ -65,10 +66,10 @@ function MobileDockItem(props: {
           props.onPress();
         }}
         onPressIn={() => {
-          scale.value = withSpring(0.9, PRESS_SPRING);
+          scale.set(withSpring(0.9, PRESS_SPRING));
         }}
         onPressOut={() => {
-          scale.value = withSpring(1, PRESS_SPRING);
+          scale.set(withSpring(1, PRESS_SPRING));
         }}
       >
         <View className="relative h-9 min-w-14 items-center justify-center overflow-hidden rounded-full px-4">
@@ -105,20 +106,22 @@ export function MobileBottomDock(props: {
   readonly pathname: string;
   readonly onHomeModeChange: (mode: MobileHomeMode) => void;
 }) {
-  const navigation = useNavigation();
+  const selectWorkspaceTab = useSelectWorkspaceTab();
+  const enabledTabs = useEnabledNavigationTabs();
   const insets = useSafeAreaInsets();
   const workspace = useWorkspaceTabs();
   // Upstream's Android workspace keeps threads and pull requests as tabs of the Home route;
   // this dock replaces its native navigation bar and drives the same tab state.
   const routeDestination = mobileDockDestinationForPathname(props.pathname);
-  const activeDestination =
-    routeDestination === "chat" && workspace?.state.selectedTab === "pullRequests"
-      ? "pull-requests"
+  const activeDestination = workspace?.settingsOpen
+    ? "settings"
+    : routeDestination === "chat"
+      ? workspace?.state.selectedTab === "pullRequests"
+        ? "pull-requests"
+        : workspace?.state.selectedTab === "usage"
+          ? "usage"
+          : "chat"
       : routeDestination;
-  const selectWorkspaceTab = (tab: "threads" | "pullRequests") => {
-    workspace?.dispatch({ type: "select", tab });
-    resetAndroidWorkspace(navigation);
-  };
   const homeModeActions: MenuAction[] = [
     {
       id: "projects",
@@ -147,16 +150,10 @@ export function MobileBottomDock(props: {
         selectWorkspaceTab("pullRequests");
         return;
       case "usage":
-        navigation.navigate("SettingsSheet", {
-          screen: "SettingsContent",
-          params: { screen: "SettingsUsage" },
-        });
+        selectWorkspaceTab("usage");
         return;
       case "settings":
-        navigation.navigate("SettingsSheet", {
-          screen: "SettingsContent",
-          params: { screen: "Settings" },
-        });
+        selectWorkspaceTab("settings");
     }
   };
 
@@ -212,7 +209,17 @@ export function MobileBottomDock(props: {
           className="flex-row px-1.5 py-1"
           style={{ borderRadius: 28 }}
         >
-          {ITEMS.map(renderItem)}
+          {ITEMS.filter(
+            (item) =>
+              item.destination === "settings" ||
+              enabledTabs.includes(
+                item.destination === "chat"
+                  ? "threads"
+                  : item.destination === "pull-requests"
+                    ? "pullRequests"
+                    : "usage",
+              ),
+          ).map(renderItem)}
         </GlassSurface>
       </Animated.View>
     </View>

@@ -1,12 +1,4 @@
-/**
- * Durable per-file scan cache.
- *
- * Transcripts are append-only and a file that has not changed can never yield
- * different usage, so parsed records are keyed by `(size, mtime)` and reused.
- *
- * @module usageScanCache
- */
-import type { UsageOrigin, UsageProviderKind } from "@t3tools/contracts";
+import { UsageOrigin, type UsageProviderKind } from "@t3tools/contracts";
 import type {
   TranscriptUsageFormat,
   UsageRecord,
@@ -14,43 +6,40 @@ import type {
 } from "@t3tools/provider-core/server/usage";
 import * as Schema from "effect/Schema";
 
+import { CLAUDE_SYNTHETIC_MODEL } from "../provider/Drivers/claudeUsage.ts";
 import { GUARD_LENGTH, type TranscriptParsePosition } from "./usageTranscriptReader.ts";
 
-// v5: Codex records carry their service tier. After Dark's v5 instead stored
-// fast mode and the transcript origin in its legacy file.
-// v6 (After Dark): records carry both the speed tier and the origin, plus an
-// optional rate-model index (upstream's v5 addition) after the origin. Older v6
-// rows without it still load. Upstream v5 rows and After Dark v5 rows load too;
-// see `decodeSpeedAndOrigin`.
-export const USAGE_SCAN_CACHE_VERSION = 6 as const;
-const LEGACY_COMPATIBLE_VERSION = 5;
+// After Dark v10 retains transcript origin alongside upstream v9 reducer state.
+export const USAGE_SCAN_CACHE_VERSION = 10 as const;
+const SPEED_COMPATIBLE_SINCE_VERSION = 4;
 
 /**
- * Each cache version writes its own file in the state directory. An older
- * server sharing that directory cannot read a newer cache and would replace
- * it, dropping saved usage for deleted transcripts. Separate files keep both.
- * A v6 server reads the legacy file once, when its own file is missing.
+ * An older server sharing that directory cannot read a newer cache and would
+ * replace it, dropping saved usage for deleted transcripts. Separate files keep
+ * both.
  */
-export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v6.json";
-export const LEGACY_SCAN_CACHE_FILE_NAME = "usage-scan-cache.json";
+export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v10.json";
+export const LEGACY_SCAN_CACHE_FILE_NAMES = [
+  "usage-scan-cache-v9.json",
+  "usage-scan-cache-v8.json",
+  "usage-scan-cache-v7.json",
+  "usage-scan-cache-v6.json",
+  "usage-scan-cache-v5.json",
+  "usage-scan-cache.json",
+] as const;
 
 const SPEEDS: readonly UsageSpeed[] = ["standard", "fast", "ultrafast"];
-
-function isOrigin(value: unknown): value is UsageOrigin {
-  return value === "t3" || value === "terminal" || value === "unknown";
-}
+const isOrigin = Schema.is(UsageOrigin);
 
 export interface CachedFile {
   readonly size: number;
   readonly mtimeMs: number;
   readonly provider: UsageProviderKind;
   readonly records: readonly UsageRecord[];
-  /**
-   * Records from a trailing segment the writer had not newline-terminated at
-   * parse time. Kept apart from `records` because an incremental parse
-   * re-reads that segment and would otherwise double count it.
-   */
+  /** Unterminated tail records stay separate because incremental parsing rereads them. */
   readonly tailRecords: readonly UsageRecord[];
+  /** Whole-file count, including diagnostics from the tentative tail. */
+  readonly malformedRecords: number;
   readonly position: TranscriptParsePosition;
 }
 
@@ -68,8 +57,9 @@ type SerializedRecord = readonly [
   dedupeKey: string | null,
   reportedCostUsd: number | null,
   speed: number,
+  rateModelIndex: number | null,
+  unresolvedServiceTierTurnId: string | null,
   origin: UsageOrigin,
-  rateModelIndex?: number | null,
 ];
 
 interface SerializedFile {
@@ -78,6 +68,7 @@ interface SerializedFile {
   readonly p: UsageProviderKind;
   readonly r: readonly SerializedRecord[];
   readonly t: readonly SerializedRecord[];
+  readonly mr: number;
   readonly o: number;
   readonly gl: number;
   readonly gh: number;
@@ -124,10 +115,11 @@ function serializeFile(entry: CachedFile, tables: InternTables): SerializedFile 
     record.dedupeKey,
     record.reportedCostUsd,
     SPEEDS.indexOf(record.speed),
-    record.origin ?? "unknown",
     record.rateModel === undefined
       ? null
       : intern(tables.models, tables.modelIndex, record.rateModel),
+    record.unresolvedServiceTierTurnId ?? null,
+    record.origin ?? "unknown",
   ];
   return {
     s: entry.size,
@@ -135,6 +127,7 @@ function serializeFile(entry: CachedFile, tables: InternTables): SerializedFile 
     p: entry.provider,
     r: entry.records.map(serializeRecord),
     t: entry.tailRecords.map(serializeRecord),
+    mr: entry.malformedRecords,
     o: entry.position.resumeOffset,
     gl: entry.position.guardLength,
     gh: entry.position.guardHash,
@@ -154,11 +147,7 @@ export function encodeScanCache(cache: ScanCache): SerializedCache {
   };
 }
 
-/**
- * Entries are replaced, never mutated, when their file changes, so an entry's JSON is memoised by
- * identity. The intern tables only grow, so a memoised entry's indexes stay valid; a pruned entry
- * can leave an unused string behind until the next process start.
- */
+/** Memoizes immutable entries by identity; growing intern tables preserve indexes, retaining unused strings until restart. */
 export function makeScanCacheWriter(): (
   cache: ScanCache,
   extra: Readonly<Record<string, unknown>>,
@@ -190,46 +179,6 @@ function isRecordArray(value: unknown): value is readonly unknown[] {
   return Array.isArray(value);
 }
 
-/**
- * Reads a row's speed, origin and rate model index. v6 rows store a speed
- * index, the origin, then an optional rate model index. A v5 row has one of
- * two layouts: upstream's ends in a speed index and an optional rate model
- * index and carries no origin, while After Dark's ends in a fast-mode bit and
- * the origin.
- */
-function decodeRowTail(
-  version: number,
-  row: readonly unknown[],
-):
-  | {
-      readonly speed: UsageSpeed;
-      readonly origin: UsageOrigin;
-      readonly rateModelIndex: unknown;
-    }
-  | undefined {
-  const speedField = row[10];
-  const originField = row[11];
-  const speedFromIndex = typeof speedField === "number" ? SPEEDS[speedField] : undefined;
-  if (version === USAGE_SCAN_CACHE_VERSION) {
-    return speedFromIndex !== undefined && isOrigin(originField)
-      ? { speed: speedFromIndex, origin: originField, rateModelIndex: row[12] }
-      : undefined;
-  }
-  if (!isOrigin(originField)) {
-    return speedFromIndex === undefined
-      ? undefined
-      : { speed: speedFromIndex, origin: "unknown", rateModelIndex: originField };
-  }
-  if (speedField === 0 || speedField === 1) {
-    return {
-      speed: speedField === 1 ? "fast" : "standard",
-      origin: originField,
-      rateModelIndex: undefined,
-    };
-  }
-  return undefined;
-}
-
 export function decodeScanCache(
   document: unknown,
   formats: ReadonlyMap<UsageProviderKind, TranscriptUsageFormat<unknown>>,
@@ -242,7 +191,7 @@ export function decodeScanCache(
   const version = root.version;
   if (
     typeof version !== "number" ||
-    version < LEGACY_COMPATIBLE_VERSION ||
+    version < SPEED_COMPATIBLE_SINCE_VERSION ||
     version > USAGE_SCAN_CACHE_VERSION
   ) {
     return cache;
@@ -255,9 +204,7 @@ export function decodeScanCache(
   const models = root.models as readonly string[];
   const sessions = root.sessions as readonly string[];
 
-  // Any corrupt row disqualifies the whole entry. Keeping the survivors
-  // under the original (size, mtime) would read as a valid warm hit and the
-  // file would never be re-parsed, silently losing the dropped rows' usage.
+  // Reject entire corrupt entries; partial survivors would appear warm and hide usage until the file changes.
   const decodeRecords = (
     rows: readonly unknown[],
     provider: UsageProviderKind,
@@ -276,11 +223,16 @@ export function decodeScanCache(
         reasoning,
         dedupeKey,
         reportedCostUsd,
+        speedIndex,
       ] = row as SerializedRecord;
-      const tail = decodeRowTail(version, row);
-      const speed = tail?.speed;
-      const origin = tail?.origin;
-      const rateModelIndex = tail?.rateModelIndex;
+      // After Dark v5/v6 used slot 11 for origin; upstream used it for rate-model.
+      const forkLegacy = (version === 5 || version === 6) && isOrigin(row[11]);
+      const originField =
+        version === USAGE_SCAN_CACHE_VERSION ? row[13] : forkLegacy ? row[11] : "unknown";
+      const origin = isOrigin(originField) ? originField : undefined;
+      const rateModelIndex = forkLegacy ? (version === 6 ? row[12] : undefined) : row[11];
+      const unresolvedServiceTierTurnId = !forkLegacy && version >= 7 ? row[12] : undefined;
+      const speed = typeof speedIndex === "number" ? SPEEDS[speedIndex] : undefined;
 
       const model = typeof modelIndex === "number" ? models[modelIndex] : undefined;
       const rateModel = typeof rateModelIndex === "number" ? models[rateModelIndex] : undefined;
@@ -289,6 +241,7 @@ export function decodeScanCache(
         !Number.isFinite(timestampMs) ||
         model === undefined ||
         origin === undefined ||
+        (unresolvedServiceTierTurnId != null && typeof unresolvedServiceTierTurnId !== "string") ||
         (rateModelIndex != null && rateModel === undefined) ||
         !Number.isFinite(uncached) ||
         !Number.isFinite(cached) ||
@@ -299,6 +252,10 @@ export function decodeScanCache(
       ) {
         return null;
       }
+
+      // Unchanged and deleted transcripts may only exist in the cache, so the
+      // parser cannot remove their previously saved local placeholders.
+      if (provider === "claude" && model === CLAUDE_SYNTHETIC_MODEL) continue;
 
       records.push({
         provider,
@@ -316,6 +273,7 @@ export function decodeScanCache(
         },
         reportedCostUsd: typeof reportedCostUsd === "number" ? reportedCostUsd : null,
         speed,
+        ...(typeof unresolvedServiceTierTurnId === "string" ? { unresolvedServiceTierTurnId } : {}),
         dedupeKey: typeof dedupeKey === "string" ? dedupeKey : null,
       });
     }
@@ -330,6 +288,8 @@ export function decodeScanCache(
     const format = formats.get(entry.p);
     if (format === undefined) continue;
     if (!isRecordArray(entry.r) || !isRecordArray(entry.t)) continue;
+    const malformedRecords = entry.mr === undefined ? 0 : entry.mr;
+    if (!Number.isSafeInteger(malformedRecords) || malformedRecords < 0) continue;
     // Position fields feed byte offsets and a Buffer allocation in the reader,
     // so anything outside their real ranges must reject the entry: a bogus
     // guard length would otherwise fail every parse of the file, silently
@@ -348,11 +308,21 @@ export function decodeScanCache(
     ) {
       continue;
     }
-    // Legacy records of stateful formats (Codex) may predate service tiers, so
-    // they priced as standard. Keep them, because the rollout may be gone, but
-    // make a live rollout re-parse whole: no file has size -1, and a zero
-    // position cannot resume.
-    const legacy = format.state !== undefined && version < USAGE_SCAN_CACHE_VERSION;
+    // Upstream reducers did not track origin. Keep their history, but replay
+    // existing rollouts so their origin can be classified from session metadata.
+    const legacyOriginState =
+      entry.p === "codex" &&
+      typeof entry.cs === "object" &&
+      entry.cs !== null &&
+      !Object.hasOwn(entry.cs, "origin") &&
+      isValidState.get(entry.p)?.({ ...entry.cs, origin: "unknown" });
+    // Keep history for deleted rollouts, but re-parse incompatible reducer state.
+    // v9 repairs skipped initial Codex requests; clean v8 entries can still resume.
+    const legacy =
+      format.state !== undefined &&
+      (legacyOriginState ||
+        version < 6 ||
+        (entry.p === "codex" && (version < 8 || (version < 9 && malformedRecords > 0))));
     // A corrupt state disqualifies the entry: resuming with it would attach
     // appended usage to the wrong model or replay fork-copied history.
     if (!legacy && !isValidState.get(entry.p)?.(entry.cs)) continue;
@@ -368,6 +338,7 @@ export function decodeScanCache(
       provider,
       records,
       tailRecords,
+      malformedRecords,
       position: legacy
         ? { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null }
         : {
@@ -405,7 +376,6 @@ export function resolveScanCacheRetentionCutoffMs(input: {
   return Math.min(input.startedAtMs - input.minimumRetentionMs, input.windowStartMs);
 }
 
-/** Keeps saved usage after transcript cleanup, until the reporting retention expires. */
 export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): number {
   let removed = 0;
   for (const [path, entry] of cache) {
@@ -417,10 +387,7 @@ export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): num
   return removed;
 }
 
-/**
- * Callers stitching an incremental parse together pass one `seen` set across the line and tail
- * record batches so the whole file stays deduplicated as a unit; the set is mutated in place.
- */
+/** Mutates seen; share it across incremental line/tail batches to deduplicate the whole file. */
 export function dedupeWithinFile(
   records: readonly UsageRecord[],
   seen: Set<string> = new Set(),

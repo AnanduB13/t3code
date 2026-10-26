@@ -42,7 +42,6 @@ describe("PullRequestRow", () => {
         selected={false}
         showProjectTitle
         showProvider={false}
-        speedMode={false}
         onActed={() => undefined}
         onSelect={() => undefined}
       />,

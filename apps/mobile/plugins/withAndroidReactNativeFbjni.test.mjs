@@ -17,7 +17,10 @@ async function transform(contents) {
 it("keeps fbjni aligned with the installed React Native runtime across prebuilds and upgrades", async () => {
   const require = NodeModule.createRequire(import.meta.url);
   const catalog = NodeFS.readFileSync(
-    NodePath.join(NodePath.dirname(require.resolve("react-native/package.json")), "gradle/libs.versions.toml"),
+    NodePath.join(
+      NodePath.dirname(require.resolve("react-native/package.json")),
+      "gradle/libs.versions.toml",
+    ),
     "utf8",
   );
   const version = catalog.match(/^fbjni\s*=\s*"([\d.]+)"/m)[1];

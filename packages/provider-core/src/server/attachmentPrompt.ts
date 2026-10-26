@@ -6,11 +6,12 @@ import {
   type SnapShotAccessibility,
   type SnapShotAccessibilityNode,
 } from "@t3tools/contracts";
-// @effect-diagnostics nodeBuiltinImport:off - adapters build prompts synchronously; see readExtractedPdfText.
+// @effect-diagnostics nodeBuiltinImport:off - reads legacy After Dark PDF sidecars at the adapter boundary.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import * as Schema from "effect/Schema";
+import * as Effect from "effect/Effect";
 
 const encodePromptJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -157,7 +158,7 @@ function compactAccessibilityForPrompt(
 /**
  * The text extracted when a PDF attachment was claimed, if it exists. The
  * server writes it beside the PDF as `<attachment id>.pdf.txt`. Read
- * synchronously because adapters build turn text synchronously.
+ * from legacy sidecars as well as the new document-text pipeline.
  */
 function readExtractedPdfText(
   attachmentPath: string,
@@ -180,44 +181,62 @@ export function isProviderNativeImageAttachment(attachment: ChatAttachment): boo
   );
 }
 
-export function providerMessageTextWithAttachmentPaths(input: {
+export const providerMessageTextWithAttachmentPaths = Effect.fn(
+  "providerMessageTextWithAttachmentPaths",
+)(function* (input: {
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly resolveAttachmentPath: (attachment: ChatAttachment) => string | null;
-}): string {
+  readonly resolveExtractedTextPath?:
+    | ((path: string) => Effect.Effect<string | undefined>)
+    | undefined;
+}) {
   let text = input.text;
+  // The text-input budget must never hide the existence of an attachment.
+  for (const attachment of input.attachments) {
+    const path = input.resolveAttachmentPath(attachment);
+    const pdfText = path === null ? undefined : readExtractedPdfText(path, attachment);
+    const extracted =
+      pdfText?.path ??
+      (path === null || !input.resolveExtractedTextPath
+        ? undefined
+        : yield* input.resolveExtractedTextPath(path));
+    const context =
+      path === null
+        ? `[Attached ${attachment.type} "${attachment.name}" is unavailable: could not resolve a saved path for attachment '${attachment.id}'.]`
+        : `[Attached ${attachment.type} "${attachment.name}" is saved at: ${path}${extracted ? ` (text extracted to: ${extracted})` : ""}]`;
+    text = text ? `${text}\n\n${context}` : context;
+  }
+
+  const truncationNotice =
+    "[Optional captured-window context was truncated to fit the prompt budget. Attachments are listed above.]";
+  let truncated = false;
   const appendContext = (context: string | undefined) => {
     if (context === undefined) return;
     const candidate = text ? `${text}\n\n${context}` : context;
-    if (candidate.length <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS) text = candidate;
+    if (candidate.length + 2 + truncationNotice.length <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
+      text = candidate;
+    } else {
+      truncated = true;
+    }
   };
 
   for (const attachment of input.attachments) {
     const path = input.resolveAttachmentPath(attachment);
-    if (path === null) continue;
-    const pathContext = `[Attached ${attachment.type} "${attachment.name}" is saved at: ${path}]`;
-    const pdfText = readExtractedPdfText(path, attachment);
-    if (pdfText === undefined) {
-      appendContext(pathContext);
-      continue;
-    }
-    // After Dark: inline a PDF's extracted text when it fits, else point at the file.
-    const pdfContext = [
-      pathContext,
-      `[Complete extracted text for "${attachment.name}" is saved at: ${pdfText.path}]`,
-    ].join("\n");
+    const pdfText = path === null ? undefined : readExtractedPdfText(path, attachment);
+    if (!pdfText) continue;
     const inlined = [
-      pdfContext,
-      `<attached_pdf name=${JSON.stringify(attachment.name)}>`,
+      `<attached_pdf name=${encodePromptJson(attachment.name)}>`,
       pdfText.text,
       "</attached_pdf>",
     ].join("\n");
     const fits =
-      (text ? text.length + 2 : 0) + inlined.length <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS;
+      (text ? text.length + 2 : 0) + inlined.length + 2 + truncationNotice.length <=
+      PROVIDER_SEND_TURN_MAX_INPUT_CHARS;
     appendContext(
       fits
         ? inlined
-        : `${pdfContext}\nThe extracted text was not inlined because of its size. Read the complete extracted-text file before answering about this PDF.`,
+        : `The extracted text for "${attachment.name}" was not inlined because of its size. Read the complete extracted-text file at ${pdfText.path} before answering about this PDF.`,
     );
   }
 
@@ -257,5 +276,5 @@ export function providerMessageTextWithAttachmentPaths(input: {
     );
   }
 
-  return text;
-}
+  return truncated ? `${text}\n\n${truncationNotice}` : text;
+});

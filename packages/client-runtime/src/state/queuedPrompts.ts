@@ -4,13 +4,13 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ChatAttachment,
   type MessageId,
-  type OrchestrationV2ThreadProjection,
   type RunId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import type { ThreadStructure } from "./models.ts";
 import { deriveThreadQueueWorkflowState } from "./threadWorkflows.ts";
 
 /**
@@ -33,7 +33,7 @@ const EMPTY_QUEUED_PROMPTS: ReadonlyArray<QueuedPrompt> = [];
 
 /** Queued prompts in send order. */
 export function deriveQueuedPrompts(
-  projection: OrchestrationV2ThreadProjection | null | undefined,
+  projection: ThreadStructure | null | undefined,
 ): ReadonlyArray<QueuedPrompt> {
   if (!projection) return EMPTY_QUEUED_PROMPTS;
   const { queuedRuns } = deriveThreadQueueWorkflowState(projection);

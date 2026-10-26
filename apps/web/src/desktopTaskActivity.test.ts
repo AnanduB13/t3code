@@ -30,6 +30,10 @@ function thread(overrides: Partial<DesktopTaskThread> = {}): DesktopTaskThread {
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     updatedAt: now,
     archivedAt: null,
+    settledOverride: null,
+    activityRunStartedAt: null,
+    latestRunStartedAt: null,
+    latestRunRequestedAt: null,
     lineage: { rootThreadId: id, parentThreadId: null, relationshipToParent: null },
     status: "running",
     activityRunStatus: "running",
@@ -107,7 +111,7 @@ describe("desktop task activity", () => {
         thread({
           status: "completed",
           activityRunStatus: null,
-          pendingBackgroundTasks: [{ kind: "monitor", taskId: "monitor-1" }],
+          pendingBackgroundTasks: [{ kind: "monitor", taskId: "monitor-1", awaited: true }],
         }),
       ],
     });

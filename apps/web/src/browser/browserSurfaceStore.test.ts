@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  resolveBrowserSurfacePanelRect,
   acquireBrowserSurface,
   acquireBrowserSurfaceActivity,
-  resolveBrowserSurfacePanelRect,
   useBrowserSurfaceStore,
 } from "./browserSurfaceStore";
 
