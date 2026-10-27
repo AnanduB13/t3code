@@ -1,8 +1,8 @@
-import { ProjectFavicon } from "../../components/ProjectFavicon";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useMemo } from "react";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { MaterialThreadListToolbar } from "./MaterialThreadListToolbar";
+import { MaterialProjectPicker } from "./MaterialProjectPicker";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
@@ -12,11 +12,6 @@ function checkedMenuState(checked: boolean) {
 }
 
 export function HomeHeader(props: HomeHeaderProps) {
-  // The list uses a fixed creation order and ignores sort/group options, so
-  // the filter menu only carries the filters and the "customized" icon state
-  // keys off those alone.
-  const hasCustomListOptions =
-    props.selectedEnvironmentId !== null || props.selectedProjectKey !== null;
   const menuActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -35,28 +30,8 @@ export function HomeHeader(props: HomeHeaderProps) {
           })),
         ],
       },
-      ...(props.mode === "chats" || props.projects.length === 0
-        ? []
-        : ([
-            {
-              id: "project",
-              title: "Project",
-              subactions: [
-                {
-                  id: "project:all",
-                  title: "All projects",
-                  state: checkedMenuState(props.selectedProjectKey === null),
-                },
-                ...props.projects.map((project) => ({
-                  id: `project:${project.key}`,
-                  title: project.label,
-                  state: checkedMenuState(props.selectedProjectKey === project.key),
-                })),
-              ],
-            },
-          ] satisfies MenuAction[])),
     ],
-    [props.environments, props.projects, props.selectedEnvironmentId, props.selectedProjectKey],
+    [props.environments, props.selectedEnvironmentId],
   );
   const handleMenuAction = useCallback(
     (event: { nativeEvent: { event: string } }) => {
@@ -76,19 +51,6 @@ export function HomeHeader(props: HomeHeaderProps) {
         }
         return;
       }
-
-      if (id === "project:all") {
-        props.onProjectChange(null);
-        return;
-      }
-
-      if (id.startsWith("project:")) {
-        const projectKey = id.slice("project:".length);
-        if (props.projects.some((project) => project.key === projectKey)) {
-          props.onProjectChange(projectKey);
-        }
-        return;
-      }
     },
     [props],
   );
@@ -99,22 +61,17 @@ export function HomeHeader(props: HomeHeaderProps) {
       <MaterialThreadListToolbar
         searchQuery={props.searchQuery}
         onSearchQueryChange={props.onSearchQueryChange}
-        renderLeadingFilterAction={(action) => {
-          const project = props.projects.find(
-            (candidate) => action.id === `project:${candidate.key}`,
-          );
-          return project?.environmentId ? (
-            <ProjectFavicon
-              environmentId={project.environmentId}
-              faviconPath={project.faviconPath}
-              projectTitle={project.label}
-              size={20}
-              workspaceRoot={project.workspaceRoot}
+        projectPicker={
+          props.mode !== "chats" && props.projects.length > 0 ? (
+            <MaterialProjectPicker
+              projects={props.projects}
+              selectedProjectKey={props.selectedProjectKey}
+              onProjectChange={props.onProjectChange}
             />
-          ) : null;
-        }}
+          ) : undefined
+        }
         filterActions={menuActions}
-        filterCustomized={hasCustomListOptions}
+        filterCustomized={props.selectedEnvironmentId !== null}
         onFilterAction={handleMenuAction}
         onOpenSettings={props.onOpenSettings}
         onOpenEnvironments={props.onOpenEnvironments}

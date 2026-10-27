@@ -30,7 +30,7 @@ import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
 import { useHomeThreadSelection } from "./home-thread-navigation";
-import { buildHomeProjectScopes } from "./homeThreadList";
+import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
 import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
@@ -101,10 +101,15 @@ export function HomeRouteScreen() {
   const deferredSelectedProjectKey = useDeferredValue(selectedProjectKey);
   const projectFilterOptions = useMemo(
     () =>
-      buildHomeProjectScopes({
-        projects,
-        environmentId: selectedEnvironmentId,
-        projectGroupingMode: listOptions.projectGroupingMode,
+      sortHomeProjectScopes({
+        scopes: buildHomeProjectScopes({
+          projects,
+          environmentId: selectedEnvironmentId,
+          projectGroupingMode: listOptions.projectGroupingMode,
+        }),
+        threads,
+        pendingTasks,
+        projectSortOrder: listOptions.projectSortOrder,
       }).map((scope) => ({
         environmentId: scope.representative.environmentId,
         faviconPath: scope.representative.faviconPath,
@@ -112,7 +117,14 @@ export function HomeRouteScreen() {
         label: scope.title,
         workspaceRoot: scope.representative.workspaceRoot,
       })),
-    [listOptions.projectGroupingMode, projects, selectedEnvironmentId],
+    [
+      listOptions.projectGroupingMode,
+      listOptions.projectSortOrder,
+      pendingTasks,
+      projects,
+      selectedEnvironmentId,
+      threads,
+    ],
   );
   useEffect(() => {
     if (homeMode === "chats") {

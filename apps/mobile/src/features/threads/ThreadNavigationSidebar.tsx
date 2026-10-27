@@ -41,7 +41,7 @@ import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { useHomeListOptions } from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
-import { buildHomeProjectScopes } from "../home/homeThreadList";
+import { buildHomeProjectScopes, sortHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
@@ -51,6 +51,7 @@ import {
 } from "../home/WorkspaceConnectionTitle";
 import { SidebarHeaderActions } from "./sidebar-header-actions";
 import { MaterialThreadListToolbar } from "../home/MaterialThreadListToolbar";
+import { MaterialProjectPicker } from "../home/MaterialProjectPicker";
 import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLayout";
 import { useMaterialFabScroll } from "../home/MaterialFabScrollContext";
 import { SidebarFilterButton } from "./sidebar-filter-button";
@@ -207,18 +208,33 @@ function ThreadNavigationSidebarPane(
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
   const projectScopes = useMemo(
     () =>
-      buildHomeProjectScopes({
-        projects,
-        environmentId: options.selectedEnvironmentId,
-        projectGroupingMode: options.projectGroupingMode,
+      sortHomeProjectScopes({
+        scopes: buildHomeProjectScopes({
+          projects,
+          environmentId: options.selectedEnvironmentId,
+          projectGroupingMode: options.projectGroupingMode,
+        }),
+        threads,
+        pendingTasks,
+        projectSortOrder: options.projectSortOrder,
       }),
-    [options.projectGroupingMode, options.selectedEnvironmentId, projects],
+    [
+      options.projectGroupingMode,
+      options.projectSortOrder,
+      options.selectedEnvironmentId,
+      pendingTasks,
+      projects,
+      threads,
+    ],
   );
   const projectFilterOptions = useMemo(
     () =>
       projectScopes.map((scope) => ({
+        environmentId: scope.representative.environmentId,
+        faviconPath: scope.representative.faviconPath,
         key: scope.key,
         label: scope.title,
+        workspaceRoot: scope.representative.workspaceRoot,
       })),
     [projectScopes],
   );
@@ -551,7 +567,7 @@ function ThreadNavigationSidebarPane(
           })),
         ],
       },
-      ...(projectFilterOptions.length === 0
+      ...(Platform.OS === "android" || projectFilterOptions.length === 0
         ? []
         : ([
             {
@@ -871,8 +887,6 @@ function ThreadNavigationSidebarPane(
       unsnoozeThread,
     ],
   );
-  // The list ignores sort/group options, so only the environment and project
-  // filters can light the "customized" state.
   const filterCustomized = options.selectedEnvironmentId !== null || selectedProjectKey !== null;
   const filterIcon = filterCustomized
     ? "line.3.horizontal.decrease.circle.fill"
@@ -1066,8 +1080,17 @@ function ThreadNavigationSidebarPane(
           onLayout={handleStickyHeaderLayout}
           searchQuery={props.searchQuery}
           onSearchQueryChange={props.onSearchQueryChange}
+          projectPicker={
+            projectFilterOptions.length > 0 ? (
+              <MaterialProjectPicker
+                projects={projectFilterOptions}
+                selectedProjectKey={selectedProjectKey}
+                onProjectChange={setSelectedProjectKey}
+              />
+            ) : undefined
+          }
           filterActions={listMenuActions}
-          filterCustomized={filterCustomized}
+          filterCustomized={options.selectedEnvironmentId !== null}
           onFilterAction={handleListMenuAction}
           onOpenSettings={props.onOpenSettings}
           onOpenEnvironments={props.onOpenEnvironmentSettings}

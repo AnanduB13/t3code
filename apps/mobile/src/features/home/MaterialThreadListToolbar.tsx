@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { BackHandler, Keyboard, type TextInput, View, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -7,8 +14,8 @@ import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
-import { ControlPillMenu } from "../../components/ControlPill";
 import { MaterialSearchField } from "../../components/MaterialSearchField";
+import { T3Wordmark } from "../../components/T3Wordmark";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { WorkspaceConnectionTitle } from "./WorkspaceConnectionTitle";
 import { useWorkspaceState } from "../../state/workspace";
@@ -19,12 +26,10 @@ import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLay
 export function MaterialThreadListToolbar(props: {
   readonly searchQuery: string;
   readonly onSearchQueryChange: (query: string) => void;
+  readonly projectPicker?: ReactNode;
   readonly filterActions: MenuAction[];
-  readonly renderLeadingFilterAction?: ComponentProps<
-    typeof AndroidAnchoredMenu
-  >["renderLeadingAction"];
   readonly filterCustomized: boolean;
-  readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
+  readonly onFilterAction: NonNullable<ComponentProps<typeof AndroidAnchoredMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironments: () => void;
   readonly sidebar?: boolean;
@@ -32,13 +37,14 @@ export function MaterialThreadListToolbar(props: {
   readonly onRequestVisibility?: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { fabSize } = useAndroidControlSizing();
+  const { fabSize, scale } = useAndroidControlSizing();
   const { height: toolbarHeight, ...headerPadding } = useMaterialToolbarLayout();
   const { state } = useWorkspaceState();
   const { onRequestVisibility, onSearchQueryChange } = props;
   const searchRef = useRef<TextInput>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const searching = searchOpen || props.searchQuery.length > 0;
+  const hasProjectPicker = props.projectPicker != null;
   const openSearch = useCallback(() => {
     onRequestVisibility?.();
     setSearchOpen(true);
@@ -98,12 +104,20 @@ export function MaterialThreadListToolbar(props: {
           ) : (
             <>
               {/* Match the visible inset of the trailing 48dp icon button. */}
-              <View className="min-w-0 flex-1 pl-4">
+              <View className="min-w-0 flex-1 flex-row items-center gap-2 pl-4">
                 <WorkspaceConnectionTitle
-                  grow
+                  grow={!hasProjectPicker}
+                  maxWidth={hasProjectPicker ? 96 * scale : undefined}
                   onPress={props.onOpenEnvironments}
-                  brand={<CompactBrandTitle allowFontScaling={false} />}
+                  brand={
+                    hasProjectPicker ? (
+                      <T3Wordmark colorClassName="accent-icon" height={Math.round(15 * scale)} />
+                    ) : (
+                      <CompactBrandTitle allowFontScaling={false} />
+                    )
+                  }
                 />
+                {props.projectPicker}
               </View>
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
@@ -130,11 +144,7 @@ export function MaterialThreadListToolbar(props: {
               8,
           }}
         >
-          <AndroidAnchoredMenu
-            actions={props.filterActions}
-            onPressAction={props.onFilterAction}
-            renderLeadingAction={props.renderLeadingFilterAction}
-          >
+          <AndroidAnchoredMenu actions={props.filterActions} onPressAction={props.onFilterAction}>
             {(open) => (
               <MaterialFloatingActionButton
                 label="Filter threads"

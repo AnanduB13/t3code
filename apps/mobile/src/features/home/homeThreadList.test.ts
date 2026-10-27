@@ -200,6 +200,119 @@ describe("home project scopes", () => {
     ).toEqual([olderProject.id, newerProject.id]);
   });
 
+  it("reorders repository groups when a member on another environment becomes active", () => {
+    const localEnvironmentId = EnvironmentId.make("environment-local");
+    const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+    const repositoryIdentity = {
+      canonicalKey: "github.com/example/app",
+      locator: {
+        source: "git-remote" as const,
+        remoteName: "origin",
+        remoteUrl: "git@github.com:example/app.git",
+      },
+    };
+    const localProject = makeProject({
+      environmentId: localEnvironmentId,
+      id: ProjectId.make("project-app"),
+      title: "App",
+      repositoryIdentity,
+    });
+    const remoteProject = makeProject({
+      environmentId: remoteEnvironmentId,
+      id: localProject.id,
+      title: "App",
+      repositoryIdentity,
+    });
+    const otherProject = makeProject({
+      environmentId: localEnvironmentId,
+      id: ProjectId.make("project-other"),
+      title: "Other",
+    });
+    const scopes = buildHomeProjectScopes({
+      projects: [otherProject, localProject, remoteProject],
+      environmentId: null,
+      projectGroupingMode: "repository",
+    });
+    const otherThread = makeThread({
+      environmentId: localEnvironmentId,
+      id: ThreadId.make("thread-other"),
+      projectId: otherProject.id,
+      title: "Other",
+      latestUserMessageAt: "2026-06-02T00:00:00.000Z",
+    });
+    const remoteThread = makeThread({
+      environmentId: remoteEnvironmentId,
+      id: ThreadId.make("thread-remote"),
+      projectId: remoteProject.id,
+      title: "App",
+    });
+    const sortWithRemoteActivity = (latestUserMessageAt: string | null) =>
+      sortHomeProjectScopes({
+        scopes,
+        threads: [otherThread, { ...remoteThread, latestUserMessageAt }],
+        pendingTasks: [],
+        projectSortOrder: "updated_at",
+      });
+
+    const before = sortWithRemoteActivity(null);
+    const after = sortWithRemoteActivity("2026-06-03T00:00:00.000Z");
+    expect(before.map((scope) => scope.title)).toEqual(["Other", "App"]);
+    expect(after.map((scope) => scope.title)).toEqual(["App", "Other"]);
+    expect(after[0]?.key).toBe(before[1]?.key);
+  });
+
+  it("ignores archived threads and metadata updates when ordering by recent activity", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const activeProject = makeProject({
+      environmentId,
+      id: ProjectId.make("active"),
+      title: "Active",
+    });
+    const staleProject = makeProject({
+      environmentId,
+      id: ProjectId.make("stale"),
+      title: "Stale",
+    });
+    const scopes = buildHomeProjectScopes({
+      projects: [staleProject, activeProject],
+      environmentId: null,
+      projectGroupingMode: "separate",
+    });
+    const threads = [
+      makeThread({
+        environmentId,
+        id: ThreadId.make("active"),
+        projectId: activeProject.id,
+        title: "Active",
+        latestUserMessageAt: "2026-06-02T00:00:00.000Z",
+      }),
+      makeThread({
+        environmentId,
+        id: ThreadId.make("metadata-only"),
+        projectId: staleProject.id,
+        title: "Metadata update",
+        updatedAt: "2026-06-04T00:00:00.000Z",
+      }),
+      makeThread({
+        environmentId,
+        id: ThreadId.make("archived"),
+        projectId: staleProject.id,
+        title: "Archived",
+        latestUserMessageAt: "2026-06-05T00:00:00.000Z",
+        archivedAt: "2026-06-06T00:00:00.000Z",
+      }),
+    ];
+
+    expect(
+      sortHomeProjectScopes({
+        scopes,
+        threads,
+        pendingTasks: [],
+        projectSortOrder: "updated_at",
+      }).map((scope) => scope.representative.id),
+    ).toEqual([activeProject.id, staleProject.id]);
+  });
+
   it("sorts invalid project creation timestamps after valid ones", () => {
     const environmentId = EnvironmentId.make("environment-1");
     const invalidProject = makeProject({
