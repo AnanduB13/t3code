@@ -139,7 +139,13 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
-## Voice input on iPhone
+## Voice input on mobile
+
+On Android, tap the composer's microphone to open your phone's speech input dialog.
+Finish speaking to insert the recognized text at your selection, then review and
+edit it before sending. Dismissing the dialog preserves your draft. Voice input
+requires an installed speech recognition app; its language support and network
+requirements depend on your phone's speech service.
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,
 then confirm to transcribe. Text is inserted where your selection was when
@@ -151,8 +157,8 @@ minutes long. Canceling, leaving the screen, or an audio interruption discards t
 recording and preserves your existing draft. While recording, the screen stays
 awake; it can sleep normally once recording stops.
 
-Transcription runs on your device. T3 Code deletes the temporary audio after
-transcription or cancellation; only the message text is sent when you submit.
+On iPhone, transcription runs on your device. T3 Code deletes the temporary audio
+after transcription or cancellation; only the message text is sent when you submit.
 
 ## Commands and skills
 

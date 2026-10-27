@@ -13,7 +13,6 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 
-import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
@@ -25,6 +24,7 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
+import type { VoiceInputControllerInput } from "./useVoiceInputController.types";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 const VOICE_METERING_INTERVAL_MS = 80;
@@ -62,14 +62,7 @@ async function configureVoiceRecordingAudio(): Promise<void> {
   }
 }
 
-export function useVoiceInputController(input: {
-  readonly ownerKey: string | null;
-  readonly draftMessage: string;
-  readonly selection: ComposerEditorSelection;
-  readonly disabled?: boolean;
-  readonly onChangeDraftMessage: (value: string) => void;
-  readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
-}) {
+export function useVoiceInputController(input: VoiceInputControllerInput) {
   const [state, setState] = useState<VoiceInputState>(INITIAL_STATE);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const keepAwakeId = useId();
