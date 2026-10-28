@@ -242,7 +242,8 @@ export class MacTaskActivity {
       !this.activity.enabled ||
       this.activity.tasks.length === 0 ||
       this.locked ||
-      (focused && focused !== this.panel) ||
+      // getFocusedWindow also includes DevTools; a hidden/minimized owner must not suppress us.
+      (focused && focused !== this.panel && focused.isVisible() && !focused.isMinimized()) ||
       !this.notches
     ) {
       this.expanded = false;

@@ -101,6 +101,7 @@ vi.mock("electron", async () => {
 type MockWindow = NodeEvents.EventEmitter & {
   options: unknown;
   destroyed: boolean;
+  visible: boolean;
   minimized: boolean;
   webContents: NodeEvents.EventEmitter & { mainFrame: object; send: ReturnType<typeof vi.fn> };
   setBounds: ReturnType<typeof vi.fn>;
@@ -154,6 +155,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(readMacScreenNotches).mockResolvedValue([]);
   owner = new Electron.BrowserWindow({});
+  windows()[0]!.visible = true;
   controller = new MacTaskActivity("/bundle/task-activity-preload.cjs");
   await Promise.resolve();
 });
@@ -164,7 +166,8 @@ describe("macOS task panel", () => {
     state.focused = owner;
     controller.update(activity, owner);
     expect(windows()).toHaveLength(1);
-    state.focused = null;
+    // Electron can still return the owner (including its DevTools) during minimize.
+    windows()[0]!.minimized = true;
     owner.emit("minimize");
     await Promise.resolve();
     const panel = ready();
@@ -179,8 +182,35 @@ describe("macOS task panel", () => {
       skipTaskbar: true,
     });
     expect(panel.setAlwaysOnTop).toHaveBeenCalledWith(true, "status");
-    state.focused = owner;
+    windows()[0]!.minimized = false;
+    owner.emit("restore");
     Electron.app.emit("browser-window-focus", {}, owner);
+    expect(panel.hide).toHaveBeenCalled();
+  });
+
+  it("shows when the owner is hidden even if Electron still reports its focus", async () => {
+    state.focused = owner;
+    controller.update(activity, owner);
+    owner.hide();
+    owner.emit("hide");
+    await Promise.resolve();
+    const panel = ready();
+    expect(panel.showInactive).toHaveBeenCalledOnce();
+
+    owner.show();
+    owner.emit("show");
+    await Promise.resolve();
+    expect(panel.hide).toHaveBeenCalled();
+  });
+
+  it("hides behind another focused app window while the owner remains minimized", () => {
+    windows()[0]!.minimized = true;
+    controller.update(activity, owner);
+    const panel = ready();
+    const other = new Electron.BrowserWindow({});
+    other.show();
+    state.focused = other;
+    Electron.app.emit("browser-window-focus", {}, other);
     expect(panel.hide).toHaveBeenCalled();
   });
 
