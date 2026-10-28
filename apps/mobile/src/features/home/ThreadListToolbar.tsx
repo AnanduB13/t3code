@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import {
@@ -22,6 +29,7 @@ import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
 export function ThreadListToolbar(props: {
   readonly searchQuery: string;
   readonly onSearchQueryChange: (query: string) => void;
+  readonly projectPicker?: ReactNode;
   readonly filterActions: MenuAction[];
   readonly renderLeadingFilterAction?: ComponentProps<
     typeof AndroidAnchoredMenu
@@ -120,6 +128,7 @@ export function ThreadListToolbar(props: {
         searchAccessibilityLabel="Search threads"
         titleAccessibilityLabel="T3 Code, Threads"
         onOpenEnvironments={props.onOpenEnvironments}
+        projectPicker={props.projectPicker}
         filter={filterButton}
       />
     </View>

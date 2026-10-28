@@ -45,7 +45,7 @@ import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
 import { useHomeListOptions } from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
-import { buildHomeProjectScopes } from "../home/homeThreadList";
+import { buildHomeProjectScopes, sortHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
@@ -55,6 +55,7 @@ import {
 } from "../home/WorkspaceConnectionTitle";
 import { SidebarHeaderActions } from "./sidebar-header-actions";
 import { ThreadListToolbar } from "../home/ThreadListToolbar";
+import { MaterialProjectPicker } from "../home/MaterialProjectPicker";
 import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
 import { useFabScroll } from "../home/FabScrollContext";
 import { SidebarFilterButton } from "./sidebar-filter-button";
@@ -204,16 +205,31 @@ function ThreadNavigationSidebarPane(
   }, [projectScopeKey, resolvedProjectKey, setSelectedProjectKey]);
   const projectScopes = useMemo(
     () =>
-      buildHomeProjectScopes({
-        projects,
-        environmentId: options.selectedEnvironmentId,
-        projectGroupingMode: options.projectGroupingMode,
+      sortHomeProjectScopes({
+        scopes: buildHomeProjectScopes({
+          projects,
+          environmentId: options.selectedEnvironmentId,
+          projectGroupingMode: options.projectGroupingMode,
+        }),
+        threads,
+        pendingTasks,
+        projectSortOrder: options.projectSortOrder,
       }),
-    [projects, options.selectedEnvironmentId, options.projectGroupingMode],
+    [
+      options.projectGroupingMode,
+      options.projectSortOrder,
+      options.selectedEnvironmentId,
+      pendingTasks,
+      projects,
+      threads,
+    ],
   );
   const projectFilterOptions = projectScopes.map((scope) => ({
+    environmentId: scope.representative.environmentId,
+    faviconPath: scope.representative.faviconPath,
     key: scope.key,
     label: scope.title,
+    workspaceRoot: scope.representative.workspaceRoot,
   }));
   const projectTitleByProjectKey = useMemo(
     () =>
@@ -383,7 +399,7 @@ function ThreadNavigationSidebarPane(
         })),
       ],
     },
-    ...(homeMode === "chats" || projectFilterOptions.length === 0
+    ...(Platform.OS === "android" || homeMode === "chats" || projectFilterOptions.length === 0
       ? []
       : ([
           {
@@ -869,8 +885,17 @@ function ThreadNavigationSidebarPane(
           onLayout={handleStickyHeaderLayout}
           searchQuery={props.searchQuery}
           onSearchQueryChange={props.onSearchQueryChange}
+          projectPicker={
+            homeMode !== "chats" && projectFilterOptions.length > 0 ? (
+              <MaterialProjectPicker
+                projects={projectFilterOptions}
+                selectedProjectKey={selectedProjectKey}
+                onProjectChange={setSelectedProjectKey}
+              />
+            ) : undefined
+          }
           filterActions={listMenuActions}
-          filterCustomized={filterCustomized}
+          filterCustomized={options.selectedEnvironmentId !== null}
           onFilterAction={handleListMenuAction}
           onOpenEnvironments={props.onOpenEnvironmentSettings}
           onRequestVisibility={props.onRequestVisibility}

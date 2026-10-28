@@ -2,10 +2,13 @@
 
 Transcription edits a composer draft. It does not submit an agent turn. Audio is
 temporary client input, and only normal message submission sends the resulting
-text. The current implementation transcribes locally on supported iOS devices;
-environment-backed transcription is not implemented.
+text. iOS transcribes locally on supported devices; Android delegates capture and
+transcription to the phone's speech input activity. Environment-backed transcription
+is not implemented. Android must not cancel dictation on app background events:
+opening the speech activity backgrounds T3 itself. Navigation or a draft owner
+change still cancels the request, and results use the same draft revision check.
 
-The [shared controller](../../packages/client-runtime/src/voice-input/controller.ts)
+On iOS, the [shared controller](../../packages/client-runtime/src/voice-input/controller.ts)
 owns the operation while the client supplies capture and transcription. Preparation
 binds the transcriber and resolved locale for the whole recording. Draft ownership,
 text, and revision are captured before recording and checked before insertion, so

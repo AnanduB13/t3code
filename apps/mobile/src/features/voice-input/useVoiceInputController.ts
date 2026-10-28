@@ -5,22 +5,13 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 
-import type { ComposerEditorSelection } from "../../components/ComposerEditor";
+import type { VoiceInputControllerInput } from "./useVoiceInputController.types";
 import { useGlobalVoiceInput } from "./VoiceInputProvider";
 import { createVoiceInputTarget } from "./voiceInputSession";
 
 const IDLE_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 
-export function useVoiceInputController(input: {
-  readonly ownerKey: string | null;
-  readonly label: string;
-  readonly readDraftMessage: () => string | null;
-  readonly subscribeToDraftChanges: (onChange: () => void) => () => void;
-  readonly selection: ComposerEditorSelection;
-  readonly disabled?: boolean;
-  readonly onChangeDraftMessage: (value: string) => void;
-  readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
-}) {
+export function useVoiceInputController(input: VoiceInputControllerInput) {
   const global = useGlobalVoiceInput();
   const { setOwnerFocused, session } = global;
   const latestInput = useRef(input);

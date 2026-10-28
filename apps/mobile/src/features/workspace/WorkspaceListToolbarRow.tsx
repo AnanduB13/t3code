@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { View } from "react-native";
 import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
+import { T3Wordmark } from "../../components/T3Wordmark";
+import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
 import { WorkspaceConnectionTitle } from "../home/WorkspaceConnectionTitle";
 
@@ -19,10 +21,13 @@ export function WorkspaceListToolbarRow(props: {
   readonly searchAccessibilityLabel: string;
   readonly titleAccessibilityLabel: string;
   readonly onOpenEnvironments: () => void;
+  readonly projectPicker?: ReactNode;
   /** Stays trailing while searching, so it never moves and still narrows the results. */
   readonly filter: ReactNode;
 }) {
   const { height } = useToolbarLayout();
+  const { scale } = useAndroidControlSizing();
+  const hasProjectPicker = props.projectPicker != null;
   return (
     <View className="flex-row items-center gap-1" style={{ minHeight: height }}>
       {props.searching ? (
@@ -37,18 +42,24 @@ export function WorkspaceListToolbarRow(props: {
         </>
       ) : (
         <>
-          <View className="min-w-0 flex-1 pl-4">
+          <View className="min-w-0 flex-1 flex-row items-center gap-2 pl-4">
             <WorkspaceConnectionTitle
-              grow
+              grow={!hasProjectPicker}
+              maxWidth={hasProjectPicker ? 96 * scale : undefined}
               onPress={props.onOpenEnvironments}
               brand={
-                <CompactBrandTitle
-                  allowFontScaling={false}
-                  accessibilityLabel={props.titleAccessibilityLabel}
-                  fit
-                />
+                hasProjectPicker ? (
+                  <T3Wordmark colorClassName="accent-icon" height={Math.round(15 * scale)} />
+                ) : (
+                  <CompactBrandTitle
+                    allowFontScaling={false}
+                    accessibilityLabel={props.titleAccessibilityLabel}
+                    fit
+                  />
+                )
               }
             />
+            {props.projectPicker}
           </View>
           <AndroidHeaderIconButton
             accessibilityLabel={props.searchAccessibilityLabel}
