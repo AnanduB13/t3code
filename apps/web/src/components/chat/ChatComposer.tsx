@@ -3783,10 +3783,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     containerClassName={cn(isComposerResting && "min-w-0 flex-1")}
                     className={cn(
                       showMobilePendingAnswerActions && "max-sm:pb-12",
-                      isComposerResting && "my-0 min-h-8 py-0 leading-8",
+                      isComposerResting && "my-0 min-h-8 redesign:min-h-8 py-0 leading-8",
                       isComposerApprovalState && "min-h-10",
-                      isComposerResting &&
-                        "my-0 max-h-8 min-h-8 redesign:min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
                     )}
                     placeholderClassName={cn(
                       isComposerResting &&
