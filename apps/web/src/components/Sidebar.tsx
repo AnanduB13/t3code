@@ -3647,7 +3647,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       </div>
       <AgentsSidebarLink />
       <SidebarSeparator />
-      <SidebarChromeFooter />
       <SidebarChromeFooter
         showUndoNotice={isSearchingThreads || sidebarListItemsFresh.length === 0}
       />
