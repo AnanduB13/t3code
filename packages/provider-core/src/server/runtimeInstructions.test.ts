@@ -3,6 +3,24 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import { buildRuntimeInstructions } from "./runtimeInstructions.ts";
 
 describe("buildRuntimeInstructions", () => {
+  it.each(["Codex", "Claude Code", "Cursor", "Grok", "OpenCode", "Antigravity", "Muse"])(
+    "keeps %s in the current checkout and routes necessary worktrees through managed storage",
+    (harness) => {
+      const instructions = buildRuntimeInstructions({ harness });
+
+      assert.include(instructions, "Use the current checkout by default.");
+      assert.include(instructions, "unrelated dirty files alone do not justify a new worktree");
+      assert.include(instructions, "Reuse a suitable existing checkout");
+      assert.include(instructions, "t3_worktree_status");
+      assert.include(instructions, "t3_worktree_handoff");
+      assert.include(instructions, 'delegate_task with isolation:"worktree"');
+      assert.include(instructions, "Let T3 choose the path");
+      assert.include(instructions, "do not bypass it with git worktree add");
+      assert.include(instructions, "unless the user explicitly requests manual worktree creation");
+      assert.include(instructions, "Do not move or delete existing worktrees");
+    },
+  );
+
   it("links PRs the agent creates, takes over, or pushes to, and no others", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
 
