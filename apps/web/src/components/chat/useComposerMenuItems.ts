@@ -261,6 +261,13 @@ export function useComposerMenuItems({
           label: "/model",
           description: gt("Switch response model for this thread"),
         },
+        {
+          id: "slash:skills",
+          type: "slash-command",
+          command: "skills",
+          label: "/skills",
+          description: gt("View and create skills for this project"),
+        },
         ...(sideChatAvailable
           ? ([
               {
