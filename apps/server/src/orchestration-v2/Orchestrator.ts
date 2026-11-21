@@ -9040,7 +9040,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const settleBackgroundWork = Effect.fn("Orchestrator.settleBackgroundWork")(function* (input: {
     readonly command: Extract<
       OrchestrationV2ServerCommand,
-      { readonly type: "run.interrupt" | "thread.background-work.settle" }
+      { readonly type: "run.interrupt" | "thread.stop" | "thread.background-work.settle" }
     >;
     readonly events: Ref.Ref<Array<OrchestrationV2DomainEvent>>;
     readonly projection: Pick<
@@ -10497,6 +10497,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       yield* markStoppedRun({ command, events, thread: projection.thread, run, now });
     }
     yield* holdStoppedThread({ command, events, projection, cohortRunIds: [], now });
+    // A completed run may have lost its provider turn while tool rows remained open.
+    if (!hasLiveRun(projection)) {
+      const { nodes } = yield* projectionStore
+        .getThreadRecords(command.threadId, ["nodes"])
+        .pipe(mapDispatchError(command));
+      yield* settleBackgroundWork({
+        command,
+        events,
+        projection: {
+          ...projection,
+          nodes,
+          turnItems: projection.turnItems.filter((item) => item.type !== "subagent"),
+        },
+        stoppedProviderThreadId: null,
+        throughRunOrdinal: executed?.ordinal ?? 0,
+        now,
+      });
+    }
     yield* cancelIdleOrphans({ command, events, projection });
     yield* stopDelegatedTasks;
     return undefined;

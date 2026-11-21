@@ -1712,6 +1712,112 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           [baselineId],
         );
       }
+      const oldPrompts = [];
+      for (const [ordinal, kind] of [
+        [2, "user_input"],
+        [3, "command"],
+      ] as const) {
+        const item = (yield* projectionStore.getTurnItem({
+          threadId,
+          itemId: TurnItemId.make(`turn-item:bounded-sql-history:${ordinal}`),
+        }))!;
+        const request = {
+          id: RuntimeRequestId.make(`request:bounded-sql-history:${kind}`),
+          nodeId: NodeId.make(`node:bounded-sql-history:${ordinal}`),
+          providerTurnId: null,
+          nativeRequestRef: null,
+          kind,
+          status: "pending" as const,
+          responseCapability: { type: "message" as const },
+          createdAt: now,
+          resolvedAt: null,
+        };
+        const prompt: OrchestrationV2TurnItem = {
+          ...item,
+          nodeId: request.nodeId,
+          providerThreadId: item.providerThreadId ?? null,
+          status: "waiting",
+          completedAt: null,
+          requestId: request.id,
+          ...(kind === "user_input"
+            ? {
+                type: "user_input_request" as const,
+                responseMode: "message" as const,
+                questions: [{ id: "q", header: "Question", question: "Continue?", options: [] }],
+              }
+            : { type: "approval_request" as const, requestKind: "command" as const }),
+        };
+        yield* projectionStore.apply({
+          id: EventId.make(`event:bounded-sql-history:${kind}:prompt`),
+          type: "turn-item.updated",
+          threadId,
+          occurredAt: now,
+          payload: prompt,
+        });
+        yield* projectionStore.apply({
+          id: EventId.make(`event:bounded-sql-history:${kind}:request`),
+          type: "runtime-request.updated",
+          threadId,
+          occurredAt: now,
+          payload: request,
+        });
+        oldPrompts.push({ item, request });
+      }
+      const pendingWindow = yield* projectionStore.getThreadSnapshotWindow(threadId, {
+        rowLimit: 2,
+      });
+      assert.deepEqual(
+        pendingWindow.projection.visibleTurnItems.map((row) => row.item.ordinal),
+        [999, 1000],
+      );
+      assert.deepEqual(
+        pendingWindow.projection.turnItems.map((item) => item.ordinal),
+        [2, 3, 999, 1000],
+      );
+      for (const policy of [
+        { maxItems: 1, maxEncodedBytes: 1_048_576 },
+        { maxItems: 75, maxEncodedBytes: 1_000 },
+      ]) {
+        const bounded = buildBoundedThreadProjection({
+          projection: pendingWindow.projection,
+          snapshotSequence: pendingWindow.snapshotSequence,
+          policy,
+        });
+        assert.isTrue(bounded.hasMoreHistory);
+        assert.deepEqual(
+          bounded.projection.visibleTurnItems.map((row) => row.item.ordinal),
+          [1000],
+        );
+        assert.deepEqual(
+          bounded.projection.turnItems.map((item) => item.ordinal).sort((a, b) => a - b),
+          [2, 3, 1000],
+        );
+      }
+      for (const { request } of oldPrompts) {
+        yield* projectionStore.apply({
+          id: EventId.make(`event:bounded-sql-history:${request.kind}:resolved`),
+          type: "runtime-request.updated",
+          threadId,
+          occurredAt: now,
+          payload: { ...request, status: "resolved", resolvedAt: now },
+        });
+      }
+      const resolvedWindow = yield* projectionStore.getThreadSnapshotWindow(threadId, {
+        rowLimit: 2,
+      });
+      assert.deepEqual(
+        resolvedWindow.projection.turnItems.map((item) => item.ordinal),
+        [999, 1000],
+      );
+      for (const { item } of oldPrompts) {
+        yield* projectionStore.apply({
+          id: EventId.make(`event:bounded-sql-history:${item.id}:restored`),
+          type: "turn-item.updated",
+          threadId,
+          occurredAt: now,
+          payload: item,
+        });
+      }
       const humanWindow = () =>
         projectionStore.getThreadSnapshotWindow(threadId, {
           rowLimit: 77,

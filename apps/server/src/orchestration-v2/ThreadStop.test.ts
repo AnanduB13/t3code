@@ -161,6 +161,73 @@ const threadState = (threadId: ThreadId) =>
     };
   });
 
+it.effect("the thread interrupt API stops leftover tool work after its run completes", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    const threadId = ThreadId.make("thread:interrupt-leftover-tool");
+    yield* createWatchingThread(threadId, 900);
+    yield* send(threadId, "start", "start_immediately");
+    const before = yield* orchestrator.getThreadProjection(threadId);
+    const run = before.runs[0]!;
+    const now = yield* DateTime.now;
+    yield* projections.apply({
+      id: EventId.make("event:interrupt-leftover:completed"),
+      type: "run.updated",
+      threadId,
+      runId: run.id,
+      occurredAt: now,
+      payload: { ...run, status: "completed", completedAt: now },
+    });
+    const itemId = TurnItemId.make("item:interrupt-leftover:tool");
+    yield* projections.apply({
+      id: EventId.make("event:interrupt-leftover:tool"),
+      type: "turn-item.updated",
+      threadId,
+      runId: run.id,
+      occurredAt: now,
+      payload: {
+        id: itemId,
+        type: "dynamic_tool",
+        threadId,
+        runId: run.id,
+        nodeId: run.rootNodeId,
+        providerThreadId: run.providerThreadId,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 100,
+        status: "running",
+        title: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+        toolName: "mcp__t3-code__t3_worktree_handoff",
+        input: {},
+        output: null,
+      },
+    });
+    const result = yield* threads.interruptThread({
+      projectId: before.thread.projectId,
+      threadId,
+      commandId: CommandId.make("interrupt-leftover"),
+    });
+    assert.equal(result.type, "interrupt_requested");
+    const after = yield* orchestrator.getThreadProjection(threadId);
+    assert.equal(after.turnItems.find((item) => item.id === itemId)?.status, "interrupted");
+    assert.equal(after.runs[0]?.status, "completed");
+    assert.equal(
+      (yield* threads.interruptThread({
+        projectId: before.thread.projectId,
+        threadId,
+        commandId: CommandId.make("interrupt-leftover-again"),
+      })).type,
+      "no_active_run",
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect.each([
   ["idle", "thread.stop"],
   ["idle", "run.interrupt"],

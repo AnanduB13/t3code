@@ -380,29 +380,21 @@ function isLocalProjectedRow(
   return row.visibility === "local" || String(row.sourceThreadId) === String(projection.thread.id);
 }
 
-/** Retain small requests outside the visible window; later result pages still need them for attempt/run reducers. */
-function retainedInterruptRequestTurnItems(
+/** Request panels and run reducers need their prompts independently of the visible history. */
+function retainedControlTurnItems(
   projection: OrchestrationV2ThreadProjection,
-  visible: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
 ): OrchestrationV2TurnItem[] {
-  const visibleLocalIds = new Set<string>();
-  for (const row of visible) {
-    if (isLocalProjectedRow(projection, row)) {
-      visibleLocalIds.add(String(row.sourceItemId));
-    }
-  }
-
-  const retained: OrchestrationV2TurnItem[] = [];
-  for (const item of projection.turnItems) {
-    if (item.type !== "run_interrupt_request") {
-      continue;
-    }
-    if (visibleLocalIds.has(String(item.id))) {
-      continue;
-    }
-    retained.push(item);
-  }
-  return retained;
+  const pendingRequestIds = new Set(
+    projection.runtimeRequests
+      .filter((request) => request.status === "pending")
+      .map((request) => request.id),
+  );
+  return projection.turnItems.filter(
+    (item) =>
+      item.type === "run_interrupt_request" ||
+      ((item.type === "approval_request" || item.type === "user_input_request") &&
+        pendingRequestIds.has(item.requestId)),
+  );
 }
 
 function localTurnItemsForVisibleWindow(
@@ -521,15 +513,11 @@ export function buildBoundedThreadProjection(input: {
   };
   const latestLocalTurnOrdinal = computeLatestLocalTurnOrdinal(input.projection.turnItems);
 
-  const dependencyReserve = (() => {
-    let reserve = 0;
-    for (const item of controlProjection.turnItems) {
-      if (item.type === "run_interrupt_request") {
-        reserve += bytesOfJson(item);
-      }
-    }
-    return reserve;
-  })();
+  const dependencyTurnItems = retainedControlTurnItems(controlProjection);
+  const dependencyReserve = dependencyTurnItems.reduce(
+    (bytes, item) => bytes + bytesOfJson(item),
+    0,
+  );
   const controlBytes = bytesOfJson({
     ...controlProjection,
     messages: [],
@@ -552,10 +540,6 @@ export function buildBoundedThreadProjection(input: {
   });
   const visibleTurnItems = renumberPositions(window.items);
   const windowTurnItems = localTurnItemsForVisibleWindow(controlProjection, visibleTurnItems);
-  const dependencyTurnItems = retainedInterruptRequestTurnItems(
-    controlProjection,
-    visibleTurnItems,
-  );
   const turnItemById = new Map<string, OrchestrationV2TurnItem>();
   for (const item of windowTurnItems) {
     turnItemById.set(String(item.id), item);

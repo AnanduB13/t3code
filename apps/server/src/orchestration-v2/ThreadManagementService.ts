@@ -37,6 +37,7 @@ import {
   type TurnItemId,
 } from "@t3tools/contracts";
 import { threadTranscriptHeader } from "@t3tools/shared/threadTranscript";
+import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -1004,6 +1005,29 @@ const make = Effect.gen(function* () {
     const interruptibleRun = latestActiveRun(target);
     if (interruptibleRun === undefined) {
       if (input.runId === undefined) {
+        const background = yield* getProjectThreadRecords(input, ["providerThreads", "turnItems"], {
+          turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+          turnItemStatuses: ["pending", "running", "waiting"],
+        });
+        const run = target.runs.findLast((candidate) => candidate.status !== "queued");
+        if (
+          run !== undefined &&
+          derivePendingBackgroundWork({
+            latestRun: run,
+            runs: target.runs,
+            providerThreads: background.providerThreads,
+            turnItems: background.turnItems,
+            activeProviderThreadId: background.thread.activeProviderThreadId,
+          }).length > 0
+        ) {
+          const dispatch = yield* orchestrator.dispatch({
+            type: "thread.stop",
+            commandId: input.commandId,
+            threadId: input.threadId,
+            ...(input.reason === undefined ? {} : { reason: input.reason }),
+          });
+          return { type: "interrupt_requested", run, dispatch } as const;
+        }
         return { type: "no_active_run" } as const;
       }
       return yield* new ThreadManagementThreadNotInterruptibleError({
