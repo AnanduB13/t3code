@@ -892,6 +892,92 @@ it.layer(NodeServices.layer)("decider queue flows", (it) => {
     }),
   );
 
+  it.effect("holds a failed response's queue and sends a typed continuation ahead of it", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const id of ["one", "two"]) {
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({ readModel, command: turnStartCommand(id) }),
+        );
+      }
+      readModel = yield* withSessionStatus(readModel, "error", readModel.snapshotSequence + 1);
+      const queued = readModel.threads[0]!.queuedMessages;
+      for (const status of ["error", "ready", "stopped"] as const) {
+        readModel = yield* withSessionStatus(readModel, status, readModel.snapshotSequence + 1);
+        const error = yield* Effect.flip(
+          decideOrchestrationCommand({
+            readModel,
+            command: {
+              type: "thread.queue.drain",
+              commandId: asCommandId(`failed-drain-${status}`),
+              threadId: THREAD_ID,
+              createdAt: NOW,
+            },
+          }),
+        );
+        expect(error.message).toContain("response did not complete");
+      }
+      const continued = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({ readModel, command: turnStartCommand("continue") }),
+      );
+      expect(continued.threads[0]?.queuedMessages).toEqual(queued);
+      expect(continued.threads[0]?.messages.at(-1)?.id).toBe("message-continue");
+      expect(continued.threads[0]?.pendingTurnStart?.messageId).toBe("message-continue");
+
+      readModel = yield* withSessionStatus(continued, "running", continued.snapshotSequence + 1);
+      readModel = yield* withSessionStatus(readModel, "ready", readModel.snapshotSequence + 1);
+      const drained = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          readModel,
+          command: {
+            type: "thread.queue.drain",
+            commandId: asCommandId("recovered-drain"),
+            threadId: THREAD_ID,
+            createdAt: NOW,
+          },
+        }),
+      );
+      expect(drained.threads[0]?.messages.at(-1)?.id).toBe("message-one");
+      expect(drained.threads[0]?.queuedMessages.map((message) => message.messageId)).toEqual([
+        "message-two",
+      ]);
+    }),
+  );
+
+  it.effect("explicit steering can select a prompt after a failure without draining the rest", () =>
+    Effect.gen(function* () {
+      let readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);
+      for (const id of ["one", "two", "three"]) {
+        readModel = yield* applyPlanned(
+          readModel,
+          yield* decideOrchestrationCommand({ readModel, command: turnStartCommand(id) }),
+        );
+      }
+      readModel = yield* withSessionStatus(readModel, "error", readModel.snapshotSequence + 1);
+      const steered = yield* applyPlanned(
+        readModel,
+        yield* decideOrchestrationCommand({
+          readModel,
+          command: {
+            type: "thread.queue.steer",
+            commandId: asCommandId("steer-after-error"),
+            threadId: THREAD_ID,
+            messageId: asMessageId("message-two"),
+            createdAt: NOW,
+          },
+        }),
+      );
+      expect(steered.threads[0]?.messages.at(-1)?.id).toBe("message-two");
+      expect(steered.threads[0]?.queuedMessages.map((message) => message.messageId)).toEqual([
+        "message-one",
+        "message-three",
+      ]);
+    }),
+  );
+
   it.effect("explicit steering starts immediately while default sends remain queued", () =>
     Effect.gen(function* () {
       const readModel = yield* withSessionStatus(yield* seedReadModel, "running", 3);

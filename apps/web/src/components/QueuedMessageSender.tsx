@@ -1,5 +1,6 @@
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
+import { threadNeedsTurnRecovery } from "@t3tools/contracts";
 import { useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -79,6 +80,7 @@ function ThreadQueueSender({ threadKey }: { threadKey: string }) {
   const blocked =
     threadRef === null ||
     thread === null ||
+    (thread !== null && threadNeedsTurnRecovery(thread)) ||
     threadStatus !== "live" ||
     (environment !== null && environment.connection.phase !== "connected") ||
     !serverConfigLoaded ||

@@ -5,6 +5,7 @@ import { Alert } from "react-native";
 
 import {
   CommandId,
+  threadNeedsTurnRecovery,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -495,6 +496,47 @@ export function useThreadComposerState() {
     uploadThreadFeedback,
   ]);
 
+  const onContinueResponse = useCallback(async () => {
+    const thread = selectedThreadDetail ?? selectedThreadShell;
+    if (
+      !selectedThreadShell ||
+      !thread ||
+      !threadNeedsTurnRecovery(thread) ||
+      selectedThreadShell.hasPendingApprovals ||
+      selectedThreadShell.hasPendingUserInput ||
+      selectedEnvironmentRuntime?.connectionState !== "connected"
+    )
+      return;
+    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, thread.id);
+    const draft = getComposerDraftSnapshot(threadKey);
+    const modelSelection = draft.modelSelection ?? thread.modelSelection;
+    const serverConfig = selectedEnvironmentRuntime.serverConfig;
+    if (isModelSelectionUnavailable(serverConfig, modelSelection)) return;
+    const provider = serverConfig?.providers.find(
+      (entry) => entry.instanceId === modelSelection.instanceId,
+    );
+    const metadata = makeQueuedMessageMetadata();
+    try {
+      await enqueueThreadOutboxMessage({
+        environmentId: selectedThreadShell.environmentId,
+        threadId: thread.id,
+        messageId: MessageId.make(metadata.messageId),
+        commandId: CommandId.make(metadata.commandId),
+        text: "Continue from where you left off.",
+        attachments: [],
+        modelSelection,
+        runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
+        interactionMode: resolveProviderInteractionMode(
+          provider,
+          draft.interactionMode ?? thread.interactionMode,
+        ),
+        createdAt: metadata.createdAt,
+      });
+    } catch (error) {
+      setPendingConnectionError(error instanceof Error ? error.message : "Failed to continue.");
+    }
+  }, [selectedThreadDetail, selectedThreadShell, selectedEnvironmentRuntime]);
+
   const onChangeDraftMessage = useCallback(
     (value: string) => {
       if (!selectedThreadShell) {
@@ -827,6 +869,7 @@ export function useThreadComposerState() {
     onNativePasteText,
     onRemoveDraftImage,
     onSendMessage,
+    onContinueResponse,
     onUpdateModelSelection,
     onUpdateRuntimeMode,
     onUpdateInteractionMode,

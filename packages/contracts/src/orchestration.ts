@@ -690,6 +690,22 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+/** Failed work must be resumed before queued follow-ups can run automatically. */
+export function threadNeedsTurnRecovery(thread: {
+  readonly session:
+    | (Pick<OrchestrationSession, "status"> & Partial<Pick<OrchestrationSession, "lastError">>)
+    | null;
+  readonly latestTurn?: Pick<OrchestrationLatestTurn, "state"> | null;
+}): boolean {
+  const status = thread.session?.status;
+  if (status === "running" || status === "starting" || status === "interrupted") return false;
+  return (
+    status === "error" ||
+    thread.latestTurn?.state === "error" ||
+    (status === "stopped" && !!thread.session?.lastError)
+  );
+}
+
 /** A follow-up message held server-side while a turn is running. */
 export const OrchestrationQueuedMessage = Schema.Struct({
   messageId: MessageId,

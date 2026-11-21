@@ -14,6 +14,7 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
+import { threadNeedsTurnRecovery } from "@t3tools/contracts";
 import {
   questionAttachmentDraftId,
   questionAttachmentDraftPrefix,
@@ -3283,6 +3284,7 @@ export default function ChatView(props: ChatViewProps) {
     isCompacting ||
     awaitingBootstrapTurn;
   const isPreparingWorktree = isLocallyPreparingWorktree || awaitingBootstrapTurn;
+  const needsTurnRecovery = activeThread !== undefined && threadNeedsTurnRecovery(activeThread);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -5461,6 +5463,12 @@ export default function ChatView(props: ChatViewProps) {
     setShowScrollToBottom(false);
     setTimelineAnchor(releaseChatTimelineAnchor);
     requestAnimationFrame(() => {
+      if (
+        liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current ||
+        timelineScrollModeRef.current !== "following-end"
+      ) {
+        return;
+      }
       void legendListRef.current?.scrollToEnd?.({ animated });
     });
   }, []);
@@ -8650,6 +8658,64 @@ export default function ChatView(props: ChatViewProps) {
     };
   };
 
+  const onContinueResponse = async () => {
+    const sendCtx = composerRef.current?.getSendContext();
+    if (
+      !activeThread ||
+      activeEnvironmentUnavailable ||
+      !needsTurnRecovery ||
+      !sendCtx?.providerAvailable ||
+      isWorking ||
+      sendInFlightRef.current ||
+      interruptInFlightRef.current ||
+      activePendingApproval ||
+      pendingUserInputs.length > 0
+    )
+      return;
+
+    const messageId = newMessageId();
+    const createdAt = new Date().toISOString();
+    sendInFlightRef.current = true;
+    beginLocalDispatch({ messageId, preparingWorktree: false });
+    setThreadError(activeThread.id, null);
+    try {
+      const settingsResult = await persistThreadSettingsForNextTurn({
+        threadId: activeThread.id,
+        createdAt,
+        modelSelection: sendCtx.selectedModelSelection,
+        runtimeMode,
+        interactionMode: sendCtx.interactionMode,
+      });
+      if (settingsResult._tag === "Failure") throw squashAtomCommandFailure(settingsResult);
+      const result = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId: activeThread.id,
+          message: {
+            messageId,
+            role: "user",
+            text: "Continue from where you left off.",
+            attachments: [],
+          },
+          modelSelection: sendCtx.selectedModelSelection,
+          runtimeMode,
+          interactionMode: sendCtx.interactionMode,
+          createdAt,
+        },
+      });
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      scrollToEnd();
+    } catch (error) {
+      resetLocalDispatch();
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Failed to continue.",
+      );
+    } finally {
+      sendInFlightRef.current = false;
+    }
+  };
+
   const queuedMessageActionsRef = useRef({ steer: (_id: MessageId) => {} });
   const onSteerQueuedMessage = useCallback(
     async (id: string, messageIds?: ReadonlyArray<MessageId>) => {
@@ -10113,10 +10179,41 @@ export default function ChatView(props: ChatViewProps) {
                       </div>
                     </div>
                   ) : null}
+                  {needsTurnRecovery ? (
+                    <div
+                      role="status"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-3 py-2 text-sm text-muted-foreground"
+                    >
+                      <span>Response stopped before completion.</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          isWorking ||
+                          activeEnvironmentConnectionPhase !== "connected" ||
+                          activePendingApproval !== null ||
+                          pendingUserInputs.length > 0
+                        }
+                        onClick={() => void onContinueResponse()}
+                      >
+                        Continue
+                      </Button>
+                    </div>
+                  ) : null}
                   <QueuedMessageChips
                     queuedMessages={displayedQueuedMessages}
                     attachmentUrlById={queuedAttachmentUrlById}
-                    steerDisabled={phase !== "running"}
+                    steerDisabled={
+                      activeEnvironmentUnavailable ||
+                      phase === "connecting" ||
+                      isSendBusy ||
+                      isConnecting ||
+                      isRevertingCheckpoint ||
+                      isCompacting ||
+                      activePendingApproval !== null ||
+                      pendingUserInputs.length > 0
+                    }
+                    isRunning={phase === "running"}
                     onSteer={onSteerQueuedMessage}
                     onRemove={onRemoveQueuedMessage}
                     onUpdate={onUpdateQueuedMessage}

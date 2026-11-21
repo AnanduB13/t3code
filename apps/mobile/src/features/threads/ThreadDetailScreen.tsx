@@ -173,6 +173,7 @@ export interface ThreadDetailScreenProps {
   ) => Promise<void>;
   readonly onRemoveQueuedMessage: (messageId: MessageId) => Promise<void>;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onContinueResponse: () => Promise<void>;
   readonly onReconnectEnvironment: () => void;
   readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
@@ -1110,6 +1111,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   onSteerQueuedMessage={props.onSteerQueuedMessage}
                   onRemoveQueuedMessage={props.onRemoveQueuedMessage}
                   onSendMessage={handleSendMessage}
+                  onContinueResponse={props.onContinueResponse}
                   onShowUsageLimits={showUsageLimits}
                   onUpdateModelSelection={props.onUpdateThreadModelSelection}
                   onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}

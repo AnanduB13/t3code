@@ -1713,7 +1713,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     );
   }
 
-  it.effect("surfaces native command rejection and leaves the session ready", () =>
+  it.effect("surfaces native command rejection as a session error", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
       const threadId = asThreadId("thread-native-command-error");
@@ -1736,7 +1736,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       if (error._tag !== "ProviderAdapterRequestError") throw new Error("Unexpected error type");
       NodeAssert.equal(error.method, "session.command");
       NodeAssert.equal(error.detail, "command unavailable");
-      NodeAssert.equal((yield* adapter.listSessions())[0]?.status, "ready");
+      NodeAssert.equal((yield* adapter.listSessions())[0]?.status, "error");
       yield* adapter.stopSession(threadId);
     }),
   );
@@ -1769,6 +1769,16 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
   it.effect("rolls back session state when sendTurn fails before OpenCode accepts the prompt", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
+      const terminalEvent = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === asThreadId("thread-send-turn-failure") &&
+            (event.type === "turn.completed" || event.type === "turn.aborted"),
+        ),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
       yield* adapter.startSession({
         provider: ProviderDriverKind.make("opencode"),
         threadId: asThreadId("thread-send-turn-failure"),
@@ -1798,9 +1808,13 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         "Provider adapter request failed (opencode) for session.promptAsync: prompt failed",
       );
       NodeAssert.equal(sessions.length, 1);
-      NodeAssert.equal(sessions[0]?.status, "ready");
+      NodeAssert.equal(sessions[0]?.status, "error");
       NodeAssert.equal(sessions[0]?.activeTurnId, undefined);
       NodeAssert.equal(sessions[0]?.lastError, "prompt failed");
+      const events = yield* Fiber.join(terminalEvent);
+      const completion = events.find((event) => event.type === "turn.completed");
+      NodeAssert.equal(completion?.payload.state, "failed");
+      NodeAssert.equal(completion?.payload.errorMessage, "prompt failed");
     }),
   );
 

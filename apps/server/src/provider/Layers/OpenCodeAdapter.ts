@@ -3367,7 +3367,7 @@ export function makeOpenCodeAdapter(
                       yield* updateProviderSession(
                         context,
                         {
-                          status: "ready",
+                          status: "error",
                           model: modelSelection?.model ?? context.session.model,
                           lastError: requestError.detail,
                         },
@@ -3375,9 +3375,10 @@ export function makeOpenCodeAdapter(
                       );
                       yield* emit({
                         ...(yield* buildEventBase({ threadId: input.threadId, turnId })),
-                        type: "turn.aborted",
+                        type: "turn.completed",
                         payload: {
-                          reason: requestError.detail,
+                          state: "failed",
+                          errorMessage: requestError.detail,
                           tokenUsage,
                         },
                       });
@@ -3417,7 +3418,7 @@ export function makeOpenCodeAdapter(
                     yield* updateProviderSession(
                       context,
                       {
-                        status: "ready",
+                        status: "error",
                         model: modelSelection?.model ?? context.session.model,
                         lastError: requestError.detail,
                       },
@@ -3428,9 +3429,10 @@ export function makeOpenCodeAdapter(
                         threadId: input.threadId,
                         turnId,
                       })),
-                      type: "turn.aborted",
+                      type: "turn.completed",
                       payload: {
-                        reason: requestError.detail,
+                        state: "failed",
+                        errorMessage: requestError.detail,
                         tokenUsage,
                       },
                     });

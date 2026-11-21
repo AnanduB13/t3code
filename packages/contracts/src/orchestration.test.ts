@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import { CommandId, ProjectId, ThreadId } from "./baseSchemas.ts";
 
 import {
+  threadNeedsTurnRecovery,
   ProjectIconOverride,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -1688,3 +1689,38 @@ it.effect("encodes compatible icons inside snapshots and client commands", () =>
     assert.deepEqual(yield* decodeNightlyIcon(command.projectIcon), fallback);
   }),
 );
+
+it("offers recovery for failures and unexpected exits, while excluding manual stops", () => {
+  assert.isTrue(threadNeedsTurnRecovery({ session: { status: "error" }, latestTurn: null }));
+  assert.isTrue(
+    threadNeedsTurnRecovery({ session: { status: "ready" }, latestTurn: { state: "error" } }),
+  );
+  assert.isFalse(
+    threadNeedsTurnRecovery({
+      session: { status: "stopped" },
+      latestTurn: { state: "interrupted" },
+    }),
+  );
+  assert.isTrue(
+    threadNeedsTurnRecovery({
+      session: { status: "stopped", lastError: "Provider exited" },
+      latestTurn: null,
+    }),
+  );
+  assert.isFalse(
+    threadNeedsTurnRecovery({
+      session: { status: "interrupted" },
+      latestTurn: { state: "interrupted" },
+    }),
+  );
+  assert.isFalse(
+    threadNeedsTurnRecovery({ session: { status: "ready" }, latestTurn: { state: "completed" } }),
+  );
+  assert.isFalse(
+    threadNeedsTurnRecovery({ session: { status: "starting" }, latestTurn: { state: "error" } }),
+  );
+  assert.isFalse(
+    threadNeedsTurnRecovery({ session: { status: "running" }, latestTurn: { state: "error" } }),
+  );
+  assert.isFalse(threadNeedsTurnRecovery({ session: null, latestTurn: null }));
+});

@@ -1116,6 +1116,7 @@ function ThreadRouteContent(
           onSteerQueuedMessage={handleSteerQueuedMessage}
           onRemoveQueuedMessage={handleRemoveQueuedMessage}
           onSendMessage={composer.onSendMessage}
+          onContinueResponse={composer.onContinueResponse}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}
           onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}

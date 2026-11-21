@@ -7,6 +7,7 @@ import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/at
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  threadNeedsTurnRecovery,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type EnvironmentId,
   type MessageId,
@@ -171,6 +172,7 @@ export interface ThreadComposerProps {
   ) => Promise<void>;
   readonly onRemoveQueuedMessage: (messageId: MessageId) => Promise<void>;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onContinueResponse: () => Promise<void>;
   /** `/usage-limits` resolves locally; the host decides where the report shows. Null clears it. */
   readonly onShowUsageLimits: (report: UsageLimitsReport | null) => void;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
@@ -281,6 +283,7 @@ const ProviderUsagePill = memo(function ProviderUsagePill(props: {
 
 const QueuedPromptStack = memo(function QueuedPromptStack(props: {
   readonly messages: ReadonlyArray<OrchestrationQueuedMessage>;
+  readonly isRunning: boolean;
   readonly onSteer: (messageId: MessageId, messageIds?: ReadonlyArray<MessageId>) => Promise<void>;
   readonly onRemove: (messageId: MessageId) => Promise<void>;
 }) {
@@ -318,7 +321,7 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
       >
         {steerSelection !== null ? (
           <View className="gap-1 px-3 pt-3">
-            <Text className="text-sm font-t3-bold text-foreground">Choose prompts to steer</Text>
+            <Text className="text-sm font-t3-bold text-foreground">Choose prompts to send</Text>
             <Text className="text-xs text-foreground-muted">
               Selected prompts are sent in queue order. Unselected prompts stay queued.
             </Text>
@@ -381,7 +384,7 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
                 </View>
                 {steerSelection === null ? (
                   <Pressable
-                    accessibilityLabel={`Steer queued prompt ${index + 1}`}
+                    accessibilityLabel={`${props.isRunning ? "Steer" : "Send now:"} queued prompt ${index + 1}`}
                     accessibilityRole="button"
                     disabled={busyMessageId !== null}
                     onPress={() => {
@@ -396,7 +399,9 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
                       size={13}
                       tintColorClassName="accent-foreground-muted"
                     />
-                    <Text className="text-xs font-t3-bold text-foreground-muted">Steer</Text>
+                    <Text className="text-xs font-t3-bold text-foreground-muted">
+                      {props.isRunning ? "Steer" : "Send now"}
+                    </Text>
                   </Pressable>
                 ) : null}
                 <Pressable
@@ -447,7 +452,8 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
               }}
             >
               <Text className="text-sm font-t3-bold text-foreground">
-                Steer selected ({selectedMessages.length})
+                {props.isRunning ? "Steer selected" : "Send selected now"} (
+                {selectedMessages.length})
               </Text>
             </Pressable>
           </View>
@@ -546,6 +552,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
+  const [isContinuing, setIsContinuing] = useState(false);
+  const continuingRef = useRef(false);
+  const needsTurnRecovery = threadNeedsTurnRecovery(props.selectedThread);
   const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
   // Only media belongs above the composer; every other file reads as its inline chip.
   const stripAttachments = useMemo(
@@ -571,7 +580,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const sendLabel =
     props.connectionState !== "connected" ||
     props.queueCount > 0 ||
-    props.queuedMessages.length > 0 ||
+    (props.queuedMessages.length > 0 && !needsTurnRecovery) ||
     isThreadWorking ||
     attachmentsUploading
       ? "Queue"
@@ -936,8 +945,41 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           </Text>
         ) : null}
 
+        {needsTurnRecovery ? (
+          <View className="mx-3 flex-row items-center justify-between gap-3 rounded-2xl bg-subtle px-3 py-2">
+            <Text className="flex-1 text-xs text-foreground-muted">
+              Response stopped before completion.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Continue response"
+              disabled={
+                isContinuing ||
+                props.queueCount > 0 ||
+                props.selectedThread.hasPendingApprovals ||
+                props.selectedThread.hasPendingUserInput ||
+                props.connectionState !== "connected" ||
+                modelUnavailable ||
+                !!props.sendBlockedReason
+              }
+              className="h-9 items-center justify-center rounded-full bg-subtle-strong px-3 active:opacity-65 disabled:opacity-40"
+              onPress={() => {
+                if (continuingRef.current) return;
+                continuingRef.current = true;
+                setIsContinuing(true);
+                void props.onContinueResponse().finally(() => {
+                  continuingRef.current = false;
+                  setIsContinuing(false);
+                });
+              }}
+            >
+              <Text className="text-xs font-t3-bold text-foreground">Continue</Text>
+            </Pressable>
+          </View>
+        ) : null}
         <QueuedPromptStack
           messages={props.queuedMessages}
+          isRunning={props.selectedThread.session?.status === "running"}
           onSteer={props.onSteerQueuedMessage}
           onRemove={props.onRemoveQueuedMessage}
         />

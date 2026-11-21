@@ -4,6 +4,12 @@ When an agent is working, sending another prompt adds it to that thread's prompt
 in order after the active turn finishes. Stopping the active turn does not discard or pause the
 remaining queue; the next prompt starts after the provider acknowledges the stop.
 
+If a response stops because of a provider error or an unexpected session exit, queued prompts stay
+in place. Choose **Continue** to resume the unfinished work, or send a new message (such as
+"continue") without advancing the queue. You can change models before continuing. Once the
+resumed response completes successfully, queued prompts run in their original order. To run a
+queued prompt sooner, choose **Send now** beside it.
+
 Once a prompt is accepted into the queue, the composer is ready for the next one. You can keep
 adding prompts while the agent works; there is no fixed limit on the number of queued prompts.
 

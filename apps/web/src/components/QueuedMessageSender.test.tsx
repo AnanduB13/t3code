@@ -144,6 +144,27 @@ describe("QueuedMessageSender", () => {
     expect(queue()).toBeUndefined();
   });
 
+  it.each(["error", "stopped"])("holds the local queue after a provider %s", async (status) => {
+    enqueue();
+    io.thread = {
+      ...thread(status),
+      session: { status, activeTurnId: null, lastError: "Provider exited unexpectedly" },
+      latestTurn: { state: status === "error" ? "error" : "interrupted" },
+    };
+    await render();
+    expect(commandsRun()).toEqual([]);
+    expect(queue()?.[0]?.prompt).toBe("follow up");
+
+    if (status === "error") {
+      io.thread = { ...thread("ready"), latestTurn: { state: "error" } };
+      await render();
+      expect(commandsRun()).toEqual([]);
+    }
+    io.thread = thread("ready");
+    await render();
+    expect(commandsRun()).toEqual(["start"]);
+  });
+
   it("holds the next message until the server picks up the one before it", async () => {
     enqueue({ prompt: "first" });
     enqueue({ prompt: "second" });

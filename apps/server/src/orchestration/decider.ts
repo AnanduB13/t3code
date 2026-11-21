@@ -7,6 +7,7 @@ import {
   ThreadLinkedPullRequest,
   UserInputRequestedPayload,
   isImportedAgentSessionMessageId,
+  threadNeedsTurnRecovery,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationQueuedMessage,
@@ -1589,7 +1590,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command.dispatchMode !== "steer" &&
         (isThreadTurnActive(targetThread) ||
           targetThread.pendingTurnStart !== null ||
-          queuedMessagesForThread(targetThread).length > 0)
+          (queuedMessagesForThread(targetThread).length > 0 &&
+            !threadNeedsTurnRecovery(targetThread)))
       ) {
         const queuedEvent: PlannedOrchestrationEvent = {
           ...(yield* withEventBase({
@@ -1903,6 +1905,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "thread.queue.drain": {
       const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (threadNeedsTurnRecovery(thread)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "The response did not complete. Continue it or explicitly steer a queued prompt.",
+        });
+      }
       const queuedMessage = queuedMessagesForThread(thread).at(0);
       if (queuedMessage?.holdUntilUserAction) {
         return yield* new OrchestrationCommandInvariantError({

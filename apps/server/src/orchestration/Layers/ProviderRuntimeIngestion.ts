@@ -1820,6 +1820,11 @@ const make = Effect.gen(function* () {
           : Option.none();
       const hasPendingTurnStart =
         Option.isSome(pendingTurnStart) && thread.session?.status === "starting";
+      const isUnexpectedSessionExit =
+        event.type === "session.exited" &&
+        (event.payload.exitKind === "error" ||
+          (event.payload.exitKind !== "graceful" &&
+            (activeTurnId !== null || thread.session?.status === "starting")));
 
       const conflictsWithActiveTurn =
         activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
@@ -1897,12 +1902,20 @@ const make = Effect.gen(function* () {
           switch (event.type) {
             case "session.state.changed": {
               const runtimeStatus = orchestrationSessionStatusFromRuntimeState(event.payload.state);
-              return hasPendingTurnStart && runtimeStatus === "ready" ? "starting" : runtimeStatus;
+              // Ready means the provider can accept work; it does not complete
+              // a failed request. Keep that failure until a new turn starts.
+              return runtimeStatus === "ready"
+                ? hasPendingTurnStart
+                  ? "starting"
+                  : thread.session?.status === "error"
+                    ? "error"
+                    : "ready"
+                : runtimeStatus;
             }
             case "turn.started":
               return "running";
             case "session.exited":
-              return "stopped";
+              return isUnexpectedSessionExit ? "error" : "stopped";
             case "turn.aborted":
               return "interrupted";
             case "turn.completed":
@@ -1913,7 +1926,13 @@ const make = Effect.gen(function* () {
             case "thread.started":
               // Provider thread/session start notifications can arrive during an
               // active or pending turn; preserve that lifecycle state.
-              return activeTurnId !== null ? "running" : hasPendingTurnStart ? "starting" : "ready";
+              return hasPendingTurnStart
+                ? "starting"
+                : thread.session?.status === "error"
+                  ? "error"
+                  : activeTurnId !== null
+                    ? "running"
+                    : "ready";
           }
         })();
         const nextActiveTurnId =
@@ -1933,9 +1952,13 @@ const make = Effect.gen(function* () {
             : event.type === "turn.completed" &&
                 normalizeRuntimeTurnState(event.payload.state) === "failed"
               ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
-              : status === "ready" || status === "interrupted"
-                ? null
-                : (thread.session?.lastError ?? null);
+              : event.type === "session.exited" && isUnexpectedSessionExit
+                ? (event.payload.reason ??
+                  thread.session?.lastError ??
+                  "Provider exited unexpectedly")
+                : status === "ready" || status === "interrupted"
+                  ? null
+                  : (thread.session?.lastError ?? null);
 
         if (shouldApplyThreadLifecycle) {
           if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {

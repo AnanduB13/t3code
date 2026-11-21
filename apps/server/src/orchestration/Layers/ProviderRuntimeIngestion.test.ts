@@ -10,6 +10,7 @@ import {
   ProviderRuntimeEvent,
   ProviderSession,
   ProviderInstanceId,
+  threadNeedsTurnRecovery,
 } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
@@ -570,6 +571,212 @@ describe("ProviderRuntimeIngestion", () => {
       expect((await readThread()).session?.activeTurnId).toBe(next);
       expect((await readThread()).queuedMessages).toEqual(thread.queuedMessages);
     }
+  });
+
+  it.each(["failed turn", "runtime error", "provider exit", "unclassified exit"] as const)(
+    "keeps queued prompts after a %s and resumes them only after successful recovery",
+    async (failure) => {
+      const harness = await createHarness();
+      const threadId = asThreadId("thread-1");
+      const turnId = asTurnId("failed-work");
+      const base = {
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        turnId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      };
+      harness.emit({ ...base, type: "turn.started", eventId: asEventId("start-failed-work") });
+      await harness.drain();
+      for (const id of ["queued-one", "queued-two"]) {
+        await harness.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(id),
+          threadId,
+          message: { messageId: asMessageId(id), role: "user", text: id, attachments: [] },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: base.createdAt,
+        });
+      }
+      const queued = (await harness.readModel()).threads[0]!.queuedMessages;
+      harness.emit(
+        failure === "failed turn"
+          ? {
+              ...base,
+              type: "turn.completed",
+              eventId: asEventId("failure"),
+              payload: { state: "failed", errorMessage: "Selected model is at capacity." },
+            }
+          : failure === "runtime error"
+            ? {
+                ...base,
+                type: "runtime.error",
+                eventId: asEventId("failure"),
+                payload: { message: "Provider disconnected." },
+              }
+            : {
+                ...base,
+                type: "session.exited",
+                eventId: asEventId("failure"),
+                payload: failure === "provider exit" ? { exitKind: "error" } : {},
+              },
+      );
+      await harness.drain();
+      let thread = (await harness.readModel()).threads[0]!;
+      expect(thread.queuedMessages).toEqual(queued);
+      expect(thread.messages).toEqual([]);
+
+      for (const type of ["session.started", "thread.started"] as const) {
+        harness.emit({ ...base, type, eventId: asEventId(`restart-after-error:${type}`) });
+        await harness.drain();
+        thread = (await harness.readModel()).threads[0]!;
+        expect(thread.session?.status).toBe("error");
+        expect(thread.queuedMessages).toEqual(queued);
+      }
+      // Providers may report ready again without completing the failed work.
+      harness.emit({
+        ...base,
+        type: "session.state.changed",
+        eventId: asEventId("ready-after-error"),
+        payload: { state: "ready" },
+      });
+      await harness.drain();
+      expect((await harness.readModel()).threads[0]!.queuedMessages).toEqual(queued);
+      await harness.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("continue"),
+        threadId,
+        message: {
+          messageId: asMessageId("continue"),
+          role: "user",
+          text: "continue",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: base.createdAt,
+      });
+      await harness.drain();
+      thread = (await harness.readModel()).threads[0]!;
+      expect(thread.messages.at(-1)?.id).toBe("continue");
+      expect(thread.queuedMessages).toEqual(queued);
+
+      const resumedTurnId = asTurnId("resumed-work");
+      harness.emit({
+        ...base,
+        turnId: resumedTurnId,
+        type: "turn.started",
+        eventId: asEventId("start-resumed-work"),
+      });
+      await harness.drain();
+      harness.emit({
+        ...base,
+        turnId: resumedTurnId,
+        type: "turn.completed",
+        eventId: asEventId("complete-resumed-work"),
+        payload: { state: "completed" },
+      });
+      await harness.drain();
+      thread = (await harness.readModel()).threads[0]!;
+      expect(thread.messages.at(-1)?.id).toBe("queued-one");
+      expect(thread.queuedMessages.map((message) => message.messageId)).toEqual(["queued-two"]);
+    },
+  );
+
+  it.each(["runtime error", "provider exit", "unclassified exit"] as const)(
+    "holds the queue after a %s before a turn starts",
+    async (failure) => {
+      const harness = await createHarness();
+      const threadId = asThreadId("thread-1");
+      const createdAt = "2026-01-01T00:00:01.000Z";
+      await harness.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("starting"),
+        threadId,
+        session: {
+          threadId,
+          status: "starting",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
+      await harness.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("queued-before-start-failure"),
+        threadId,
+        message: {
+          messageId: asMessageId("follow-up"),
+          role: "user",
+          text: "Next task",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt,
+      });
+      const queued = (await harness.readModel()).threads[0]!.queuedMessages;
+      const base = { provider: ProviderDriverKind.make("codex"), threadId, createdAt };
+      harness.emit(
+        failure === "runtime error"
+          ? {
+              ...base,
+              type: "runtime.error",
+              eventId: asEventId("start-error"),
+              payload: { message: "At capacity" },
+            }
+          : {
+              ...base,
+              type: "session.exited",
+              eventId: asEventId("start-error"),
+              payload: failure === "provider exit" ? { exitKind: "error" } : {},
+            },
+      );
+      await harness.drain();
+      harness.emit({
+        ...base,
+        type: "session.state.changed",
+        eventId: asEventId("ready-without-start"),
+        payload: { state: "ready" },
+      });
+      await harness.drain();
+      const thread = (await harness.readModel()).threads[0]!;
+      expect(thread.session?.status).toBe("error");
+      expect(thread.queuedMessages).toEqual(queued);
+      expect(thread.messages).toEqual([]);
+    },
+  );
+
+  it("does not offer recovery when a manually interrupted session is closed", async () => {
+    const harness = await createHarness();
+    const base = {
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("manually-stopped"),
+      createdAt: "2026-01-01T00:00:01.000Z",
+    };
+    harness.emit({ ...base, type: "turn.started", eventId: asEventId("manual-start") });
+    await harness.drain();
+    harness.emit({
+      ...base,
+      type: "turn.aborted",
+      eventId: asEventId("manual-stop"),
+      payload: { reason: "Interrupted by user." },
+    });
+    await harness.drain();
+    harness.emit({
+      ...base,
+      type: "session.exited",
+      eventId: asEventId("manual-close"),
+      payload: { exitKind: "graceful" },
+    });
+    await harness.drain();
+    const thread = (await harness.readModel()).threads[0]!;
+    expect(thread.session?.status).toBe("stopped");
+    expect(threadNeedsTurnRecovery(thread)).toBe(false);
   });
 
   it("settles an aborted turn instead of leaving its session working", async () => {
