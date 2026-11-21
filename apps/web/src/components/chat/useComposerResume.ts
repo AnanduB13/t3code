@@ -49,7 +49,7 @@ interface ComposerResumeInput {
 }
 
 /**
- * Resumes an interrupted run ("Continue where you left off.") and/or releases the turns held
+ * Resumes an unfinished run ("Continue where you left off.") or releases the turns held
  * in its queue. Shares the per-route send lock with the composer's send paths.
  */
 export function useComposerResume(input: ComposerResumeInput) {
@@ -121,7 +121,7 @@ export function useComposerResume(input: ComposerResumeInput) {
       });
       if (settingsResult._tag === "Failure") return settingsResult;
       const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
-      const turnResult = await startThreadTurn({
+      return startThreadTurn({
         environmentId,
         input: {
           threadId,
@@ -138,9 +138,6 @@ export function useComposerResume(input: ComposerResumeInput) {
           dispatchMode: "start",
         },
       });
-      if (turnResult._tag === "Failure" || !hasHeldQueuedRuns) return turnResult;
-      clearUsageLimitsFor(routeThreadKey);
-      return resumeThreadQueue({ environmentId, input: { threadId } });
     };
     const result = await resume();
     if (result._tag === "Failure") {
