@@ -3,9 +3,9 @@ import { EnvironmentId, type EnvironmentId as EnvironmentIdType } from "@t3tools
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 
-export const COMPUTER_USE_HOST_ENABLED_STORAGE_KEY = "t3code:computer-use-host-enabled";
-export const COMPUTER_USE_ALLOWED_ENVIRONMENTS_STORAGE_KEY =
-  "t3code:computer-use-allowed-environments";
+const COMPUTER_USE_HOST_ENABLED_STORAGE_KEY = "t3code:computer-use-host-enabled";
+const COMPUTER_USE_ALLOWED_ENVIRONMENTS_STORAGE_KEY = "t3code:computer-use-allowed-environments";
+const AllowedEnvironmentIds = Schema.NullOr(Schema.Array(EnvironmentId));
 
 export const useComputerUseHostEnabled = () =>
   useLocalStorage(COMPUTER_USE_HOST_ENABLED_STORAGE_KEY, false, Schema.Boolean);
@@ -20,9 +20,4 @@ export const useComputerUseAllowedEnvironmentIds = (): [
           current: ReadonlyArray<EnvironmentIdType> | null,
         ) => ReadonlyArray<EnvironmentIdType> | null),
   ) => void,
-] =>
-  useLocalStorage(
-    COMPUTER_USE_ALLOWED_ENVIRONMENTS_STORAGE_KEY,
-    null,
-    Schema.NullOr(Schema.Array(EnvironmentId)),
-  );
+] => useLocalStorage(COMPUTER_USE_ALLOWED_ENVIRONMENTS_STORAGE_KEY, null, AllowedEnvironmentIds);

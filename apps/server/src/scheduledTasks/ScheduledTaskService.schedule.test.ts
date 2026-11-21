@@ -22,6 +22,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import { runMigrations } from "../persistence/Migrations.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
@@ -125,6 +126,58 @@ it.effect("preserves a due run when a save only pads the scheduled hour", () =>
       expect(rescheduled.task.nextRunAt).toBe(
         DateTime.formatIso(DateTime.toUtc(DateTime.add(dueAt, { minutes: 30 }))),
       );
+    }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("lists an imported After Dark scheduled job as a cron task", () =>
+  Effect.gen(function* () {
+    yield* TestClock.setTime(Date.parse("2026-09-01T12:00:00.000Z"));
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO scheduled_jobs (id, data) VALUES ('job-1', ${JSON.stringify({
+      id: "job-1",
+      name: "Nightly triage",
+      prompt: "Triage new issues.",
+      projectId: "project-imported",
+      modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      schedule: "0 2 * * *",
+      timezone: "Asia/Kolkata",
+      enabled: true,
+      nextRunAt: "2026-09-01T20:30:00.000Z",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    })})`;
+    yield* sql`DELETE FROM after_dark_data_migrations`;
+    yield* runMigrations();
+    const layerDependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Scheduler.layer,
+      ManagedPolicy.layerTest(),
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        isScratchProject: () => Effect.succeed(false),
+      }),
+      Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+      Layer.mock(SecretRequests.SecretRequests)({}),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const [task] = (yield* service.list()).tasks;
+      expect(task).toMatchObject({
+        title: "Nightly triage",
+        enabled: true,
+        schedule: { type: "cron", expression: "0 2 * * *", timeZone: "Asia/Kolkata" },
+        threadMode: "new_thread",
+        workspaceStrategy: { type: "root" },
+        nextRunAt: "2026-09-01T20:30:00.000Z",
+        lastRunStatus: "never",
+      });
+      // 02:00 in Kolkata is 20:30Z the previous day.
+      const paused = yield* service.setEnabled({ id: task!.id, enabled: false });
+      const resumed = yield* service.setEnabled({ id: paused.task.id, enabled: true });
+      expect(resumed.task.nextRunAt).toBe("2026-09-01T20:30:00.000Z");
     }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

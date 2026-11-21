@@ -58,7 +58,6 @@ export * from "./filesystem.ts";
 export * from "./agentSessions.ts";
 export * from "./assets.ts";
 export * from "./agents.ts";
-export * from "./scheduledJobs.ts";
 export * from "./computerUse.ts";
 export * from "./providerUsage.ts";
 export * from "./threadGoal.ts";

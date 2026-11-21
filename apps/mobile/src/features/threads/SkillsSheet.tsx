@@ -9,10 +9,12 @@ import type {
   ServerProviderSkill,
 } from "@t3tools/contracts";
 import { normalizeSkillName } from "@t3tools/shared/skillName";
+import { msg, T, useGT, Var } from "gt-react-native";
 import { useMemo, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
+import { m } from "../../i18n/messages";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -25,6 +27,7 @@ export function SkillsSheet(props: {
   readonly provider: ServerProvider | null;
   readonly onUseSkill: (skill: ServerProviderSkill) => void;
 }) {
+  const gt = useGT();
   const createSkill = useAtomCommand(projectEnvironment.createSkill, { reportFailure: false });
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
@@ -76,14 +79,17 @@ export function SkillsSheet(props: {
     if (result._tag === "Success") {
       setCreatedSkills((current) => [...current, result.value.skill]);
       reset();
-      Alert.alert("Skill created", `$${result.value.skill.name} is ready to use.`);
+      Alert.alert(
+        m(msg("Skill created")),
+        m(msg("{skill} is ready to use.", { skill: `$${result.value.skill.name}` })),
+      );
       return;
     }
     if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       Alert.alert(
-        "Could not create skill",
-        error instanceof Error ? error.message : "The environment rejected this skill.",
+        m(msg("Could not create skill")),
+        error instanceof Error ? error.message : m(msg("The environment rejected this skill.")),
       );
     }
   };
@@ -91,17 +97,25 @@ export function SkillsSheet(props: {
   return (
     <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
       <View className="flex-1 justify-end bg-black/45">
-        <Pressable className="flex-1" accessibilityLabel="Close skills" onPress={props.onClose} />
+        <Pressable
+          className="flex-1"
+          accessibilityLabel={gt("Close skills")}
+          onPress={props.onClose}
+        />
         <View className="max-h-[85%] rounded-t-3xl bg-background px-5 pt-5 pb-8">
           <View className="mb-4 flex-row items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
-              <Text className="text-xl font-t3-bold text-foreground">Skills</Text>
+              <Text className="text-xl font-t3-bold text-foreground">
+                <T>Skills</T>
+              </Text>
               <Text className="mt-1 text-sm text-foreground-muted">
-                Available to the selected provider in this project.
+                <T>Available to the selected provider in this project.</T>
               </Text>
             </View>
             <Pressable accessibilityRole="button" onPress={props.onClose} className="px-2 py-1">
-              <Text className="font-t3-medium text-primary">Done</Text>
+              <Text className="font-t3-medium text-primary">
+                <T>Done</T>
+              </Text>
             </Pressable>
           </View>
 
@@ -118,7 +132,9 @@ export function SkillsSheet(props: {
                         {skill.displayName ?? skill.name}
                       </Text>
                       <Text className="mt-0.5 text-xs text-foreground-muted">
-                        {skill.shortDescription ?? skill.description ?? "No description provided."}
+                        {skill.shortDescription ??
+                          skill.description ??
+                          gt("No description provided.")}
                       </Text>
                     </View>
                     <Pressable
@@ -127,21 +143,25 @@ export function SkillsSheet(props: {
                       onPress={() => props.onUseSkill(skill)}
                       className="rounded-full bg-primary px-3 py-1.5 disabled:opacity-40"
                     >
-                      <Text className="font-t3-medium text-primary-foreground text-xs">Use</Text>
+                      <Text className="font-t3-medium text-primary-foreground text-xs">
+                        {gt("Use", { $context: "verb, inserts a skill into the message" })}
+                      </Text>
                     </Pressable>
                   </View>
                 ))}
               </View>
             ) : (
               <Text className="rounded-2xl border border-border p-5 text-center text-foreground-muted">
-                No skills are installed yet.
+                <T>No skills are installed yet.</T>
               </Text>
             )}
 
             {showCreate ? (
               <View className="mt-4 gap-3 rounded-2xl border border-border p-4">
                 <View>
-                  <Text className="mb-1 text-xs font-t3-medium text-foreground">Skill name</Text>
+                  <Text className="mb-1 text-xs font-t3-medium text-foreground">
+                    <T>Skill name</T>
+                  </Text>
                   <TextInput
                     value={name}
                     autoCapitalize="none"
@@ -153,30 +173,38 @@ export function SkillsSheet(props: {
                   />
                   {name && normalizedName !== name ? (
                     <Text className="mt-1 text-xs text-foreground-muted">
-                      Saved as {normalizedName || "invalid-name"}
+                      <T>
+                        Saved as <Var>{normalizedName || "invalid-name"}</Var>
+                      </T>
                     </Text>
                   ) : null}
                   {duplicate ? (
-                    <Text className="mt-1 text-xs text-red-500">This skill already exists.</Text>
+                    <Text className="mt-1 text-xs text-red-500">
+                      <T>This skill already exists.</T>
+                    </Text>
                   ) : null}
                 </View>
                 <View>
-                  <Text className="mb-1 text-xs font-t3-medium text-foreground">Description</Text>
+                  <Text className="mb-1 text-xs font-t3-medium text-foreground">
+                    <T>Description</T>
+                  </Text>
                   <TextInput
                     value={description}
-                    placeholder="What it does and when to use it"
+                    placeholder={gt("What it does and when to use it")}
                     placeholderTextColor="#71717a"
                     onChangeText={setDescription}
                     className="rounded-xl border border-border px-3 py-2.5 text-foreground"
                   />
                 </View>
                 <View>
-                  <Text className="mb-1 text-xs font-t3-medium text-foreground">Instructions</Text>
+                  <Text className="mb-1 text-xs font-t3-medium text-foreground">
+                    <T>Instructions</T>
+                  </Text>
                   <TextInput
                     value={instructions}
                     multiline
                     textAlignVertical="top"
-                    placeholder="Describe the workflow the agent should follow…"
+                    placeholder={gt("Describe the workflow the agent should follow…")}
                     placeholderTextColor="#71717a"
                     onChangeText={setInstructions}
                     className="min-h-28 rounded-xl border border-border px-3 py-2.5 text-foreground"
@@ -184,7 +212,9 @@ export function SkillsSheet(props: {
                 </View>
                 <View className="flex-row justify-end gap-2">
                   <Pressable onPress={reset} className="rounded-full px-4 py-2">
-                    <Text className="font-t3-medium text-foreground">Cancel</Text>
+                    <Text className="font-t3-medium text-foreground">
+                      <T>Cancel</T>
+                    </Text>
                   </Pressable>
                   <Pressable
                     disabled={!canCreate}
@@ -192,7 +222,7 @@ export function SkillsSheet(props: {
                     className="rounded-full bg-primary px-4 py-2 disabled:opacity-40"
                   >
                     <Text className="font-t3-medium text-primary-foreground">
-                      {isCreating ? "Creating…" : "Create skill"}
+                      {isCreating ? gt("Creating…") : gt("Create skill")}
                     </Text>
                   </Pressable>
                 </View>
@@ -204,12 +234,14 @@ export function SkillsSheet(props: {
                 onPress={() => setShowCreate(true)}
                 className="mt-4 rounded-full border border-border px-4 py-3 disabled:opacity-40"
               >
-                <Text className="text-center font-t3-medium text-foreground">Add new skill</Text>
+                <Text className="text-center font-t3-medium text-foreground">
+                  <T>Add new skill</T>
+                </Text>
               </Pressable>
             )}
             {!supportsCreation ? (
               <Text className="mt-2 text-center text-xs text-foreground-muted">
-                Creation is currently supported for Codex and Claude.
+                <T>Creation is currently supported for Codex and Claude.</T>
               </Text>
             ) : null}
           </ScrollView>

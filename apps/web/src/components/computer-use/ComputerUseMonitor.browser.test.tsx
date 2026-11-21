@@ -1,10 +1,10 @@
-import { expect, it } from "@effect/vitest";
-import { renderToStaticMarkup } from "react-dom/server";
+import { expect, it } from "vite-plus/test";
 
+import { render } from "../../../test/render";
 import { ComputerUseMonitor } from "./ComputerUseMonitor";
 
-it("renders the captured application screenshot and isolated virtual pointer", () => {
-  const markup = renderToStaticMarkup(
+it("renders the captured application screenshot and isolated virtual pointer", async () => {
+  await using screen = await render(
     <ComputerUseMonitor
       onStop={() => undefined}
       state={{
@@ -38,8 +38,10 @@ it("renders the captured application screenshot and isolated virtual pointer", (
     />,
   );
 
-  expect(markup).toContain("Computer Use · Mac Studio");
-  expect(markup).toContain("data:image/png;base64,cG5n");
-  expect(markup).toContain("computer-use-virtual-pointer");
-  expect(markup).toContain("Isolated session · 800×600");
+  await expect.element(screen.getByText("Computer Use · Mac Studio")).toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("img"))
+    .toHaveAttribute("src", "data:image/png;base64,cG5n");
+  await expect.element(screen.getByTestId("computer-use-virtual-pointer")).toBeInTheDocument();
+  await expect.element(screen.getByText("Isolated session · 800×600")).toBeInTheDocument();
 });

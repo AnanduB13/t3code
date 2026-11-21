@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { T, useGT } from "gt-react";
 import { BotIcon, MonitorIcon, RefreshCwIcon } from "lucide-react";
 import type { DiscoveredAgentRuntime, EnvironmentId } from "@t3tools/contracts";
 
@@ -19,6 +20,7 @@ function AgentRuntimeRow({
   readonly runtime: DiscoveredAgentRuntime;
   readonly environmentId: EnvironmentId;
 }) {
+  const gt = useGT();
   const openHermes = useAgentsSidebarStore((state) => state.openHermes);
   const name = runtime.kind === "hermes" ? "Hermes" : "OpenClaw";
   return (
@@ -28,18 +30,23 @@ function AgentRuntimeRow({
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-medium">{name}</h3>
           <Badge variant={runtime.state === "running" ? "success" : "outline"}>
-            {runtime.state === "running"
-              ? "Running"
-              : runtime.state === "starting"
-                ? "Starting"
-                : "Not reachable"}
+            {runtime.state === "running" ? (
+              <T context="agent runtime status">Running</T>
+            ) : runtime.state === "starting" ? (
+              <T context="agent runtime status">Starting</T>
+            ) : (
+              <T>Not reachable</T>
+            )}
           </Badge>
         </div>
         {runtime.model ? (
           <p className="mt-1 text-xs text-muted-foreground">{runtime.model}</p>
         ) : null}
         {runtime.agents.length > 0 ? (
-          <ul aria-label={`${name} agents`} className="mt-2 flex flex-wrap gap-2 text-sm">
+          <ul
+            aria-label={gt("{name} agents", { name })}
+            className="mt-2 flex flex-wrap gap-2 text-sm"
+          >
             {runtime.agents.map((agent) => (
               <li key={agent.id} className="rounded-md bg-muted px-2 py-1">
                 {agent.name}
@@ -52,13 +59,13 @@ function AgentRuntimeRow({
         ) : null}
         {runtime.kind === "openclaw" && runtime.state === "running" ? (
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Manage conversations in OpenClaw on this computer.
+            <T>Manage conversations in OpenClaw on this computer.</T>
           </p>
         ) : null}
       </div>
       {runtime.kind === "hermes" ? (
         <Button size="sm" variant="outline" onClick={() => openHermes(environmentId)}>
-          {runtime.state === "running" ? "Open Hermes" : "Connection details"}
+          {runtime.state === "running" ? <T>Open Hermes</T> : <T>Connection details</T>}
         </Button>
       ) : null}
     </article>
@@ -66,6 +73,7 @@ function AgentRuntimeRow({
 }
 
 function AgentComputer({ environment }: { readonly environment: EnvironmentPresentation }) {
+  const gt = useGT();
   const connected = environment.connection.phase === "connected";
   const discovery = useEnvironmentQuery(
     connected
@@ -77,7 +85,7 @@ function AgentComputer({ environment }: { readonly environment: EnvironmentPrese
   );
   return (
     <section
-      aria-label={`Agents on ${environment.label}`}
+      aria-label={gt("Agents on {label}", { label: environment.label })}
       className="overflow-hidden rounded-xl border border-border bg-card"
     >
       <header className="flex items-center gap-2 border-b border-border px-4 py-3">
@@ -91,7 +99,7 @@ function AgentComputer({ environment }: { readonly environment: EnvironmentPrese
         <Button
           size="icon-sm"
           variant="ghost"
-          aria-label={`Refresh agents on ${environment.label}`}
+          aria-label={gt("Refresh agents on {label}", { label: environment.label })}
           disabled={!connected || discovery.isPending}
           onClick={discovery.refresh}
         >
@@ -100,17 +108,19 @@ function AgentComputer({ environment }: { readonly environment: EnvironmentPrese
       </header>
       {!connected ? (
         <p className="px-4 py-5 text-sm text-muted-foreground">
-          Computer disconnected. Reconnect it in Settings → Connections to see its agents.
+          <T>Computer disconnected. Reconnect it in Settings → Connections to see its agents.</T>
         </p>
       ) : discovery.error ? (
         <div role="alert" className="px-4 py-5 text-sm text-muted-foreground">
-          Could not discover agents on this computer. Check its connection and that its T3 server is
-          up to date, then refresh.
+          <T>
+            Could not discover agents on this computer. Check its connection and that its T3 server
+            is up to date, then refresh.
+          </T>
           <p className="mt-2 text-xs">{discovery.error}</p>
         </div>
       ) : !discovery.data ? (
         <p role="status" className="px-4 py-5 text-sm text-muted-foreground">
-          Looking for Hermes and OpenClaw…
+          <T>Looking for Hermes and OpenClaw…</T>
         </p>
       ) : (
         <div className="divide-y divide-border">
@@ -138,25 +148,31 @@ export function AgentsOverview() {
         )}
       >
         <BotIcon className="size-4" />
-        <h1 className="flex-1 text-sm font-semibold">Agents</h1>
+        <h1 className="flex-1 text-sm font-semibold">
+          <T>Agents</T>
+        </h1>
         <Button size="sm" variant="outline" render={<Link to="/settings/connections" />}>
-          Connect a computer
+          <T>Connect a computer</T>
         </Button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-3xl space-y-5">
           <p className="text-sm leading-6 text-muted-foreground">
-            Discover Hermes and OpenClaw on your connected computers. Open Hermes to chat, or check
-            your OpenClaw gateway and agents.
+            <T>
+              Discover Hermes and OpenClaw on your connected computers. Open Hermes to chat, or
+              check your OpenClaw gateway and agents.
+            </T>
           </p>
           {environments.map((environment) => (
             <AgentComputer key={environment.environmentId} environment={environment} />
           ))}
           {environments.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              {isReady
-                ? "Connect a computer in Settings → Connections to discover its agents."
-                : "Loading connected computers…"}
+              {isReady ? (
+                <T>Connect a computer in Settings → Connections to discover its agents.</T>
+              ) : (
+                <T>Loading connected computers…</T>
+              )}
             </p>
           ) : null}
         </div>

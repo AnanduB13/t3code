@@ -47,7 +47,7 @@ const navigationAction = <T extends Tool.Any>(tool: T): T =>
 const observation = <T extends Tool.Any>(tool: T): T =>
   tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, false) as T;
 
-export const ComputerListDevicesTool = readonly(
+const ComputerListDevicesTool = readonly(
   Tool.make("computer_list_devices", {
     description:
       "List real computers currently connected to this T3 Code backend, with human-readable names, permission status, platformSupport, and sessionIsolation. A shared session uses that login's real focus and pointer; an isolated session is safe for concurrent user work. Treat experimental platform support as unverified and report failures plainly. Always call this before the first Computer Use action. If selectionRequired is true, ask which named device to use.",
@@ -58,7 +58,7 @@ export const ComputerListDevicesTool = readonly(
   }).annotate(Tool.Title, "List Computer Use devices"),
 );
 
-export const ComputerSelectDeviceTool = readonly(
+const ComputerSelectDeviceTool = readonly(
   Tool.make("computer_select_device", {
     description:
       "Select the exact Computer Use device chosen by the user for this agent session. Do not choose on the user's behalf when multiple devices are listed.",
@@ -69,7 +69,7 @@ export const ComputerSelectDeviceTool = readonly(
   }).annotate(Tool.Title, "Select Computer Use device"),
 );
 
-export const ComputerListAppsTool = readonly(
+const ComputerListAppsTool = readonly(
   Tool.make("computer_list_apps", {
     description:
       "List visible windows on the selected computer. Each result has an opaque stable windowId, exact title, focus state, and bounds. Select by windowId; never guess from a partial title when more than one window could match.",
@@ -80,7 +80,7 @@ export const ComputerListAppsTool = readonly(
   }).annotate(Tool.Title, "List desktop applications"),
 );
 
-export const ComputerGetAppStateTool = observation(
+const ComputerGetAppStateTool = observation(
   Tool.make("computer_get_app_state", {
     description:
       "Observe one exact window before acting. Pass windowId from computer_list_apps. Returns a cropped PNG, a fresh observationId, a hierarchical accessibility tree with parent/depth, focus, enabled and interactive state, screenshot-relative rectangles, and explicit coordinate scaling. Use role + label + ancestry to understand navigation. The app title fallback is only for a unique exact match.",
@@ -91,7 +91,7 @@ export const ComputerGetAppStateTool = observation(
   }).annotate(Tool.Title, "Observe desktop application"),
 );
 
-export const ComputerClickTool = action(
+const ComputerClickTool = action(
   Tool.make("computer_click", {
     description:
       "Click within the exact window from the latest observation. Pass its windowId and observationId, then either an enabled interactive accessibility elementIndex (preferred) or x/y pixels measured in that observation's cropped screenshot. The real OS cursor moves visibly to the target. The observation is single-use; set observeAfter=true to return the next observation without a separate call.",
@@ -101,7 +101,7 @@ export const ComputerClickTool = action(
     dependencies,
   }).annotate(Tool.Title, "Click desktop"),
 );
-export const ComputerMoveTool = navigationAction(
+const ComputerMoveTool = navigationAction(
   Tool.make("computer_move", {
     description:
       "Move the real OS cursor visibly within the exact window from the latest observation without clicking. Pass windowId and observationId, then either elementIndex or x/y pixels from the cropped screenshot. Use only when hover is necessary to reveal a tooltip or control, set observeAfter=true to return the next observation.",
@@ -111,7 +111,7 @@ export const ComputerMoveTool = navigationAction(
     dependencies,
   }).annotate(Tool.Title, "Move desktop cursor"),
 );
-export const ComputerDragTool = action(
+const ComputerDragTool = action(
   Tool.make("computer_drag", {
     description:
       "Drag between screenshot-relative points in one exact, freshly observed window. Pass windowId and observationId; set observeAfter=true to return the next observation.",
@@ -121,7 +121,7 @@ export const ComputerDragTool = action(
     dependencies,
   }).annotate(Tool.Title, "Drag desktop"),
 );
-export const ComputerPressKeyTool = action(
+const ComputerPressKeyTool = action(
   Tool.make("computer_press_key", {
     description:
       "Focus the exact window from a fresh observation and press a key, optionally with modifiers. Pass windowId and observationId; set observeAfter=true to return the next observation.",
@@ -131,7 +131,7 @@ export const ComputerPressKeyTool = action(
     dependencies,
   }).annotate(Tool.Title, "Press desktop key"),
 );
-export const ComputerScrollTool = action(
+const ComputerScrollTool = action(
   Tool.make("computer_scroll", {
     description:
       "Scroll the exact window from a fresh observation, at x/y pixels in its cropped screenshot (defaults to its center). Deltas are native wheel steps, not screenshot pixels. Pass windowId and observationId; set observeAfter=true to return the next observation.",
@@ -141,7 +141,7 @@ export const ComputerScrollTool = action(
     dependencies,
   }).annotate(Tool.Title, "Scroll desktop"),
 );
-export const ComputerTypeTextTool = action(
+const ComputerTypeTextTool = action(
   Tool.make("computer_type_text", {
     description:
       "Focus the exact window from a fresh observation and type literal text into its focused control. Pass windowId and observationId and set observeAfter=true to return the next observation. Never type passwords, authentication secrets, or payment details; hand those steps to the user.",

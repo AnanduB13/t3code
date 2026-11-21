@@ -18,6 +18,7 @@ export function AgentPreviewTurnCleanup() {
   const threadShells = useThreadShells();
   const closePreview = useAtomCommand(previewEnvironment.close, { reportFailure: false });
   const settledByThreadRef = useRef(new Map<string, boolean>());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Closes agent-opened preview sessions on the server when a thread's run settles.
   useEffect(() => {
     const previous = settledByThreadRef.current;
     const next = new Map<string, boolean>();

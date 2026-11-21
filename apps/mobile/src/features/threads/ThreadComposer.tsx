@@ -125,6 +125,7 @@ import {
 } from "./composerSendPresentation";
 import { useSubmitAfterNativeImages } from "./useSubmitAfterNativeImages";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
+import { SkillsSheet } from "./SkillsSheet";
 import { ComposerPopoverAnchor } from "./ComposerPopoverAnchor";
 import { ComposerQueuedEditAttachments } from "./ComposerQueuedEdit";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
@@ -732,6 +733,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     messages,
   );
   const sendLabel = sendPresentation.label;
+  const [isSkillsSheetVisible, setIsSkillsSheetVisible] = useState(false);
   const openUsageLimits = () => {
     const report = collectProviderUsageLimits(
       currentModelSelection.instanceId,
@@ -784,6 +786,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     modelProviders: props.serverConfig?.providers,
     ...(props.onFreshSession === undefined ? {} : { onFreshSession: props.onFreshSession }),
     offersSideChat: props.offersSideChat === true,
+    onOpenSkills: () => setIsSkillsSheetVisible(true),
   });
   const voiceInput = useVoiceInputController({
     ownerKey: composerDraftKey,
@@ -891,6 +894,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     if (pendingPastedTextAttachmentCountRef.current > 0) return;
     if (usageLimitsOffered && isUsageLimitsCommand(draftMessage) && draftAttachments.length === 0) {
       if (openUsageLimits()) onChangeDraftMessage("");
+      return;
+    }
+    if (/^\/skills\s*$/i.test(draftMessage.trim()) && draftAttachments.length === 0) {
+      onChangeDraftMessage("");
+      setIsSkillsSheetVisible(true);
       return;
     }
     const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
@@ -1494,6 +1502,22 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         ) : null}
       </Animated.View>
 
+      <SkillsSheet
+        visible={isSkillsSheetVisible}
+        onClose={() => setIsSkillsSheetVisible(false)}
+        environmentId={props.environmentId}
+        cwd={props.projectCwd}
+        instanceId={currentModelSelection.instanceId}
+        provider={selectedProviderStatus}
+        onUseSkill={(skill) => {
+          const leadingSpace = draftMessage.length > 0 && !/\s$/.test(draftMessage);
+          const next = `${draftMessage}${leadingSpace ? " " : ""}$${skill.name} `;
+          onChangeDraftMessage(next);
+          composerMenu.onSelectionChange({ start: next.length, end: next.length });
+          setIsSkillsSheetVisible(false);
+          setTimeout(() => inputRef.current?.focus(), 50);
+        }}
+      />
       <VideoPreviewModal source={previewVideo} onRequestClose={closePreview} />
       <FilePreviewModal source={previewFile} onRequestClose={closePreview} />
     </Animated.View>

@@ -10,7 +10,9 @@ import {
 } from "@t3tools/contracts";
 import {
   createDraft,
+  cronDraftProblem,
   editDraft,
+  nextCronRuns,
   scheduledTaskDefaultModel,
   DEFAULT_SCHEDULE,
   scheduleDraftForTask,
@@ -111,6 +113,37 @@ describe("scheduleFromDraft", () => {
       ).toBeNull();
     },
   );
+});
+
+describe("cron schedules", () => {
+  const schedule = { type: "cron", expression: "30 9 * * 1-5", timeZone: "Europe/London" } as const;
+
+  it("round-trips the expression and zone", () => {
+    const draft = scheduleDraftForTask({ schedule });
+    expect(draft.mode).toBe("cron");
+    expect(scheduleFromDraft({ ...draft, cronExpression: "30  9 * * 1-5 " })).toEqual(schedule);
+  });
+
+  it("names what is wrong with an unsavable draft", () => {
+    const draft = scheduleDraftForTask({ schedule });
+    const now = new Date("2026-07-03T12:00:00Z");
+    expect(cronDraftProblem({ ...draft, cronExpression: "every 2h" }, now)).toBe("expression");
+    expect(cronDraftProblem({ ...draft, cronTimeZone: "London" }, now)).toBe("timeZone");
+    expect(cronDraftProblem({ ...draft, cronExpression: "0 0 30 2 *" }, now)).toBe("never");
+    expect(scheduleFromDraft({ ...draft, cronTimeZone: "London" })).toBeNull();
+  });
+
+  it("previews the next runs in the schedule's zone", () => {
+    const runs = nextCronRuns(
+      scheduleDraftForTask({ schedule }),
+      new Date("2026-07-03T12:00:00Z"),
+      2,
+    );
+    expect(runs.map((run) => run.toISOString())).toEqual([
+      "2026-07-06T08:30:00.000Z",
+      "2026-07-07T08:30:00.000Z",
+    ]);
+  });
 });
 
 describe("scheduled task model defaults", () => {

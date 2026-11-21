@@ -1433,8 +1433,3 @@ export const layerChildProcess = (
   const terminationError = makeTerminationError(handle);
   return Layer.effect(AcpClient, make(stdio, options, terminationError));
 };
-
-export const layer = (
-  stdio: AcpProtocol.AcpStdio,
-  options: AcpClientOptions = {},
-): Layer.Layer<AcpClient> => Layer.effect(AcpClient, make(stdio, options));

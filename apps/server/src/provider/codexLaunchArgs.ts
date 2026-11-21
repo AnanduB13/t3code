@@ -1,6 +1,6 @@
 import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 
-export const T3CODE_CODEX_LAUNCH_ARGS_ENV = "T3CODE_CODEX_LAUNCH_ARGS";
+const T3CODE_CODEX_LAUNCH_ARGS_ENV = "T3CODE_CODEX_LAUNCH_ARGS";
 export const CODEX_DEFAULT_AUTO_COMPACT_TOKEN_LIMIT = 180_000;
 
 const CODEX_AUTO_COMPACT_CONFIG_KEY = "model_auto_compact_token_limit";

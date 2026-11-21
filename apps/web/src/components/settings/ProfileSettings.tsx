@@ -1,6 +1,6 @@
 import { useUser } from "@clerk/react";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { useMemo } from "react";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import {
   BarChart3Icon,
   FlameIcon,
@@ -12,6 +12,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { useThreadShells } from "../../state/entities";
 import { cn } from "../../lib/utils";
+import { m, type MessageResolver } from "../../i18n/messages";
 import { SettingsPageContainer } from "./settingsLayout";
 import { deriveUsageStats } from "./usageStats";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
@@ -25,11 +26,18 @@ const EMPTY_USAGE_ATOM = Atom.make(
   }),
 ).pipe(Atom.withLabel("provider-usage:empty"));
 
-function formatReset(value: string | null | undefined) {
-  if (!value) return "Reset time unavailable";
+function formatReset(value: string | null | undefined, resolve: MessageResolver = m) {
+  if (!value) return resolve(msg("Reset time unavailable"));
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "Reset time unavailable";
-  return `Resets ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date)}`;
+  if (!Number.isFinite(date.getTime())) return resolve(msg("Reset time unavailable"));
+  return resolve(msg("Resets {date}"), {
+    date: new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date),
+  });
 }
 
 function formatTokens(value: number) {
@@ -53,6 +61,8 @@ function useProfileEnvironmentId() {
 }
 
 function UsageLimits() {
+  const gt = useGT();
+  const resolveMessage = useMessages();
   const environmentId = useProfileEnvironmentId();
   const atom =
     environmentId === null ? EMPTY_USAGE_ATOM : providerUsageQuery({ environmentId, input: {} });
@@ -68,9 +78,11 @@ function UsageLimits() {
     <section className="space-y-3">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold">Plan usage remaining</h2>
+          <h2 className="text-sm font-semibold">
+            <T>Plan usage remaining</T>
+          </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Current provider quota windows; refreshed every five minutes
+            <T>Current provider quota windows; refreshed every five minutes</T>
           </p>
         </div>
         <button
@@ -78,7 +90,7 @@ function UsageLimits() {
           onClick={refresh}
           disabled={result.waiting}
           className="inline-flex size-8 items-center justify-center rounded-lg border bg-card text-muted-foreground transition hover:text-foreground disabled:opacity-50"
-          aria-label="Refresh provider usage"
+          aria-label={gt("Refresh provider usage")}
         >
           <RefreshCwIcon className={cn("size-3.5", result.waiting && "animate-spin")} />
         </button>
@@ -87,30 +99,33 @@ function UsageLimits() {
         <div className="grid overflow-hidden rounded-2xl border bg-card shadow-sm sm:grid-cols-3">
           {[
             {
-              label: "Lifetime tokens",
+              label: gt("Lifetime tokens"),
               value: formatTokens(tokenUsage.lifetimeTokens),
               title: tokenUsage.lifetimeTokens.toLocaleString(),
             },
             {
-              label: "Peak chat",
+              label: gt("Peak chat"),
               value: formatTokens(tokenUsage.peakThreadTokens),
               title: tokenUsage.peakThreadTokens.toLocaleString(),
             },
             {
-              label: "Chats with token data",
+              label: gt("Chats with token data"),
               value: tokenUsage.trackedThreads.toLocaleString(),
               title: tokenUsage.trackedThreads.toLocaleString(),
             },
           ].map((metric) => (
-            <div
-              key={metric.label}
-              title={metric.title}
-              className="flex items-center gap-3 border-t border-border/60 px-4 py-4 first:border-t-0 sm:block sm:border-l sm:border-t-0 sm:first:border-l-0 sm:text-center"
-            >
-              <ScanLineIcon className="size-4 text-muted-foreground sm:mx-auto sm:mb-2" />
-              <div className="text-lg font-semibold tabular-nums">{metric.value}</div>
-              <div className="text-xs text-muted-foreground">{metric.label}</div>
-            </div>
+            <Tooltip key={metric.label}>
+              <TooltipTrigger
+                render={
+                  <div className="flex items-center gap-3 border-t border-border/60 px-4 py-4 first:border-t-0 sm:block sm:border-l sm:border-t-0 sm:first:border-l-0 sm:text-center" />
+                }
+              >
+                <ScanLineIcon className="size-4 text-muted-foreground sm:mx-auto sm:mb-2" />
+                <div className="text-lg font-semibold tabular-nums">{metric.value}</div>
+                <div className="text-xs text-muted-foreground">{metric.label}</div>
+              </TooltipTrigger>
+              <TooltipPopup side="top">{metric.title}</TooltipPopup>
+            </Tooltip>
           ))}
         </div>
       ) : null}
@@ -132,13 +147,15 @@ function UsageLimits() {
                   </div>
                   <span
                     className={cn(
-                      "rounded-full px-2 py-1 text-[10px] font-medium",
+                      "rounded-full px-2 py-1 text-3xs font-medium",
                       provider.status === "available"
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        ? "bg-success/10 text-success-foreground"
                         : "bg-muted text-muted-foreground",
                     )}
                   >
-                    {provider.status === "available" ? "Live" : "Unavailable"}
+                    {provider.status === "available"
+                      ? gt("Live", { $context: "provider usage status" })
+                      : gt("Unavailable", { $context: "provider usage status" })}
                   </span>
                 </div>
                 {provider.windows.length > 0 ? (
@@ -148,7 +165,9 @@ function UsageLimits() {
                         <div className="mb-1.5 flex items-baseline justify-between gap-3">
                           <span className="text-xs text-muted-foreground">{window.label}</span>
                           <span className="text-sm font-semibold tabular-nums">
-                            {Math.round(window.remainingPercent)}% left
+                            <T>
+                              <Var>{Math.round(window.remainingPercent)}</Var>% left
+                            </T>
                           </span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -158,29 +177,31 @@ function UsageLimits() {
                               window.remainingPercent <= 10
                                 ? "bg-destructive"
                                 : window.remainingPercent <= 25
-                                  ? "bg-amber-500"
+                                  ? "bg-warning"
                                   : "bg-primary",
                             )}
                             style={{ width: `${window.remainingPercent}%` }}
                           />
                         </div>
-                        <p className="mt-1.5 text-[10px] text-muted-foreground">
-                          {formatReset(window.resetsAt)}
+                        <p className="mt-1.5 text-3xs text-muted-foreground">
+                          {formatReset(window.resetsAt, resolveMessage)}
                         </p>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    {provider.message ?? "No usage windows were reported for this account."}
+                    {provider.message ?? gt("No usage windows were reported for this account.")}
                   </p>
                 )}
               </div>
             ))}
         {!result.waiting && providers.length === 0 && (
           <div className="col-span-full rounded-2xl border bg-card px-5 py-8 text-center text-sm text-muted-foreground">
-            No provider usage is available for this environment yet. Connect Codex or Claude Code in
-            Provider settings, then refresh.
+            <T>
+              No provider usage is available for this environment yet. Connect Codex or Claude Code
+              in Provider settings, then refresh.
+            </T>
           </div>
         )}
       </div>
@@ -228,15 +249,20 @@ function ProfileIdentity({
 }
 
 function LocalIdentity() {
+  const gt = useGT();
   return (
-    <ProfileIdentity name="Local profile" subtitle="Usage across your connected environments" />
+    <ProfileIdentity
+      name={gt("Local profile")}
+      subtitle={gt("Usage across your connected environments")}
+    />
   );
 }
 
 function ConnectedIdentity() {
+  const gt = useGT();
   const { isLoaded, user } = useUser();
   if (!isLoaded || !user) return <LocalIdentity />;
-  const name = user.fullName ?? user.username ?? "T3 Code user";
+  const name = user.fullName ?? user.username ?? gt("T3 Code user");
   const subtitle = user.username
     ? `@${user.username}`
     : (user.primaryEmailAddress?.emailAddress ?? "T3 Connect");
@@ -259,6 +285,7 @@ function ActivityGrid({
   days: ReturnType<typeof deriveUsageStats>["days"];
   dailyTokens: ReadonlyMap<string, number>;
 }) {
+  const gt = useGT();
   const maxChats = Math.max(1, ...days.map((day) => day.count));
   const maxTokens = Math.max(1, ...dailyTokens.values());
   const months = [...new Set(days.map((day) => day.date.slice(0, 7)))];
@@ -267,25 +294,32 @@ function ActivityGrid({
       <div className="overflow-x-auto pb-1">
         <div
           className="grid min-w-[680px] grid-flow-col grid-rows-7 gap-1"
-          aria-label="Conversation activity during the last year"
+          aria-label={gt("Conversation activity during the last year")}
         >
           {days.map((day) => {
             const tokens = dailyTokens.get(day.date) ?? 0;
             const activity = tokens > 0 ? tokens / maxTokens : day.count / maxChats;
             const level = activity === 0 ? 0 : Math.max(1, Math.ceil(activity * 4));
             const date = formatDay(day.date);
-            const chatLabel = `${day.count.toLocaleString()} ${day.count === 1 ? "chat" : "chats"}`;
-            const tokenLabel = `${tokens.toLocaleString()} ${tokens === 1 ? "token" : "tokens"}`;
+            const dayLabel = gt(
+              "{date}: {tokenCount, plural, one {{tokens} token} other {{tokens} tokens}} processed, {chatCount, plural, one {{chats} chat} other {{chats} chats}} started",
+              {
+                date,
+                tokenCount: tokens,
+                tokens: tokens.toLocaleString(),
+                chatCount: day.count,
+                chats: day.count.toLocaleString(),
+              },
+            );
             return (
               <Tooltip key={day.date}>
                 <TooltipTrigger
                   render={
                     <button
                       type="button"
-                      aria-label={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
-                      title={`${date}: ${tokenLabel} processed, ${chatLabel} started`}
+                      aria-label={dayLabel}
                       className={cn(
-                        "aspect-square min-w-2.5 rounded-[3px] outline-none transition-[box-shadow,transform] hover:ring-2 hover:ring-primary/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card",
+                        "aspect-square min-w-2.5 rounded-xs outline-none transition-[box-shadow,transform] hover:ring-2 hover:ring-primary/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                         level === 0 && "bg-muted/70",
                         level === 1 && "bg-primary/25",
                         level === 2 && "bg-primary/45",
@@ -295,14 +329,18 @@ function ActivityGrid({
                     />
                   }
                 />
-                <TooltipPopup side="top" sideOffset={8} className="min-w-40 py-1">
+                <TooltipPopup side="top" sideOffset={8} className="min-w-40">
                   <div className="font-medium text-foreground">{date}</div>
                   <div className="mt-1 flex items-center justify-between gap-5 tabular-nums">
-                    <span className="text-muted-foreground">Tokens processed</span>
+                    <span className="text-muted-foreground">
+                      <T>Tokens processed</T>
+                    </span>
                     <span className="font-semibold">{formatTokens(tokens)}</span>
                   </div>
                   <div className="mt-0.5 flex items-center justify-between gap-5 tabular-nums">
-                    <span className="text-muted-foreground">Chats started</span>
+                    <span className="text-muted-foreground">
+                      <T>Chats started</T>
+                    </span>
                     <span className="font-semibold">{day.count.toLocaleString()}</span>
                   </div>
                 </TooltipPopup>
@@ -310,7 +348,7 @@ function ActivityGrid({
             );
           })}
         </div>
-        <div className="mt-2 flex min-w-[680px] justify-between text-[10px] text-muted-foreground/70">
+        <div className="mt-2 flex min-w-[680px] justify-between text-3xs text-muted-foreground/70">
           {months.map((month) => (
             <span key={month}>
               {new Intl.DateTimeFormat(undefined, { month: "short", timeZone: "UTC" }).format(
@@ -329,21 +367,19 @@ function ActivitySection({ days }: { days: ReturnType<typeof deriveUsageStats>["
   const result = useAtomValue(
     environmentId === null ? EMPTY_USAGE_ATOM : providerUsageQuery({ environmentId, input: {} }),
   );
-  const dailyTokens = useMemo(
-    () =>
-      new Map(
-        AsyncResult.isSuccess(result)
-          ? result.value.tokenUsage.daily.map((day) => [day.date, day.tokens] as const)
-          : [],
-      ),
-    [result],
+  const dailyTokens = new Map(
+    AsyncResult.isSuccess(result)
+      ? result.value.tokenUsage.daily.map((day) => [day.date, day.tokens] as const)
+      : [],
   );
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-sm font-semibold">Activity</h2>
+        <h2 className="text-sm font-semibold">
+          <T>Activity</T>
+        </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Daily chats and processed tokens during the last 52 weeks
+          <T>Daily chats and processed tokens during the last 52 weeks</T>
         </p>
       </div>
       <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
@@ -354,13 +390,22 @@ function ActivitySection({ days }: { days: ReturnType<typeof deriveUsageStats>["
 }
 
 export function ProfileSettingsPanel() {
+  const gt = useGT();
   const threads = useThreadShells();
-  const stats = useMemo(() => deriveUsageStats(threads), [threads]);
+  const stats = deriveUsageStats(threads);
   const metrics = [
-    { label: "Total chats", value: stats.totalChats.toLocaleString(), icon: MessageSquareIcon },
-    { label: "Active days", value: stats.activeDays.toLocaleString(), icon: BarChart3Icon },
-    { label: "Current streak", value: `${stats.currentStreak}d`, icon: FlameIcon },
-    { label: "Longest streak", value: `${stats.longestStreak}d`, icon: FlameIcon },
+    { label: gt("Total chats"), value: stats.totalChats.toLocaleString(), icon: MessageSquareIcon },
+    { label: gt("Active days"), value: stats.activeDays.toLocaleString(), icon: BarChart3Icon },
+    {
+      label: gt("Current streak"),
+      value: gt("{count}d", { $context: "number of days", count: stats.currentStreak }),
+      icon: FlameIcon,
+    },
+    {
+      label: gt("Longest streak"),
+      value: gt("{count}d", { $context: "number of days", count: stats.longestStreak }),
+      icon: FlameIcon,
+    },
   ];
   return (
     <SettingsPageContainer className="max-w-5xl gap-7">
@@ -381,30 +426,38 @@ export function ProfileSettingsPanel() {
       <ActivitySection days={stats.days} />
       <div className="grid gap-6 md:grid-cols-2">
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold">Activity insights</h2>
+          <h2 className="text-sm font-semibold">
+            <T>Activity insights</T>
+          </h2>
           <div className="rounded-2xl border bg-card px-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-border/60 py-3 text-sm">
-              <span className="text-muted-foreground">Busiest day</span>
+              <span className="text-muted-foreground">
+                <T>Busiest day</T>
+              </span>
               <span className="font-medium">
                 {stats.busiestDay
                   ? `${formatDay(stats.busiestDay.date)} · ${stats.busiestDay.count}`
-                  : "—"}
+                  : "–"}
               </span>
             </div>
             <div className="flex items-center justify-between py-3 text-sm">
-              <span className="text-muted-foreground">Average per active day</span>
+              <span className="text-muted-foreground">
+                <T>Average per active day</T>
+              </span>
               <span className="font-medium tabular-nums">
-                {stats.activeDays === 0 ? "—" : (stats.totalChats / stats.activeDays).toFixed(1)}
+                {stats.activeDays === 0 ? "–" : (stats.totalChats / stats.activeDays).toFixed(1)}
               </span>
             </div>
           </div>
         </section>
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold">Provider usage</h2>
+          <h2 className="text-sm font-semibold">
+            <T>Provider usage</T>
+          </h2>
           <div className="rounded-2xl border bg-card px-4 shadow-sm">
             {stats.providers.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                Provider usage will appear after your first chat.
+                <T>Provider usage will appear after your first chat.</T>
               </p>
             ) : (
               stats.providers.slice(0, 5).map((provider) => (

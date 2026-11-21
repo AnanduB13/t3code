@@ -1,25 +1,24 @@
 # Scheduled tasks
 
-Open **Scheduled** in the sidebar, choose the computer that should do the work,
-then create a task. Choose a project, a configured coding agent and model, the
-instructions, schedule, timezone, and permissions. Tasks use T3’s regular coding
-agents, including Codex and Claude; Hermes is not required.
+Open **Settings → Scheduled tasks** (or **Scheduled** in the sidebar) and choose
+**New task**. Pick the computer it **Runs on**, a project, a coding agent and model,
+the prompt, and a schedule. Agents can also create and change tasks for you.
 
 To schedule work on another computer, connect its T3 server in **Settings →
-Connections** and set up its coding agents. A browser connection or a Computer Use
-host alone does not make a computer a task runner. The selected computer owns its
-schedules and runs them while its T3 server is running, even when the client is closed.
+Connections** and set up its coding agents. The list shows the tasks of every
+connected computer. Each computer owns its tasks and runs them while its T3 server
+is running, even when no client is open.
 
-Use daily, weekly, or monthly schedules, a five-field cron expression, or an
-interval such as `every 2h`. The form defaults to your timezone. Schedules survive
-server restarts. After downtime, an enabled task catches up once, then continues
-its schedule. A task skips scheduled runs while its previous run is still active.
+Schedules:
 
-Each run opens a new thread in the selected project’s existing workspace. Open
-**Run history** to read results, respond to approval requests, or stop a run in its
-thread. Permissions apply just as they do for ordinary coding work; tasks that
-require approval can wait for you in the thread.
+- **At a time** runs at a time of day on chosen weekdays, in that computer's time zone.
+- **Once** runs a single time.
+- **Every interval** repeats after a number of minutes, for example 120 for every two hours.
+- **Custom (cron)** takes a five-field cron expression (minute, hour, day of month,
+  month, day of week) and the time zone it is read in, such as `0 9 * * 1-5` in
+  `Europe/London`. The form previews the next runs.
+- **On webhook** runs for each request sent to the task's URL.
 
-You can edit tasks, pause or resume future runs, run a task immediately, or delete
-its schedule. Pausing and deleting do not stop a run already in progress or remove
-its thread. Existing Hermes schedules stay in Hermes and are not migrated automatically.
+A run the computer was off for is skipped for time and cron schedules, and runs
+late for intervals. You can pause, resume, edit, run now, or delete a task. Pausing
+and deleting do not stop a run already in progress or remove its thread.

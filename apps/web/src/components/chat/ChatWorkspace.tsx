@@ -301,13 +301,9 @@ export function ChatWorkspace({
     [routeEnvironmentId, routeThreadId, syncRoute],
   );
 
-  const occurrences = new Map<string, number>();
   const paneEntries = layout.paneThreadKeys.flatMap((threadKey, index) => {
     const threadRef = parseScopedThreadKey(threadKey);
-    if (!threadRef) return [];
-    const occurrence = occurrences.get(threadKey) ?? 0;
-    occurrences.set(threadKey, occurrence + 1);
-    return [{ threadRef, index, instanceKey: `${threadKey}#${occurrence}` }];
+    return threadRef ? [{ threadRef, index }] : [];
   });
   const visibleColumns = isMobile ? 1 : layout.columns;
   const visiblePaneCount = isMobile ? 1 : paneEntries.length;
@@ -359,12 +355,14 @@ export function ChatWorkspace({
             gap: paneEntries.length > 1 && !isMobile ? "1px" : undefined,
           }}
         >
-          {paneEntries.map(({ threadRef, index, instanceKey }) => {
+          {paneEntries.map(({ threadRef, index }) => {
             const active = index === layout.activePaneIndex;
             const placeholder = isChatWorkspacePlaceholder(layout, index);
             return (
               <section
-                key={instanceKey}
+                // Panes are fixed slots: a pane keeps its ChatView when its thread changes,
+                // as the single-thread route does.
+                key={index}
                 className={
                   active
                     ? `relative isolate flex min-h-0 min-w-0 ${paneEntries.length > 1 ? "z-10 ring-1 ring-inset ring-info/70" : ""}`

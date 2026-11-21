@@ -177,7 +177,7 @@ export function resolveAttachmentPath(input: {
   });
 }
 
-export function pdfTextRelativePath(attachmentId: string): string {
+function pdfTextRelativePath(attachmentId: string): string {
   return `${attachmentId}.pdf.txt`;
 }
 

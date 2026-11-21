@@ -12,7 +12,7 @@ import { GUARD_LENGTH, type TranscriptParsePosition } from "./usageTranscriptRea
 
 // After Dark keeps transcript origin after upstream v17's fields. The fork-specific file name and a
 // version above upstream's keep either build from misreading the other's rows.
-export const USAGE_SCAN_CACHE_VERSION = 18 as const;
+const USAGE_SCAN_CACHE_VERSION = 18 as const;
 const SPEED_COMPATIBLE_SINCE_VERSION = 4;
 
 /**

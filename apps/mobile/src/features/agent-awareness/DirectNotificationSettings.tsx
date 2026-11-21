@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import * as Effect from "effect/Effect";
 import * as Notifications from "expo-notifications";
+import { useGT } from "gt-react-native";
 import { useEffect, useState } from "react";
 import { Alert, AppState, Linking, Platform } from "react-native";
 import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
@@ -12,6 +13,7 @@ import { androidNotifications } from "./androidChatNotifications";
 import { directChatNotificationsEnabled } from "./directNotificationPreferences";
 
 export function DirectNotificationSettings() {
+  const gt = useGT();
   const preferences = useAtomValue(mobilePreferencesAtom);
   const save = useAtomCommand(saveMobilePreferences, "save direct notifications");
   const [granted, setGranted] = useState(false);
@@ -52,14 +54,18 @@ export function DirectNotificationSettings() {
       if (result.type === "granted")
         void save({ directChatNotificationsEnabled: true, androidChatNotificationsEnabled: true });
       else if (result.type === "denied" && !result.canAskAgain)
-        Alert.alert("Allow notifications", "Enable notifications for T3 Code in system settings.", [
-          { text: "Cancel", style: "cancel" },
-          { text: "Open Settings", onPress: () => void Linking.openSettings() },
-        ]);
+        Alert.alert(
+          gt("Allow notifications"),
+          gt("Enable notifications for T3 Code in system settings."),
+          [
+            { text: gt("Cancel"), style: "cancel" },
+            { text: gt("Open Settings"), onPress: () => void Linking.openSettings() },
+          ],
+        );
     } catch (error) {
       Alert.alert(
-        "Notifications unavailable",
-        error instanceof Error ? error.message : "Please try again.",
+        gt("Notifications unavailable"),
+        error instanceof Error ? error.message : gt("Please try again."),
       );
     } finally {
       setBusy(false);
@@ -68,11 +74,15 @@ export function DirectNotificationSettings() {
   return (
     <SettingsSwitchRow
       icon="bell.badge"
-      label="Direct chat notifications"
+      label={gt("Direct chat notifications")}
       subtitle={
         Platform.OS === "android" && androidNotifications
-          ? "System alerts when a run finishes or needs attention, with quiet progress while it runs."
-          : "System alerts when a run finishes or needs attention while connected. Use T3 Connect for delivery when the app is suspended or closed."
+          ? gt(
+              "System alerts when a run finishes or needs attention, with quiet progress while it runs.",
+            )
+          : gt(
+              "System alerts when a run finishes or needs attention while connected. Use T3 Connect for delivery when the app is suspended or closed.",
+            )
       }
       disabled={busy || !AsyncResult.isSuccess(preferences)}
       value={

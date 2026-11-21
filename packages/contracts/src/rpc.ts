@@ -485,13 +485,6 @@ import {
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
 import {
-  ScheduledJob,
-  ScheduledJobInput,
-  ScheduledJobRun,
-  ScheduledJobsSnapshot,
-  ScheduledJobError,
-} from "./scheduledJobs.ts";
-import {
   AgentDiscoveryError,
   AgentDiscoveryResult,
   HermesAgentError,
@@ -678,11 +671,6 @@ export const WS_METHODS = {
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
 
-  scheduledList: "scheduled.list",
-  scheduledSave: "scheduled.save",
-  scheduledSetEnabled: "scheduled.setEnabled",
-  scheduledDelete: "scheduled.delete",
-  scheduledRun: "scheduled.run",
   agentsDiscover: "agents.discover",
   agentsHermesStatus: "agents.hermes.status",
   agentsHermesListSessions: "agents.hermes.sessions.list",
@@ -797,121 +785,94 @@ export const WS_METHODS = {
 
 const HermesRpcError = Schema.Union([HermesAgentError, EnvironmentAuthorizationError]);
 
-const ScheduledRpcError = Schema.Union([ScheduledJobError, EnvironmentAuthorizationError]);
-const WsScheduledListRpc = Rpc.make(WS_METHODS.scheduledList, {
-  payload: Schema.Struct({}),
-  success: ScheduledJobsSnapshot,
-  error: ScheduledRpcError,
-});
-const WsScheduledSaveRpc = Rpc.make(WS_METHODS.scheduledSave, {
-  payload: Schema.Struct({ id: Schema.optional(TrimmedNonEmptyString), job: ScheduledJobInput }),
-  success: ScheduledJob,
-  error: ScheduledRpcError,
-});
-const WsScheduledSetEnabledRpc = Rpc.make(WS_METHODS.scheduledSetEnabled, {
-  payload: Schema.Struct({ id: TrimmedNonEmptyString, enabled: Schema.Boolean }),
-  success: ScheduledJob,
-  error: ScheduledRpcError,
-});
-const WsScheduledDeleteRpc = Rpc.make(WS_METHODS.scheduledDelete, {
-  payload: Schema.Struct({ id: TrimmedNonEmptyString }),
-  success: Schema.Void,
-  error: ScheduledRpcError,
-});
-const WsScheduledRunRpc = Rpc.make(WS_METHODS.scheduledRun, {
-  payload: Schema.Struct({ id: TrimmedNonEmptyString }),
-  success: ScheduledJobRun,
-  error: ScheduledRpcError,
-});
-
-export const WsAgentsDiscoverRpc = Rpc.make(WS_METHODS.agentsDiscover, {
+const WsAgentsDiscoverRpc = Rpc.make(WS_METHODS.agentsDiscover, {
   payload: Schema.Struct({}),
   success: AgentDiscoveryResult,
   error: Schema.Union([AgentDiscoveryError, EnvironmentAuthorizationError]),
 });
 
-export const WsHermesStatusRpc = Rpc.make(WS_METHODS.agentsHermesStatus, {
+const WsHermesStatusRpc = Rpc.make(WS_METHODS.agentsHermesStatus, {
   payload: Schema.Struct({}),
   success: HermesAgentStatus,
   error: HermesRpcError,
 });
-export const WsHermesListSessionsRpc = Rpc.make(WS_METHODS.agentsHermesListSessions, {
+const WsHermesListSessionsRpc = Rpc.make(WS_METHODS.agentsHermesListSessions, {
   payload: Schema.Struct({}),
   success: HermesSessionList,
   error: HermesRpcError,
 });
-export const WsHermesListCronJobsRpc = Rpc.make(WS_METHODS.agentsHermesListCronJobs, {
+const WsHermesListCronJobsRpc = Rpc.make(WS_METHODS.agentsHermesListCronJobs, {
   payload: Schema.Struct({}),
   success: HermesCronJobList,
   error: HermesRpcError,
 });
-export const WsHermesListCronRunsRpc = Rpc.make(WS_METHODS.agentsHermesListCronRuns, {
+const WsHermesListCronRunsRpc = Rpc.make(WS_METHODS.agentsHermesListCronRuns, {
   payload: HermesCronRunListInput,
   success: HermesCronRunList,
   error: HermesRpcError,
 });
-export const WsHermesCreateCronJobRpc = Rpc.make(WS_METHODS.agentsHermesCreateCronJob, {
+const WsHermesCreateCronJobRpc = Rpc.make(WS_METHODS.agentsHermesCreateCronJob, {
   payload: HermesCreateCronJobInput,
   success: HermesCronJob,
   error: HermesRpcError,
 });
-export const WsHermesUpdateCronJobRpc = Rpc.make(WS_METHODS.agentsHermesUpdateCronJob, {
+const WsHermesUpdateCronJobRpc = Rpc.make(WS_METHODS.agentsHermesUpdateCronJob, {
   payload: HermesUpdateCronJobInput,
   success: HermesCronJob,
   error: HermesRpcError,
 });
-export const WsHermesPauseCronJobRpc = Rpc.make(WS_METHODS.agentsHermesPauseCronJob, {
+const WsHermesPauseCronJobRpc = Rpc.make(WS_METHODS.agentsHermesPauseCronJob, {
   payload: HermesCronJobIdInput,
   success: HermesCronJob,
   error: HermesRpcError,
 });
-export const WsHermesResumeCronJobRpc = Rpc.make(WS_METHODS.agentsHermesResumeCronJob, {
+const WsHermesResumeCronJobRpc = Rpc.make(WS_METHODS.agentsHermesResumeCronJob, {
   payload: HermesCronJobIdInput,
   success: HermesCronJob,
   error: HermesRpcError,
 });
-export const WsHermesRunCronJobRpc = Rpc.make(WS_METHODS.agentsHermesRunCronJob, {
+const WsHermesRunCronJobRpc = Rpc.make(WS_METHODS.agentsHermesRunCronJob, {
   payload: HermesCronJobIdInput,
   success: HermesCronJob,
   error: HermesRpcError,
 });
-export const WsHermesDeleteCronJobRpc = Rpc.make(WS_METHODS.agentsHermesDeleteCronJob, {
+const WsHermesDeleteCronJobRpc = Rpc.make(WS_METHODS.agentsHermesDeleteCronJob, {
   payload: HermesCronJobIdInput,
   success: HermesDeleteCronJobResult,
   error: HermesRpcError,
 });
-export const WsHermesGetMessagesRpc = Rpc.make(WS_METHODS.agentsHermesGetMessages, {
+const WsHermesGetMessagesRpc = Rpc.make(WS_METHODS.agentsHermesGetMessages, {
   payload: HermesSessionIdInput,
   success: HermesMessageList,
   error: HermesRpcError,
 });
-export const WsHermesCreateSessionRpc = Rpc.make(WS_METHODS.agentsHermesCreateSession, {
+const WsHermesCreateSessionRpc = Rpc.make(WS_METHODS.agentsHermesCreateSession, {
   payload: HermesCreateSessionInput,
   success: HermesSession,
   error: HermesRpcError,
 });
-export const WsHermesUpdateSessionRpc = Rpc.make(WS_METHODS.agentsHermesUpdateSession, {
+const WsHermesUpdateSessionRpc = Rpc.make(WS_METHODS.agentsHermesUpdateSession, {
   payload: HermesUpdateSessionInput,
   success: HermesSession,
   error: HermesRpcError,
 });
-export const WsHermesForkSessionRpc = Rpc.make(WS_METHODS.agentsHermesForkSession, {
+const WsHermesForkSessionRpc = Rpc.make(WS_METHODS.agentsHermesForkSession, {
   payload: HermesForkSessionInput,
   success: HermesSession,
   error: HermesRpcError,
 });
-export const WsHermesDeleteSessionRpc = Rpc.make(WS_METHODS.agentsHermesDeleteSession, {
+const WsHermesDeleteSessionRpc = Rpc.make(WS_METHODS.agentsHermesDeleteSession, {
   payload: HermesSessionIdInput,
   success: HermesDeleteSessionResult,
   error: HermesRpcError,
 });
-export const WsHermesSendMessageRpc = Rpc.make(WS_METHODS.agentsHermesSendMessage, {
+const WsHermesSendMessageRpc = Rpc.make(WS_METHODS.agentsHermesSendMessage, {
   payload: HermesSendMessageInput,
   success: HermesSendMessageResult,
   error: HermesRpcError,
 });
 
-export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
+const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
   payload: ServerUpsertKeybindingInput,
   success: ServerUpsertKeybindingResult,
   error: Schema.Union([KeybindingsConfigError, EnvironmentAuthorizationError]),
@@ -1191,31 +1152,31 @@ const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
 
-export const WsServerGetProviderUsageRpc = Rpc.make(WS_METHODS.serverGetProviderUsage, {
+const WsServerGetProviderUsageRpc = Rpc.make(WS_METHODS.serverGetProviderUsage, {
   payload: Schema.Struct({}),
   success: ProviderUsageResult,
   error: Schema.Union([ProviderUsageError, EnvironmentAuthorizationError]),
 });
 
-export const WsThreadGoalGetRpc = Rpc.make(WS_METHODS.threadGoalGet, {
+const WsThreadGoalGetRpc = Rpc.make(WS_METHODS.threadGoalGet, {
   payload: ThreadGoalGetInput,
   success: ThreadGoalGetResult,
   error: Schema.Union([ThreadGoalError, EnvironmentAuthorizationError]),
 });
 
-export const WsThreadGoalSetRpc = Rpc.make(WS_METHODS.threadGoalSet, {
+const WsThreadGoalSetRpc = Rpc.make(WS_METHODS.threadGoalSet, {
   payload: ThreadGoalSetInput,
   success: ThreadGoalSetResult,
   error: Schema.Union([ThreadGoalError, EnvironmentAuthorizationError]),
 });
 
-export const WsThreadGoalClearRpc = Rpc.make(WS_METHODS.threadGoalClear, {
+const WsThreadGoalClearRpc = Rpc.make(WS_METHODS.threadGoalClear, {
   payload: ThreadGoalClearInput,
   success: ThreadGoalClearResult,
   error: Schema.Union([ThreadGoalError, EnvironmentAuthorizationError]),
 });
 
-export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
+const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   payload: Schema.Struct({
     patch: ClientServerSettingsPatch,
     providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
@@ -1853,43 +1814,43 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
-export const WsProjectsCreateEntryRpc = Rpc.make(WS_METHODS.projectsCreateEntry, {
+const WsProjectsCreateEntryRpc = Rpc.make(WS_METHODS.projectsCreateEntry, {
   payload: ProjectCreateEntryInput,
   success: ProjectMutateEntryResult,
   error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
 });
 
-export const WsProjectsMoveEntryRpc = Rpc.make(WS_METHODS.projectsMoveEntry, {
+const WsProjectsMoveEntryRpc = Rpc.make(WS_METHODS.projectsMoveEntry, {
   payload: ProjectMoveEntryInput,
   success: ProjectMutateEntryResult,
   error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
 });
 
-export const WsProjectsDeleteEntryRpc = Rpc.make(WS_METHODS.projectsDeleteEntry, {
+const WsProjectsDeleteEntryRpc = Rpc.make(WS_METHODS.projectsDeleteEntry, {
   payload: ProjectDeleteEntryInput,
   success: ProjectMutateEntryResult,
   error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
 });
 
-export const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
+const WsSkillsCreateRpc = Rpc.make(WS_METHODS.skillsCreate, {
   payload: SkillCreateInput,
   success: SkillCreateResult,
   error: Schema.Union([SkillCreateError, EnvironmentAuthorizationError]),
 });
 
-export const WsSkillsCreateGlobalRpc = Rpc.make(WS_METHODS.skillsCreateGlobal, {
+const WsSkillsCreateGlobalRpc = Rpc.make(WS_METHODS.skillsCreateGlobal, {
   payload: SkillCreateGlobalInput,
   success: SkillCreateResult,
   error: Schema.Union([SkillCreateError, EnvironmentAuthorizationError]),
 });
 
-export const WsSkillsReadRpc = Rpc.make(WS_METHODS.skillsRead, {
+const WsSkillsReadRpc = Rpc.make(WS_METHODS.skillsRead, {
   payload: SkillDocumentInput,
   success: SkillDocumentResult,
   error: Schema.Union([SkillDocumentError, EnvironmentAuthorizationError]),
 });
 
-export const WsSkillsUpdateRpc = Rpc.make(WS_METHODS.skillsUpdate, {
+const WsSkillsUpdateRpc = Rpc.make(WS_METHODS.skillsUpdate, {
   payload: SkillUpdateInput,
   success: SkillUpdateResult,
   error: Schema.Union([SkillDocumentError, EnvironmentAuthorizationError]),
@@ -2221,14 +2182,14 @@ const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus, {
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
 });
 
-export const WsComputerUseConnectRpc = Rpc.make(WS_METHODS.computerUseConnect, {
+const WsComputerUseConnectRpc = Rpc.make(WS_METHODS.computerUseConnect, {
   payload: ComputerUseHost,
   success: ComputerUseStreamEvent,
   error: Schema.Union([ComputerUseError, EnvironmentAuthorizationError]),
   stream: true,
 });
 
-export const WsComputerUseRespondRpc = Rpc.make(WS_METHODS.computerUseRespond, {
+const WsComputerUseRespondRpc = Rpc.make(WS_METHODS.computerUseRespond, {
   payload: ComputerUseResponse,
   error: Schema.Union([ComputerUseError, EnvironmentAuthorizationError]),
 });
@@ -2622,11 +2583,6 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 ) {}
 
 export const WsRpcGroup = RpcGroup.make(
-  WsScheduledListRpc,
-  WsScheduledSaveRpc,
-  WsScheduledSetEnabledRpc,
-  WsScheduledDeleteRpc,
-  WsScheduledRunRpc,
   WsAgentsDiscoverRpc,
   WsHermesStatusRpc,
   WsHermesListSessionsRpc,

@@ -1,7 +1,7 @@
 import * as Predicate from "effect/Predicate";
 
-export const PDF_EXTRACTION_MAX_PAGES = 500;
-export const PDF_EXTRACTION_MAX_CHARS = 2_000_000;
+const PDF_EXTRACTION_MAX_PAGES = 500;
+const PDF_EXTRACTION_MAX_CHARS = 2_000_000;
 
 export interface ExtractedPdfText {
   readonly text: string;

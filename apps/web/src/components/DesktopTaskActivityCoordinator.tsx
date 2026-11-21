@@ -7,6 +7,7 @@ import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
+import { useGT } from "gt-react";
 import { useEffect, useRef } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
@@ -18,6 +19,7 @@ import { deriveProjectIdentity } from "../projectIdentity";
 import { projectFaviconUrlAtom } from "../state/assets";
 import { serverEnvironment } from "../state/server";
 import { useClientSettings, useClientSettingsHydrated } from "../hooks/useSettings";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { environmentShell } from "../state/shell";
 import { environmentThreadDetails, threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -92,11 +94,8 @@ export function DesktopTaskActivityCoordinator() {
   const tasks = useAtomValue(tasksAtom(hydrated && enabled));
   const navigate = useNavigate();
   const bridge = window.desktopBridge;
+  const gt = useGT();
   const previous = useRef("");
-  const currentTasks = useRef(tasks);
-  useEffect(() => {
-    currentTasks.current = tasks;
-  }, [tasks]);
   const responsesInFlight = useRef(new Set<string>());
   const respondToApproval = useAtomCommand(threadEnvironment.respondToApproval, {
     reportFailure: false,
@@ -108,72 +107,69 @@ export function DesktopTaskActivityCoordinator() {
     reportFailure: false,
   });
 
-  useEffect(
-    () =>
-      bridge?.onTaskActivityRespond?.((value) => {
-        const decoded = decodeResponse(value);
-        if (Option.isNone(decoded)) return;
-        const response = decoded.value;
-        const key = taskRequestKey(response);
-        if (responsesInFlight.current.has(key)) return;
-        const target = {
+  const respond = useStableCallback((value: unknown) => {
+    const decoded = decodeResponse(value);
+    if (Option.isNone(decoded)) return;
+    const response = decoded.value;
+    const key = taskRequestKey(response);
+    if (responsesInFlight.current.has(key)) return;
+    const target = {
+      environmentId: response.environmentId,
+      threadId: response.threadId,
+      requestId: response.requestId,
+    };
+    if (!validTaskResponse(tasks, response)) {
+      void bridge?.setTaskActivityResponseResult?.({
+        ...target,
+        error: gt("This request is no longer available. Open the chat to check its latest state."),
+      });
+      return;
+    }
+    responsesInFlight.current.add(key);
+    void (async () => {
+      let error: string | null = null;
+      try {
+        const command = {
           environmentId: response.environmentId,
-          threadId: response.threadId,
-          requestId: response.requestId,
+          input: {
+            threadId: response.threadId,
+            requestId: response.requestId,
+          },
         };
-        if (!validTaskResponse(currentTasks.current, response)) {
-          void bridge.setTaskActivityResponseResult?.({
-            ...target,
-            error: "This request is no longer available. Open the chat to check its latest state.",
-          });
-          return;
+        const result =
+          response.kind === "input"
+            ? await respondToUserInput({
+                ...command,
+                input: { ...command.input, answers: response.answers },
+              })
+            : response.kind === "approval"
+              ? await respondToApproval({
+                  ...command,
+                  input: { ...command.input, decision: response.decision },
+                })
+              : await dismissUserInput(command);
+        if (result._tag === "Failure") {
+          const failure = squashAtomCommandFailure(result);
+          error =
+            failure instanceof Error
+              ? failure.message
+              : gt("Could not send your response. Try again.");
         }
-        responsesInFlight.current.add(key);
-        void (async () => {
-          let error: string | null = null;
-          try {
-            const command = {
-              environmentId: response.environmentId,
-              input: {
-                threadId: response.threadId,
-                requestId: response.requestId,
-              },
-            };
-            const result =
-              response.kind === "input"
-                ? await respondToUserInput({
-                    ...command,
-                    input: { ...command.input, answers: response.answers },
-                  })
-                : response.kind === "approval"
-                  ? await respondToApproval({
-                      ...command,
-                      input: { ...command.input, decision: response.decision },
-                    })
-                  : await dismissUserInput(command);
-            if (result._tag === "Failure") {
-              const failure = squashAtomCommandFailure(result);
-              error =
-                failure instanceof Error
-                  ? failure.message
-                  : "Could not send your response. Try again.";
-            }
-          } catch (failure) {
-            error =
-              failure instanceof Error
-                ? failure.message
-                : "Could not send your response. Try again.";
-          } finally {
-            responsesInFlight.current.delete(key);
-          }
-          await bridge.setTaskActivityResponseResult?.({ ...target, error });
-        })().catch((error: unknown) =>
-          console.warn("Could not return notch response status", error),
-        );
-      }),
-    [bridge, respondToApproval, respondToUserInput, dismissUserInput],
-  );
+      } catch (failure) {
+        error =
+          failure instanceof Error
+            ? failure.message
+            : gt("Could not send your response. Try again.");
+      } finally {
+        responsesInFlight.current.delete(key);
+      }
+      await bridge?.setTaskActivityResponseResult?.({ ...target, error });
+    })().catch((error: unknown) => console.warn("Could not return notch response status", error));
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to notch responses from the desktop bridge while mounted.
+  useEffect(() => bridge?.onTaskActivityRespond?.(respond), [bridge, respond]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to notch open requests from the desktop bridge while mounted.
   useEffect(() => {
     return bridge?.onTaskActivityOpen?.(({ environmentId, threadId }) => {
       void navigate({ to: "/$environmentId/$threadId", params: { environmentId, threadId } });
@@ -181,6 +177,7 @@ export function DesktopTaskActivityCoordinator() {
   }, [bridge, navigate]);
 
   // Equivalent shell updates (e.g. timestamps) must not wake the panel renderer.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Pushes the task list to the desktop notch panel over the bridge.
   useEffect(() => {
     const activity = {
       enabled: hydrated && enabled,
@@ -197,6 +194,7 @@ export function DesktopTaskActivityCoordinator() {
     });
   }, [enabled, hydrated, tasks, displayId, bridge]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Hides the desktop notch panel when this coordinator unmounts.
   useEffect(() => {
     return () => {
       previous.current = "";

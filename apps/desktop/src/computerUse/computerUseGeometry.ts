@@ -28,7 +28,7 @@ export const fitScreenshotSize = (
   };
 };
 
-export const assertValidCoordinateSpace = (space: ComputerUseCoordinateSpace): void => {
+const assertValidCoordinateSpace = (space: ComputerUseCoordinateSpace): void => {
   if (
     !Number.isFinite(space.x) ||
     !Number.isFinite(space.y) ||

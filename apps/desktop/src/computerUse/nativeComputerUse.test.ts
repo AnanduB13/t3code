@@ -43,13 +43,14 @@ const native = vi.hoisted(() => {
   };
 });
 
-vi.mock("@t3tools/shared/hostProcess", async () => {
+vi.mock("@t3tools/shared/HostProcess", async (importOriginal) => {
   const Effect = await import("effect/Effect");
   return {
-    HostProcessPlatform: Effect.succeed("darwin"),
-    HostProcessArchitecture: Effect.succeed("arm64"),
-    HostProcessHostname: Effect.succeed("Test Mac"),
-    HostProcessEnvironment: Effect.succeed({}),
+    ...(await importOriginal<typeof import("@t3tools/shared/HostProcess")>()),
+    Platform: Effect.succeed("darwin"),
+    Architecture: Effect.succeed("arm64"),
+    Hostname: Effect.succeed("Test Mac"),
+    Environment: Effect.succeed({}),
   };
 });
 vi.mock("electron-store", () => ({

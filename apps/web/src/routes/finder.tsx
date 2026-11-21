@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { T } from "gt-react";
 import { lazy, Suspense } from "react";
 
 const FinderWorkspacePage = lazy(async () => {
@@ -11,7 +12,7 @@ export const Route = createFileRoute("/finder")({
     <Suspense
       fallback={
         <main className="flex h-full flex-1 items-center justify-center text-sm text-muted-foreground">
-          Opening Finder…
+          <T>Opening Finder…</T>
         </main>
       }
     >

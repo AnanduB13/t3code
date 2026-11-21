@@ -63,4 +63,3 @@ export const ComputerUseSnapshotToolkitHandlersLive = McpToolAccess.toLayer(
   ComputerUseSnapshotToolkit,
   snapshotHandlers,
 );
-export const ComputerUseToolkitHandlersLive = McpToolAccess.toLayer(ComputerUseToolkit, handlers);

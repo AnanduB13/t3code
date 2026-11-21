@@ -31,6 +31,36 @@ export function shouldUseRestingComposerLayout(input: {
   return input.isExistingThread && !input.isMobileViewport && !input.hasExpandedChrome;
 }
 
+// Empty expanded composer minus its resting row: 8px body padding, the two-line prompt
+// (about 46px) clamped to 32px, and the 40px in-flow footer.
+const COMPOSER_RESTING_EXPANSION_MIN_PX = 62;
+
+/** Reserve expansion height because the timeline does not move when footer growth covers its last rows. */
+export function resolveComposerTimelineInset(input: {
+  currentInset: number;
+  overlayHeight: number;
+  isResting: boolean;
+  restingOnlyHeight?: number;
+}): number {
+  const overlayHeight = Math.ceil(input.overlayHeight);
+  return input.isResting
+    ? Math.max(
+        input.currentInset,
+        overlayHeight +
+          (input.currentInset === 0
+            ? COMPOSER_RESTING_EXPANSION_MIN_PX - (input.restingOnlyHeight ?? 0)
+            : 0),
+      )
+    : overlayHeight;
+}
+
+export function overlayComposerIsResting(input: {
+  composerMounted: boolean;
+  composerReportedResting: boolean;
+}): boolean {
+  return input.composerMounted && input.composerReportedResting;
+}
+
 export function shouldAnimateComposerRestingTransition(input: {
   hasCompletedInitialLayout: boolean;
   stateChanged: boolean;

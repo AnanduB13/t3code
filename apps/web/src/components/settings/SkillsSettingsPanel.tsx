@@ -12,8 +12,10 @@ import {
 } from "@t3tools/contracts";
 import { normalizeSkillName } from "@t3tools/shared/skillName";
 import { BoxIcon, FileTextIcon, PlusIcon, RefreshCwIcon, SaveIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { msg, T, useGT, Var } from "gt-react";
+import { useEffect, useState } from "react";
 
+import { m } from "../../i18n/messages";
 import { cn } from "../../lib/utils";
 import {
   useEnvironments,
@@ -37,6 +39,7 @@ import {
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   buildProviderEnvironmentOptions,
   resolveSelectedProviderEnvironmentId,
@@ -55,14 +58,19 @@ function supportsGlobalSkills(provider: ServerProvider): boolean {
   );
 }
 
+function skillDocumentKey(instanceId: ProviderInstanceId, path: string): string {
+  return JSON.stringify([instanceId, path]);
+}
+
 function EnvironmentPicker(props: {
   readonly environments: ReadonlyArray<EnvironmentPresentation>;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly onSelect: (environmentId: EnvironmentId) => void;
 }) {
+  const gt = useGT();
   if (props.environments.length <= 1) return null;
   return (
-    <SettingsSection title="Devices">
+    <SettingsSection title={gt("Devices")}>
       <div className="grid gap-1 sm:grid-cols-2">
         {props.environments.map((environment) => {
           const selected = environment.environmentId === props.selectedEnvironmentId;
@@ -81,7 +89,7 @@ function EnvironmentPicker(props: {
             >
               <span className="block truncate text-sm font-medium">{environment.label}</span>
               <span className="block truncate text-xs text-muted-foreground">
-                {environment.displayUrl ?? "Local device"}
+                {environment.displayUrl ?? gt("Local device")}
               </span>
             </button>
           );
@@ -99,6 +107,7 @@ function CreateGlobalSkillDialog(props: {
   readonly existingSkills: ReadonlyArray<ServerProviderSkill>;
   readonly onCreated: (skill: ServerProviderSkill) => void;
 }) {
+  const gt = useGT();
   const createGlobalSkill = useAtomCommand(projectEnvironment.createGlobalSkill, {
     reportFailure: false,
   });
@@ -136,8 +145,10 @@ function CreateGlobalSkillDialog(props: {
       props.onOpenChange(false);
       toastManager.add({
         type: "success",
-        title: `Created $${result.value.skill.name}`,
-        description: `Added to ${providerLabel(props.provider)} global skills.`,
+        title: gt("Created ${name}", { name: result.value.skill.name }),
+        description: gt("Added to {provider} global skills.", {
+          provider: providerLabel(props.provider),
+        }),
       });
       return;
     }
@@ -145,8 +156,9 @@ function CreateGlobalSkillDialog(props: {
       const error = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: "Could not create skill",
-        description: error instanceof Error ? error.message : "The environment rejected the skill.",
+        title: gt("Could not create skill"),
+        description:
+          error instanceof Error ? error.message : gt("The environment rejected the skill."),
       });
     }
   };
@@ -155,15 +167,19 @@ function CreateGlobalSkillDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogPopup className="w-[min(38rem,calc(100vw-2rem))]">
         <DialogHeader>
-          <DialogTitle>New global skill</DialogTitle>
+          <DialogTitle>
+            <T>New global skill</T>
+          </DialogTitle>
           <DialogDescription>
-            Add a user-owned skill to {providerLabel(props.provider)} on this device.
+            <T>
+              Add a user-owned skill to <Var>{providerLabel(props.provider)}</Var> on this device.
+            </T>
           </DialogDescription>
         </DialogHeader>
-        <DialogPanel className="space-y-4">
+        <DialogPanel>
           <div>
             <label htmlFor="global-skill-name" className="mb-1 block font-medium text-xs">
-              Name
+              <T>Name</T>
             </label>
             <Input
               id="global-skill-name"
@@ -175,44 +191,53 @@ function CreateGlobalSkillDialog(props: {
             />
             {name && name !== normalizedName ? (
               <p className="mt-1 text-muted-foreground text-xs">
-                Saved as <code>{normalizedName || "invalid-name"}</code>
+                <T>
+                  Saved as{" "}
+                  <code>
+                    <Var>{normalizedName || "invalid-name"}</Var>
+                  </code>
+                </T>
               </p>
             ) : null}
             {duplicate ? (
-              <p className="mt-1 text-destructive text-xs">A skill with this name exists.</p>
+              <p className="mt-1 text-destructive text-xs">
+                <T>A skill with this name exists.</T>
+              </p>
             ) : null}
           </div>
           <div>
             <label htmlFor="global-skill-description" className="mb-1 block font-medium text-xs">
-              Description
+              <T>Description</T>
             </label>
             <Input
               id="global-skill-description"
               nativeInput
               value={description}
-              placeholder="What it does and when to use it"
+              placeholder={gt("What it does and when to use it")}
               onChange={(event) => setDescription(event.currentTarget.value)}
             />
           </div>
           <div>
             <label htmlFor="global-skill-instructions" className="mb-1 block font-medium text-xs">
-              Instructions
+              <T>Instructions</T>
             </label>
-            <Textarea
-              id="global-skill-instructions"
-              value={instructions}
-              placeholder="Describe the workflow the agent should follow…"
-              className="min-h-48 font-mono text-xs"
-              onChange={(event) => setInstructions(event.currentTarget.value)}
-            />
+            <div className="font-mono">
+              <Textarea
+                id="global-skill-instructions"
+                value={instructions}
+                placeholder={gt("Describe the workflow the agent should follow…")}
+                className="min-h-48"
+                onChange={(event) => setInstructions(event.currentTarget.value)}
+              />
+            </div>
           </div>
         </DialogPanel>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>
-            Cancel
+            <T>Cancel</T>
           </Button>
           <Button type="button" disabled={!canCreate} onClick={() => void submit()}>
-            {isCreating ? "Creating…" : "Create skill"}
+            {isCreating ? gt("Creating…") : gt("Create skill")}
           </Button>
         </DialogFooter>
       </DialogPopup>
@@ -224,6 +249,7 @@ function EnvironmentSkills(props: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
 }) {
+  const gt = useGT();
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(props.environmentId)) ??
     EMPTY_SERVER_PROVIDERS;
@@ -232,16 +258,18 @@ function EnvironmentSkills(props: {
   });
   const readSkill = useAtomCommand(projectEnvironment.readSkill, { reportFailure: false });
   const updateSkill = useAtomCommand(projectEnvironment.updateSkill, { reportFailure: false });
-  const supportedProviders = useMemo(() => providers.filter(supportsGlobalSkills), [providers]);
+  const supportedProviders = providers.filter(supportsGlobalSkills);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [createdSkills, setCreatedSkills] = useState<
     Readonly<Record<ProviderInstanceId, ReadonlyArray<ServerProviderSkill>>>
   >({});
-  const [content, setContent] = useState("");
-  const [savedContent, setSavedContent] = useState("");
-  const [editable, setEditable] = useState(false);
-  const [isReading, setIsReading] = useState(false);
+  const [skillDocument, setSkillDocument] = useState<{
+    readonly key: string;
+    readonly content: string;
+    readonly savedContent: string;
+    readonly editable: boolean;
+  } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -250,7 +278,7 @@ function EnvironmentSkills(props: {
     supportedProviders.find((provider) => provider.instanceId === selectedInstanceId) ??
     supportedProviders[0] ??
     null;
-  const skills = useMemo(() => {
+  const skills = (() => {
     if (!selectedProvider) return [];
     const byPath = new Map(selectedProvider.skills.map((skill) => [skill.path, skill]));
     for (const skill of createdSkills[selectedProvider.instanceId] ?? []) {
@@ -260,50 +288,49 @@ function EnvironmentSkills(props: {
       (left, right) =>
         (left.scope ?? "").localeCompare(right.scope ?? "") || left.name.localeCompare(right.name),
     );
-  }, [createdSkills, selectedProvider]);
+  })();
   const selectedSkill = skills.find((skill) => skill.path === selectedPath) ?? skills[0] ?? null;
-
-  useEffect(() => {
-    if (selectedProvider && selectedProvider.instanceId !== selectedInstanceId) {
-      setSelectedInstanceId(selectedProvider.instanceId);
-    }
-  }, [selectedInstanceId, selectedProvider]);
-
-  useEffect(() => {
-    setSelectedPath((current) =>
-      current && skills.some((skill) => skill.path === current)
-        ? current
-        : (skills[0]?.path ?? null),
+  const selectedSkillKey =
+    selectedProvider && selectedSkill
+      ? skillDocumentKey(selectedProvider.instanceId, selectedSkill.path)
+      : null;
+  const loadedDocument = skillDocument?.key === selectedSkillKey ? skillDocument : null;
+  const isReading = selectedSkillKey !== null && loadedDocument === null;
+  const content = loadedDocument?.content ?? "";
+  const savedContent = loadedDocument?.savedContent ?? "";
+  const editable = loadedDocument?.editable ?? false;
+  const setContent = (nextContent: string) =>
+    setSkillDocument((current) =>
+      current?.key === selectedSkillKey ? { ...current, content: nextContent } : current,
     );
-  }, [skills]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the selected SKILL.md over RPC and drops responses for a skill that is no longer selected
   useEffect(() => {
-    if (!selectedProvider || !selectedSkill) {
-      setContent("");
-      setSavedContent("");
-      setEditable(false);
-      return;
-    }
+    if (!selectedProvider || !selectedSkill) return;
+    const key = skillDocumentKey(selectedProvider.instanceId, selectedSkill.path);
     let active = true;
-    setIsReading(true);
     void readSkill({
       environmentId: props.environmentId,
       input: { instanceId: selectedProvider.instanceId, path: selectedSkill.path },
     }).then((result) => {
       if (!active) return;
-      setIsReading(false);
       if (result._tag === "Success") {
-        setContent(result.value.content);
-        setSavedContent(result.value.content);
-        setEditable(result.value.editable);
+        setSkillDocument({
+          key,
+          content: result.value.content,
+          savedContent: result.value.content,
+          editable: result.value.editable,
+        });
         return;
       }
+      setSkillDocument({ key, content: "", savedContent: "", editable: false });
       if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         toastManager.add({
           type: "error",
-          title: "Could not open skill",
-          description: error instanceof Error ? error.message : "The skill could not be read.",
+          title: m(msg("Could not open skill")),
+          description:
+            error instanceof Error ? error.message : m(msg("The skill could not be read.")),
         });
       }
     });
@@ -312,7 +339,7 @@ function EnvironmentSkills(props: {
     };
   }, [props.environmentId, readSkill, selectedProvider, selectedSkill]);
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     setIsRefreshing(true);
     const result = await refreshProviders({ environmentId: props.environmentId, input: {} });
     setIsRefreshing(false);
@@ -320,11 +347,11 @@ function EnvironmentSkills(props: {
       const error = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: "Could not refresh skills",
-        description: error instanceof Error ? error.message : "The provider refresh failed.",
+        title: gt("Could not refresh skills"),
+        description: error instanceof Error ? error.message : gt("The provider refresh failed."),
       });
     }
-  }, [props.environmentId, refreshProviders]);
+  };
 
   const save = async () => {
     if (!selectedProvider || !selectedSkill || !editable || content === savedContent) return;
@@ -339,26 +366,34 @@ function EnvironmentSkills(props: {
     });
     setIsSaving(false);
     if (result._tag === "Success") {
-      setSavedContent(content);
-      toastManager.add({ type: "success", title: `Saved $${selectedSkill.name}` });
+      setSkillDocument((current) =>
+        current?.key === selectedSkillKey ? { ...current, savedContent: content } : current,
+      );
+      toastManager.add({
+        type: "success",
+        title: gt("Saved ${name}", { name: selectedSkill.name }),
+      });
       return;
     }
     if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: "Could not save skill",
-        description: error instanceof Error ? error.message : "The environment rejected the edit.",
+        title: gt("Could not save skill"),
+        description:
+          error instanceof Error ? error.message : gt("The environment rejected the edit."),
       });
     }
   };
 
   if (supportedProviders.length === 0) {
     return (
-      <SettingsSection title="Skills">
+      <SettingsSection title={gt("Skills")}>
         <SettingsRow
-          title="No supported providers"
-          description={`Connect Codex or Claude on ${props.environmentLabel} to manage skills.`}
+          title={gt("No supported providers")}
+          description={gt("Connect Codex or Claude on {environment} to manage skills.", {
+            environment: props.environmentLabel,
+          })}
         />
       </SettingsSection>
     );
@@ -368,7 +403,7 @@ function EnvironmentSkills(props: {
     <>
       <SettingsSection
         id="skills"
-        title="Skills"
+        title={gt("Skills")}
         headerAction={
           <div className="flex items-center gap-2">
             <Button
@@ -378,20 +413,22 @@ function EnvironmentSkills(props: {
               onClick={() => void refresh()}
             >
               <RefreshCwIcon className="size-3.5" />
-              {isRefreshing ? "Refreshing…" : "Refresh"}
+              {isRefreshing ? gt("Refreshing…") : gt("Refresh")}
             </Button>
             {selectedProvider ? (
               <Button size="xs" onClick={() => setIsCreateOpen(true)}>
                 <PlusIcon className="size-3.5" />
-                New global skill
+                <T>New global skill</T>
               </Button>
             ) : null}
           </div>
         }
       >
-        <p className="px-3 text-[13px] leading-relaxed text-muted-foreground sm:px-4">
-          Browse skills available on {props.environmentLabel}. User-owned global skills can be
-          edited here; managed and project skills are shown read-only.
+        <p className="px-3 text-xs leading-relaxed text-muted-foreground sm:px-4">
+          <T>
+            Browse skills available on <Var>{props.environmentLabel}</Var>. User-owned global skills
+            can be edited here; managed and project skills are shown read-only.
+          </T>
         </p>
         <div className="flex flex-wrap gap-1 px-3 py-2 sm:px-4">
           {supportedProviders.map((provider) => (
@@ -431,10 +468,10 @@ function EnvironmentSkills(props: {
                           {formatProviderSkillDisplayName(skill)}
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {skill.description ?? "No description"}
+                          {skill.description ?? gt("No description")}
                         </span>
                       </span>
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-4xs uppercase text-muted-foreground">
                         {skill.scope ?? "managed"}
                       </span>
                     </button>
@@ -442,7 +479,9 @@ function EnvironmentSkills(props: {
                 })}
               </div>
             ) : (
-              <p className="p-6 text-center text-muted-foreground text-sm">No skills found.</p>
+              <p className="p-6 text-center text-muted-foreground text-sm">
+                <T>No skills found.</T>
+              </p>
             )}
           </div>
           <div className="min-w-0 p-4">
@@ -451,12 +490,14 @@ function EnvironmentSkills(props: {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="font-medium text-sm">${selectedSkill.name}</h3>
-                    <p
-                      className="truncate text-muted-foreground text-xs"
-                      title={selectedSkill.path}
-                    >
-                      {selectedSkill.path}
-                    </p>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<p className="truncate text-muted-foreground text-xs" />}
+                      >
+                        {selectedSkill.path}
+                      </TooltipTrigger>
+                      <TooltipPopup side="bottom">{selectedSkill.path}</TooltipPopup>
+                    </Tooltip>
                   </div>
                   <Button
                     size="sm"
@@ -464,35 +505,41 @@ function EnvironmentSkills(props: {
                     onClick={() => void save()}
                   >
                     <SaveIcon className="size-3.5" />
-                    {isSaving ? "Saving…" : "Save"}
+                    {isSaving ? gt("Saving…") : gt("Save")}
                   </Button>
                 </div>
                 {isReading ? (
                   <div className="flex min-h-96 items-center justify-center text-muted-foreground text-sm">
-                    Loading SKILL.md…
+                    <T>Loading SKILL.md…</T>
                   </div>
                 ) : (
                   <>
-                    <Textarea
-                      aria-label={`${selectedSkill.name} SKILL.md`}
-                      value={content}
-                      readOnly={!editable}
-                      spellCheck={false}
-                      className="min-h-[28rem] font-mono text-xs leading-relaxed"
-                      onChange={(event) => setContent(event.currentTarget.value)}
-                    />
+                    <div className="font-mono">
+                      <Textarea
+                        aria-label={gt("{name} SKILL.md", { name: selectedSkill.name })}
+                        value={content}
+                        readOnly={!editable}
+                        spellCheck={false}
+                        className="min-h-[28rem]"
+                        onChange={(event) => setContent(event.currentTarget.value)}
+                      />
+                    </div>
                     <div className="flex items-center gap-2 text-muted-foreground text-xs">
                       <FileTextIcon className="size-3.5" />
                       {editable
-                        ? "Keep the frontmatter name unchanged. Description and instructions are editable."
-                        : "This skill is managed outside global user settings and is read-only here."}
+                        ? gt(
+                            "Keep the frontmatter name unchanged. Description and instructions are editable.",
+                          )
+                        : gt(
+                            "This skill is managed outside global user settings and is read-only here.",
+                          )}
                     </div>
                   </>
                 )}
               </div>
             ) : (
               <div className="flex min-h-96 items-center justify-center text-muted-foreground text-sm">
-                Select a skill to view its SKILL.md file.
+                <T>Select a skill to view its SKILL.md file.</T>
               </div>
             )}
           </div>
@@ -524,11 +571,9 @@ function EnvironmentSkills(props: {
 
 export function SkillsSettingsPanel() {
   const { environments } = useEnvironments();
+  const gt = useGT();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const options = useMemo(
-    () => buildProviderEnvironmentOptions(environments, primaryEnvironmentId),
-    [environments, primaryEnvironmentId],
-  );
+  const options = buildProviderEnvironmentOptions(environments, primaryEnvironmentId);
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
     primaryEnvironmentId,
   );
@@ -554,10 +599,10 @@ export function SkillsSettingsPanel() {
           environmentLabel={selectedEnvironment.label}
         />
       ) : (
-        <SettingsSection title="Skills">
+        <SettingsSection title={gt("Skills")}>
           <SettingsRow
-            title="No connected devices"
-            description="Connect an environment before managing skills."
+            title={gt("No connected devices")}
+            description={gt("Connect an environment before managing skills.")}
           />
         </SettingsSection>
       )}

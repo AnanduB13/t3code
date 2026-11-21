@@ -6,7 +6,7 @@ import {
   type UsageSummaryInput,
 } from "@t3tools/contracts";
 
-export const ALL_TIME_USAGE_SINCE_DAY = UsageDay.make("1970-01-01");
+const ALL_TIME_USAGE_SINCE_DAY = UsageDay.make("1970-01-01");
 
 const CURRENCY = new Intl.NumberFormat("en-US", {
   style: "currency",

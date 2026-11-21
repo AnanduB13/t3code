@@ -8,7 +8,7 @@ export interface ScheduledTaskScheduleDraft {
   readonly custom: string;
 }
 
-export const DEFAULT_SCHEDULE_DRAFT: ScheduledTaskScheduleDraft = {
+const DEFAULT_SCHEDULE_DRAFT: ScheduledTaskScheduleDraft = {
   frequency: "daily",
   time: "09:00",
   weekday: "1",

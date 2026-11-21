@@ -1,12 +1,13 @@
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
-import { act } from "react";
 import type { AnyRouter } from "@tanstack/react-router";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { EnvironmentId } from "@t3tools/contracts";
 import { threadNotificationTag } from "../threadNotifications";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { act, fakeTimers, stubGlobal } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   mode: "off" as ClientSettings["notificationMode"],
@@ -94,10 +95,12 @@ function mockThreadShell() {
   };
 }
 
-let stableParent: ReturnType<typeof mockThreadShell> | null = null;
-function mockThreads() {
+type ThreadShell = ReturnType<typeof mockThreadShell>;
+// The parent stays the same object while its delegated child changes, as in the live shell.
+function mockThreads(parent: { current: ThreadShell | null }) {
   if (state.delegatedChild === null) return [mockThreadShell()];
-  stableParent ??= mockThreadShell();
+  parent.current ??= mockThreadShell();
+  const stableParent = parent.current;
   const child = {
     ...mockThreadShell(),
     id: "child-1",
@@ -137,6 +140,20 @@ vi.mock(import("../state/presentation"), async (original) => {
     },
   };
 });
+// Delegated requests reach the coordinator through the thread shells, rolled up from the shell here.
+vi.mock(import("../state/threads"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentThreadShells: {
+      ...actual.environmentThreadShells,
+      pendingSubagentRequestsAtom: (() => subagentRequestsAtom) as never,
+      get delegatedUnderParentAtom() {
+        return noDelegatedAtom as never;
+      },
+    },
+  };
+});
 vi.mock(import("../hooks/useSettings"), async (original) => ({
   ...(await original()),
   subscribeClientSettings: ((listener: () => void) => {
@@ -166,49 +183,36 @@ import { startThreadNotifications } from "./ThreadNotificationCoordinator";
 // Mirrors the unexported working-exit grace in client-runtime's thread inbox.
 const WORKING_EXIT_GRACE_MS = 2_000;
 
-let registry: AtomRegistry.AtomRegistry;
-let stop: (() => void) | undefined;
 const settingsListeners = new Set<() => void>();
-const routeListeners = new Set<() => void>();
+const onNotificationBadgeClear = () => () => {};
 const shellAtom = Atom.make<unknown>(null);
+const subagentRequestsAtom = Atom.make((get) => {
+  const shell = get(shellAtom) as { snapshot: Option.Option<{ threads: ThreadShell[] }> } | null;
+  const threads = shell ? Option.getOrElse(shell.snapshot, () => ({ threads: [] })).threads : [];
+  return new Map(
+    threads.flatMap((thread) =>
+      thread.lineage.relationshipToParent === "subagent" &&
+      thread.lineage.parentThreadId !== null &&
+      thread.pendingRuntimeRequest?.kind === "command"
+        ? [[thread.lineage.parentThreadId, "approval" as const]]
+        : [],
+    ),
+  );
+});
+const noDelegatedAtom = Atom.make<ReadonlySet<string>>(new Set<string>());
 const environmentIdsAtom = Atom.make([EnvironmentId.make("env-1")]);
 
-async function render() {
-  registry.set(shellAtom, {
-    status: state.live ? "live" : "disconnected",
-    snapshot: state.live ? Option.some({ threads: mockThreads() }) : Option.none(),
-  });
-  if (!stop) {
-    const router = {
-      state: {
-        get matches() {
-          return [{ params: state.active }];
-        },
-      },
-      navigate: state.navigate,
-      subscribe: (_event: string, listener: () => void) => {
-        routeListeners.add(listener);
-        return () => routeListeners.delete(listener);
-      },
-    } as unknown as AnyRouter;
-    stop = startThreadNotifications(registry, router);
-  } else for (const listener of settingsListeners) listener();
-  for (const listener of routeListeners) listener();
-  await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
-}
-
-async function complete() {
-  state.completedAt = "2026-09-13T10:00:00.000Z";
-  await render();
-}
-
-beforeEach(() => {
+// The mocked modules read `state`, so every test resets it before starting the service.
+function setup() {
   vi.clearAllMocks();
-  vi.useFakeTimers();
-  registry = AtomRegistry.make();
-  stop = undefined;
+  const stack = new AsyncDisposableStack();
+  stack.use(fakeTimers());
+  const registry = AtomRegistry.make();
+  stack.defer(() => registry.dispose());
+  stack.defer(() => void Reflect.deleteProperty(window, "desktopBridge"));
   settingsListeners.clear();
-  routeListeners.clear();
+  const routeListeners = new Set<() => void>();
+  const parent: { current: ThreadShell | null } = { current: null };
   Object.assign(state, {
     mode: "off",
     inApp: true,
@@ -229,45 +233,75 @@ beforeEach(() => {
     background: [],
     delegatedChild: null,
   });
-  stableParent = null;
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.spyOn(document, "visibilityState", "get").mockImplementation(
-    () => state.visible as DocumentVisibilityState,
+  stack.use(
+    vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => state.visible as DocumentVisibilityState),
   );
-  vi.spyOn(document, "hasFocus").mockImplementation(() => state.focused);
-  vi.stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" }));
-});
+  stack.use(vi.spyOn(document, "hasFocus").mockImplementation(() => state.focused));
+  stack.use(
+    stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" })),
+  );
+  let started = false;
 
-afterEach(async () => {
-  stop?.();
-  registry.dispose();
-  Reflect.deleteProperty(window, "desktopBridge");
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-});
+  const render = async () => {
+    registry.set(shellAtom, {
+      status: state.live ? "live" : "disconnected",
+      snapshot: state.live ? Option.some({ threads: mockThreads(parent) }) : Option.none(),
+    });
+    if (!started) {
+      started = true;
+      const router = {
+        state: {
+          get matches() {
+            return [{ params: state.active }];
+          },
+        },
+        navigate: state.navigate,
+        subscribe: (_event: string, listener: () => void) => {
+          routeListeners.add(listener);
+          return () => routeListeners.delete(listener);
+        },
+      } as unknown as AnyRouter;
+      stack.defer(startThreadNotifications(registry, router));
+    } else for (const listener of settingsListeners) listener();
+    for (const listener of routeListeners) listener();
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
+  };
+
+  return {
+    render,
+    complete: async () => {
+      state.completedAt = "2026-09-13T10:00:00.000Z";
+      await render();
+    },
+    [Symbol.asyncDispose]: () => stack.disposeAsync(),
+  };
+}
 
 describe("thread notifications", () => {
   it.each([true, false])("keeps subagents silent with focus=%s", async (focused) => {
+    await using app = setup();
     state.subagent = true;
     state.focused = focused;
     state.mode = "notifications-and-sound";
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     state.input = true;
-    await render();
+    await app.render();
     expect(state.sound).not.toHaveBeenCalled();
     expect(state.add).not.toHaveBeenCalled();
     expect(state.notification).not.toHaveBeenCalled();
   });
 
   it("alerts on the parent when its delegated subagent asks for approval", async () => {
+    await using app = setup();
     state.mode = "notifications-and-sound";
     state.delegatedChild = "running";
-    await render();
+    await app.render();
     state.delegatedChild = "approval";
-    await render();
-    await render();
+    await app.render();
+    await app.render();
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.add).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: "Approval needed", description: "Fix the login form" }),
@@ -275,9 +309,10 @@ describe("thread notifications", () => {
   });
 
   it("alerts once with system alerts off and opens the completed thread", async () => {
-    await render();
-    await complete();
-    await render();
+    await using app = setup();
+    await app.render();
+    await app.complete();
+    await app.render();
     expect(state.add).toHaveBeenCalledTimes(1);
     const toast = state.add.mock.calls[0]?.[0];
     expect(toast?.title).toBe("Thread completed");
@@ -294,13 +329,14 @@ describe("thread notifications", () => {
   it.each(["active", "blurred", "hidden", "archived", "disabled"])(
     "does not show a completion toast for %s threads",
     async (condition) => {
-      await render();
+      await using app = setup();
+      await app.render();
       if (condition === "active") state.active.threadId = "thread-1";
       if (condition === "blurred") state.focused = false;
       if (condition === "hidden") state.visible = "hidden";
       if (condition === "archived") state.archivedAt = "2026-09-13T09:00:00.000Z";
       if (condition === "disabled") state.inApp = false;
-      await complete();
+      await app.complete();
       expect(state.add).not.toHaveBeenCalled();
     },
   );
@@ -312,22 +348,23 @@ describe("thread notifications", () => {
     ["turnError", "Thread failed"],
     ["limited", "Usage limit reached"],
   ] as const)("uses the same %s event for in-app and desktop alerts", async (event, title) => {
+    await using app = setup();
     state.mode = "notifications-and-sound";
-    await render();
+    await app.render();
     state[event] = true;
-    await render();
-    await render();
+    await app.render();
+    await app.render();
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.add).toHaveBeenLastCalledWith(expect.objectContaining({ title }));
     expect(state.sound).toHaveBeenCalledWith("input", expect.any(Function));
     expect(state.notification).not.toHaveBeenCalled();
 
     state[event] = false;
-    await render();
+    await app.render();
     state.focused = false;
     state[event] = true;
-    await render();
-    await render();
+    await app.render();
+    await app.render();
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.notification).toHaveBeenCalledTimes(1);
     expect(state.notification).toHaveBeenCalledWith(title, {
@@ -339,112 +376,126 @@ describe("thread notifications", () => {
   });
 
   it("keeps a needs-you toast until the thread no longer needs the user", async () => {
-    await render();
+    await using app = setup();
+    await app.render();
     state.approval = true;
-    await render();
+    await app.render();
     expect(state.add).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Approval needed", timeout: 0 }),
     );
     expect(state.close).not.toHaveBeenCalled();
     state.approval = false;
-    await render();
+    await app.render();
     expect(state.close).toHaveBeenCalledWith("toast-1");
   });
 
   it("closes a needs-you toast when the user opens that thread", async () => {
-    await render();
+    await using app = setup();
+    await app.render();
     state.input = true;
-    await render();
+    await app.render();
     expect(state.close).not.toHaveBeenCalled();
     state.active = { environmentId: "env-1", threadId: "thread-1" };
-    await render();
+    await app.render();
     expect(state.close).toHaveBeenCalledWith("toast-1");
   });
 
   it("lets completion toasts time out on their own", async () => {
-    await render();
-    await complete();
+    await using app = setup();
+    await app.render();
+    await app.complete();
     expect(state.add).toHaveBeenCalledWith(expect.not.objectContaining({ timeout: 0 }));
   });
 
-  it("alerts when only a dev server is left running, not while a monitor can wake the agent", async () => {
-    await render();
-    state.background = [{ taskId: "watch", kind: "monitor" }];
-    await complete();
-    expect(state.add).not.toHaveBeenCalled();
-    state.background = [{ taskId: "dev", kind: "command" }];
-    await render();
-    expect(state.add).toHaveBeenCalledTimes(1);
-    expect(state.add).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: "Thread completed" }),
-    );
-  });
+  // Only a monitor's wake runs hold their completion; the badge suite covers that path.
+  it.each(["monitor", "command"] as const)(
+    "alerts once when a run completes leaving a %s running",
+    async (kind) => {
+      await using app = setup();
+      await app.render();
+      state.background = [{ taskId: "background", kind }];
+      await app.complete();
+      state.background = [];
+      await app.render();
+      expect(state.add).toHaveBeenCalledTimes(1);
+      expect(state.add).toHaveBeenLastCalledWith(
+        expect.objectContaining({ title: "Thread completed" }),
+      );
+    },
+  );
 
   it("keeps background desktop alerts when in-app notifications are disabled", async () => {
+    await using app = setup();
     state.focused = false;
     state.inApp = false;
     state.mode = "notifications";
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     expect(state.add).not.toHaveBeenCalled();
     expect(state.notification).toHaveBeenCalledTimes(1);
     state.inApp = true;
-    await render();
+    await app.render();
     expect(state.add).not.toHaveBeenCalled();
   });
 
   it("does not replay a completion when opting in from all alerts off", async () => {
+    await using app = setup();
     state.inApp = false;
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     state.inApp = true;
-    await render();
+    await app.render();
     expect(state.add).not.toHaveBeenCalled();
   });
 
   it("compares the environment as well as the thread", async () => {
+    await using app = setup();
     state.active = { environmentId: "env-2", threadId: "thread-1" };
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     expect(state.add).toHaveBeenCalledTimes(1);
   });
 
   it("does not replay completed threads on first load or reconnect", async () => {
-    await complete();
+    await using app = setup();
+    await app.complete();
     state.live = false;
-    await render();
+    await app.render();
     state.live = true;
-    await render();
+    await app.render();
     expect(state.add).not.toHaveBeenCalled();
   });
 
   it("keeps the completion system popup and sound when showing a toast", async () => {
+    await using app = setup();
     state.mode = "notifications-and-sound";
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.notification).toHaveBeenCalledTimes(1);
   });
 
   it("notifies once when an observed run finishes during a disconnect", async () => {
+    await using app = setup();
     state.mode = "notifications";
-    await render();
+    await app.render();
     state.live = false;
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     expect(state.notification).not.toHaveBeenCalled();
     state.live = true;
-    await render();
-    await render();
+    await app.render();
+    await app.render();
     expect(state.notification).toHaveBeenCalledTimes(1);
   });
 
   it("keeps system alerts when the app is in the background", async () => {
+    await using app = setup();
     state.mode = "notifications";
     state.focused = false;
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     expect(state.add).not.toHaveBeenCalled();
     // Without T3 Code's own chime, the OS plays its usual notification sound.
     expect(state.notification).toHaveBeenCalledWith("Thread completed", {
@@ -455,67 +506,72 @@ describe("thread notifications", () => {
     });
   });
   it("notifies for the active thread only after the full run settles", async () => {
+    await using app = setup();
     state.mode = "notifications";
     state.active.threadId = "thread-1";
-    await render();
+    await app.render();
     // The run finished, but a wake keeps the agent working.
     state.activityRunStatus = "running";
-    await complete();
-    await render();
+    await app.complete();
+    await app.render();
     expect(state.notification).not.toHaveBeenCalled();
     state.activityRunStatus = null;
-    await render();
-    await render();
+    await app.render();
+    await app.render();
     expect(state.notification).toHaveBeenCalledTimes(1);
     expect(state.add).not.toHaveBeenCalled();
   });
 
   it("notifies once for each finished run", async () => {
+    await using app = setup();
     state.mode = "notifications";
-    await render();
-    await complete();
-    await render();
+    await app.render();
+    await app.complete();
+    await app.render();
     expect(state.notification).toHaveBeenCalledTimes(1);
     state.runId = "run-2";
     state.completedAt = null;
-    await render();
+    await app.render();
     expect(state.notification).toHaveBeenCalledTimes(1);
     state.completedAt = "2026-09-13T10:05:00.000Z";
-    await render();
-    await render();
+    await app.render();
+    await app.render();
     expect(state.notification).toHaveBeenCalledTimes(2);
   });
 
   it.each(["darwin", "win32", "linux"])(
     "requests native notification permission on %s",
     async (platform) => {
-      Object.assign(window, { desktopBridge: { platform } });
+      await using app = setup();
+      Object.assign(window, { desktopBridge: { platform, onNotificationBadgeClear } });
       const requestPermission = vi.fn(async () => {
         Object.assign(Notification, { permission: "granted" });
         return "granted";
       });
       Object.assign(Notification, { permission: "default", requestPermission });
       state.mode = "notifications";
-      await render();
-      await complete();
-      await render();
+      await app.render();
+      await app.complete();
+      await app.render();
       expect(requestPermission).toHaveBeenCalledTimes(1);
       expect(state.notification).toHaveBeenCalledTimes(1);
     },
   );
 
   it("leaves browser permission requests to an explicit settings action", async () => {
+    await using app = setup();
     const requestPermission = vi.fn();
     Object.assign(Notification, { permission: "default", requestPermission });
     state.mode = "notifications";
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     expect(requestPermission).not.toHaveBeenCalled();
     expect(state.notification).not.toHaveBeenCalled();
   });
 
   it("respects disabling notifications while native permission is pending", async () => {
-    Object.assign(window, { desktopBridge: { platform: "darwin" } });
+    await using app = setup();
+    Object.assign(window, { desktopBridge: { platform: "darwin", onNotificationBadgeClear } });
     let grantPermission!: (value: string) => void;
     const permission = new Promise<string>((resolve) => {
       grantPermission = resolve;
@@ -525,10 +581,10 @@ describe("thread notifications", () => {
       requestPermission: () => permission,
     });
     state.mode = "notifications";
-    await render();
-    await complete();
+    await app.render();
+    await app.complete();
     state.mode = "off";
-    await render();
+    await app.render();
     await act(async () => {
       Object.assign(Notification, { permission: "granted" });
       grantPermission("granted");
@@ -540,7 +596,8 @@ describe("thread notifications", () => {
   it.each(["running", "archived", "disconnected"])(
     "drops a pending completion when the thread becomes %s before permission is granted",
     async (condition) => {
-      Object.assign(window, { desktopBridge: { platform: "darwin" } });
+      await using app = setup();
+      Object.assign(window, { desktopBridge: { platform: "darwin", onNotificationBadgeClear } });
       let grantPermission!: () => void;
       const permission = new Promise<void>((resolve) => {
         grantPermission = resolve;
@@ -550,12 +607,12 @@ describe("thread notifications", () => {
         requestPermission: () => permission,
       });
       state.mode = "notifications";
-      await render();
-      await complete();
+      await app.render();
+      await app.complete();
       if (condition === "running") state.completedAt = null;
       if (condition === "archived") state.archivedAt = "2026-09-13T10:01:00.000Z";
       if (condition === "disconnected") state.live = false;
-      await render();
+      await app.render();
       await act(async () => {
         Object.assign(Notification, { permission: "granted" });
         grantPermission();

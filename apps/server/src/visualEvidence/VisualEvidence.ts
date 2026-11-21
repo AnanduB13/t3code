@@ -304,7 +304,7 @@ export const recordPendingVisualEvidence = Effect.fn("VisualEvidence.recordPendi
   );
 });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* ServerConfig;
 
   const capture: VisualEvidenceShape["capture"] = Effect.fn("VisualEvidence.capture")(

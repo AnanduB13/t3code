@@ -116,7 +116,6 @@ import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
-import * as ScheduledJobs from "./agents/ScheduledJobs.ts";
 import * as ServerOwnership from "./serverOwnership.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
@@ -709,14 +708,6 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(layerServerRestart),
   ),
   layerThreadPullRequestWorker,
-  // After Dark scheduled coding jobs: a server-owned sweep launches each due
-  // job as a thread on this environment, with or without a connected client.
-  Layer.effectDiscard(
-    Effect.gen(function* () {
-      const scheduledJobs = yield* ScheduledJobs.ScheduledJobs;
-      yield* scheduledJobs.start();
-    }),
-  ).pipe(Layer.provideMerge(ScheduledJobs.layer)),
   KeepAwake.layer,
   DelegatedTaskAnalytics.layer,
   Layer.effectDiscard(

@@ -1522,6 +1522,7 @@ function UsageDeviceStrip({
   readonly environments: readonly EnvironmentUsageStatus[];
 }) {
   const gt = useGT();
+  const m = useMessages();
   const scanning = environments.filter(
     (environment) => environment.summary === null && environment.error === null,
   );
@@ -1552,7 +1553,7 @@ function UsageDeviceStrip({
                 <span>
                   <span className="text-foreground">{environment.label}</span>
                   <span className="ms-1.5 text-muted-foreground">
-                    {describeUsageSources(environment.summary.sources)}
+                    {describeUsageSources(environment.summary.sources, m)}
                   </span>
                 </span>
               </span>

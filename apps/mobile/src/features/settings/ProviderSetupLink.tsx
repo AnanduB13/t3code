@@ -1,4 +1,5 @@
 import type { ServerProvider } from "@t3tools/contracts";
+import { useGT } from "gt-react-native";
 import { Pressable } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -11,6 +12,7 @@ export function ProviderSetupLink(props: {
   readonly disabled?: boolean;
   readonly onPress: () => void;
 }) {
+  const gt = useGT();
   const label = props.provider.displayName ?? props.provider.driver;
   return (
     <Pressable
@@ -21,7 +23,9 @@ export function ProviderSetupLink(props: {
     >
       <ProviderIcon provider={props.provider.driver} size={18} />
       <Text className="min-w-0 flex-1 text-base text-foreground">
-        {providerNeedsSetup(props.provider) ? `Set up ${label}` : `Manage ${label}`}
+        {providerNeedsSetup(props.provider)
+          ? gt("Set up {label}", { label })
+          : gt("Manage {label}", { label })}
       </Text>
       <SymbolView name="chevron.right" size={12} tintColorClassName="accent-foreground" />
     </Pressable>

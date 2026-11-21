@@ -23,6 +23,23 @@ describe("ScheduledTaskSchedule", () => {
     });
   });
 
+  it("accepts a five-field cron expression with a known time zone", () => {
+    const schedule = { type: "cron", expression: "30 9 * * 1-5", timeZone: "Europe/London" };
+    expect(decodeUpsertSchedule(schedule)).toEqual(schedule);
+    for (const invalid of [
+      { ...schedule, expression: "0 30 9 * * 1-5" },
+      { ...schedule, expression: "61 9 * * *" },
+      { ...schedule, timeZone: "Mars/Olympus" },
+    ]) {
+      expect(() => decodeUpsertSchedule(invalid)).toThrow();
+    }
+    // Stored tasks stay readable even where a client does not know the zone.
+    expect(decodeSchedule({ ...schedule, timeZone: "Mars/Olympus" })).toEqual({
+      ...schedule,
+      timeZone: "Mars/Olympus",
+    });
+  });
+
   it("accepts a one-time run only with an offset", () => {
     for (const runAt of ["2026-11-03T09:00Z", "2026-11-03T09:00:00.000-08:00"]) {
       expect(decodeUpsertSchedule({ type: "once", runAt })).toEqual({ type: "once", runAt });

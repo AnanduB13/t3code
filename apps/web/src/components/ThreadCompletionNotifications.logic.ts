@@ -75,12 +75,9 @@ export function hasUnseenCompletionInProjectKind(input: {
 }
 
 /**
- * A completion is unread only when the thread was observed before it finished
- * and the finished run has not been visited. The server's shared visit marker
- * wins when the environment tracks visits; the local marker covers older
- * servers. Missing markers are deliberately treated as read so connecting a
- * new client does not turn the entire thread history into a notification
- * backlog.
+ * Unread only when the finished run was not visited. The server's visit marker wins over the
+ * local one (older servers). Missing markers count as read so a new client does not turn the
+ * whole thread history into a notification backlog.
  */
 export function isThreadCompletionUnread(
   thread: Pick<EnvironmentThreadShell, "environmentId" | "id" | "latestRun" | "lastVisitedAt">,

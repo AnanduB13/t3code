@@ -15,14 +15,14 @@ import {
   probeComputerUseDevice,
 } from "../../computerUse/nativeComputerUse.ts";
 
-export const describe = DesktopIpc.makeIpcMethod({
+const describe = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.COMPUTER_USE_DESCRIBE_CHANNEL,
   payload: Schema.Struct({}),
   result: ComputerUseDevice,
   handler: () => Effect.promise(probeComputerUseDevice),
 });
 
-export const execute = DesktopIpc.makeIpcMethod({
+const execute = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.COMPUTER_USE_EXECUTE_CHANNEL,
   payload: DesktopComputerUseExecuteInput,
   result: Schema.Unknown,
@@ -30,14 +30,14 @@ export const execute = DesktopIpc.makeIpcMethod({
     Effect.promise(() => executeComputerUse(requestId, operation, input)),
 });
 
-export const cancel = DesktopIpc.makeIpcMethod({
+const cancel = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.COMPUTER_USE_CANCEL_CHANNEL,
   payload: DesktopComputerUseCancelInput,
   result: Schema.Void,
   handler: ({ requestId }) => Effect.sync(() => cancelComputerUse(requestId)),
 });
 
-export const cancelAll = DesktopIpc.makeIpcMethod({
+const cancelAll = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.COMPUTER_USE_CANCEL_ALL_CHANNEL,
   payload: Schema.Struct({}),
   result: Schema.Void,

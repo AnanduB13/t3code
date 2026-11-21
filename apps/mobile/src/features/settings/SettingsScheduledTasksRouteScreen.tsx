@@ -79,11 +79,14 @@ import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
 import {
   changeDraftProject,
+  cronDraftProblem,
   editDraft,
+  nextCronRuns,
   parseIntervalMinutes,
   scheduledTaskDefaultModel,
   scheduleFromDraft,
   unbindDraftFromThread,
+  type ScheduleDraft,
   type ScheduledTaskDraft as Draft,
 } from "./scheduledTaskDraft";
 import { settingsTargetsForProject } from "./settings-environment-filter.logic";
@@ -139,6 +142,13 @@ function describeSchedule(
   }
   if (task.schedule.type === "interval")
     return formatScheduledTaskInterval(task.schedule.everyMs, resolve);
+  if (task.schedule.type === "cron")
+    return resolve(
+      msg("Cron {expression} ({zone})", {
+        expression: task.schedule.expression,
+        zone: task.schedule.timeZone,
+      }),
+    );
   const days = task.schedule.weekdays?.length
     ? repeatLabel(task.schedule.weekdays, resolve, locale)
     : resolve(msg("Every day"));
@@ -205,6 +215,8 @@ function FormField(props: {
   readonly disabled?: boolean;
   readonly placeholder?: string;
   readonly borderTop?: boolean;
+  /** Code-like text: no autocapitalization or autocorrect. */
+  readonly verbatim?: boolean;
 }) {
   return (
     <View
@@ -221,6 +233,7 @@ function FormField(props: {
         textAlignVertical="center"
         keyboardType={props.keyboardType}
         placeholder={props.placeholder}
+        {...(props.verbatim ? { autoCapitalize: "none", autoCorrect: false } : {})}
         placeholderTextColorClassName="accent-foreground-muted"
         className="min-h-8 font-sans text-base text-foreground"
       />
@@ -799,6 +812,8 @@ function TaskForm({
   const offersOnce =
     config?.environment.capabilities.oneTimeSchedules === true ||
     draft.task?.schedule.type === "once";
+  const offersCron =
+    config?.environment.capabilities.cronSchedules === true || draft.task?.schedule.type === "cron";
   const offersThreadModes = config?.environment.capabilities.scheduledTaskThreadModes === true;
   const save = async () => {
     const current = readEditor();
@@ -841,6 +856,20 @@ function TaskForm({
           { product: "T3 Code" },
         ),
       );
+      return;
+    }
+    if (draft.schedule.mode === "cron" && !offersCron) {
+      Dialog.alert(
+        gt("Cron is not available here"),
+        gt(
+          "This environment runs an older {product}. Update it to use a cron schedule, or pick another schedule.",
+          { product: "T3 Code" },
+        ),
+      );
+      return;
+    }
+    if (draft.schedule.mode === "cron" && schedule === null) {
+      Dialog.alert(gt("Invalid cron schedule"), cronProblemMessage(draft.schedule, m));
       return;
     }
     const parsedFilters = parseWebhookFilterDrafts(draft.schedule.filters, m);
@@ -1163,6 +1192,9 @@ function TaskForm({
                     ]
                   : []),
                 { value: "interval", label: gt("Interval") },
+                ...(offersCron || draft.schedule.mode === "cron"
+                  ? [{ value: "cron" as const, label: gt("Cron") }]
+                  : []),
                 ...(webhookDenial === undefined || draft.schedule.mode === "webhook"
                   ? [{ value: "webhook" as const, label: gt("On webhook") }]
                   : []),
@@ -1180,6 +1212,10 @@ function TaskForm({
                   schedule: {
                     ...current.schedule,
                     mode,
+                    cronTimeZone:
+                      current.schedule.cronTimeZone ||
+                      tasks.data?.timeZone ||
+                      Intl.DateTimeFormat().resolvedOptions().timeZone,
                     runAt:
                       mode === "once" && !current.schedule.runAt
                         ? new Date(Math.ceil(Date.now() / 3_600_000) * 3_600_000).toISOString()
@@ -1423,6 +1459,38 @@ function TaskForm({
                 </T>
               </Text>
             </>
+          ) : draft.schedule.mode === "cron" ? (
+            <>
+              <FormField
+                label={gt("Cron expression")}
+                value={draft.schedule.cronExpression}
+                placeholder="0 9 * * 1-5"
+                disabled={saving}
+                verbatim
+                borderTop
+                onChange={(cronExpression) =>
+                  setDraft((current) => ({
+                    ...current,
+                    schedule: { ...current.schedule, cronExpression },
+                  }))
+                }
+              />
+              <FormField
+                label={gt("Time zone")}
+                value={draft.schedule.cronTimeZone}
+                placeholder={EXAMPLE_TIME_ZONE}
+                disabled={saving}
+                verbatim
+                borderTop
+                onChange={(cronTimeZone) =>
+                  setDraft((current) => ({
+                    ...current,
+                    schedule: { ...current.schedule, cronTimeZone },
+                  }))
+                }
+              />
+              <CronPreview schedule={draft.schedule} />
+            </>
           ) : (
             <>
               <FormField
@@ -1487,6 +1555,43 @@ function TaskForm({
         label={saving ? gt("Saving…") : draft.task ? gt("Save changes") : gt("Create task")}
       />
     </View>
+  );
+}
+
+const EXAMPLE_TIME_ZONE = "Europe/London";
+
+function cronProblemMessage(schedule: ScheduleDraft, resolve: MessageResolver): string {
+  const problem = cronDraftProblem(schedule, new Date());
+  if (problem === "timeZone")
+    return resolve(msg("Enter an IANA time zone, such as Europe/London."));
+  if (problem === "never") return resolve(msg("This schedule never matches a date."));
+  return resolve(msg("Enter five fields: minute, hour, day of month, month, and day of week."));
+}
+
+function CronPreview({ schedule }: { readonly schedule: ScheduleDraft }) {
+  const gt = useGT();
+  const locale = useLocale();
+  const messages = useMessages();
+  const [openedAt] = useState(() => new Date());
+  const runs = nextCronRuns(schedule, openedAt, 3);
+  if (runs.length === 0)
+    return (
+      <Text className="px-4 pb-3 text-sm text-danger-foreground">
+        {cronProblemMessage(schedule, messages)}
+      </Text>
+    );
+  const format = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: schedule.cronTimeZone.trim(),
+  });
+  return (
+    <Text className="px-4 pb-3 text-sm text-foreground-muted">
+      {gt("Next runs: {runs}", { runs: runs.map((run) => format.format(run)).join(" · ") })}
+    </Text>
   );
 }
 

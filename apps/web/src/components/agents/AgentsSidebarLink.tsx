@@ -1,4 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
+import { T, useGT } from "gt-react";
 import { BotIcon, CalendarClockIcon } from "lucide-react";
 
 import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
@@ -7,31 +8,36 @@ import { useAgentsSidebarStore } from "./agentsSidebarStore";
 export function AgentsSidebarLink() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const showOverview = useAgentsSidebarStore((state) => state.showOverview);
+  const gt = useGT();
 
   return (
-    <SidebarGroup className="px-2 py-1">
+    <SidebarGroup>
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
             render={<Link to="/agents" />}
             onClick={showOverview}
             isActive={pathname.startsWith("/agents")}
-            tooltip="Agents"
+            tooltip={gt("Agents")}
             className="gap-2 px-2 text-muted-foreground data-[active=true]:text-foreground"
           >
             <BotIcon className="size-4" />
-            <span>Agents</span>
+            <span>
+              <T>Agents</T>
+            </span>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
-            render={<Link to="/scheduled" />}
-            isActive={pathname.startsWith("/scheduled")}
-            tooltip="Scheduled"
+            render={<Link to="/settings/scheduled-tasks" />}
+            isActive={pathname.startsWith("/settings/scheduled-tasks")}
+            tooltip={gt("Scheduled tasks")}
             className="gap-2 px-2 text-muted-foreground data-[active=true]:text-foreground"
           >
             <CalendarClockIcon className="size-4" />
-            <span>Scheduled</span>
+            <span>
+              <T>Scheduled</T>
+            </span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>

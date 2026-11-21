@@ -3,7 +3,7 @@ import type { PreviewSessionSnapshot, ScopedThreadRef } from "@t3tools/contracts
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 
 /** Tabs an agent opened on the environment's browser; they carry its automation owner. */
-export function agentOwnedPreviewTabIds(
+function agentOwnedPreviewTabIds(
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
 ): readonly string[] {
   return Object.values(sessions)

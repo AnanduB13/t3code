@@ -1,19 +1,24 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import { composerUsageWindowLabel, selectComposerUsageWindow } from "@t3tools/shared/usageLimits";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
+
+import type { MessageResolver } from "../../i18n/messages";
 
 import { usageLimitProvidersAtom } from "../../state/providerUsage";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
-function formatReset(value: string | null | undefined): string | null {
+function formatReset(value: string | null | undefined, resolve: MessageResolver): string | null {
   if (!value) return null;
   const resetAt = new Date(value);
   const remainingMs = resetAt.getTime() - Date.now();
   if (!Number.isFinite(remainingMs)) return null;
-  if (remainingMs <= 0) return "Resetting soon";
+  if (remainingMs <= 0) return resolve(msg("Resetting soon"));
   const hours = Math.ceil(remainingMs / 3_600_000);
-  return hours < 24 ? `Resets in ${hours}h` : `Resets in ${Math.ceil(hours / 24)}d`;
+  return hours < 24
+    ? resolve(msg("Resets in {hours}h", { hours }))
+    : resolve(msg("Resets in {days}d", { days: Math.ceil(hours / 24) }));
 }
 
 function usageColor(remainingPercent: number): string {
@@ -61,6 +66,8 @@ export function ProviderUsageMeter(props: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const providers = useAtomValue(usageLimitProvidersAtom(props.environmentId));
   const provider = providers.find((candidate) => candidate.instanceId === props.instanceId);
   const activeWindow = selectComposerUsageWindow(provider);
@@ -80,8 +87,12 @@ export function ProviderUsageMeter(props: {
         render={
           <button
             type="button"
-            className="inline-flex size-6 cursor-pointer items-center justify-center rounded-full border border-transparent text-muted-foreground outline-none transition-colors hover:bg-accent data-[pressed]:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
-            aria-label={`${displayName} ${windowLabel.toLowerCase()} usage: ${Math.round(remainingPercent)}% remaining`}
+            className="inline-flex size-6 cursor-pointer items-center justify-center rounded-full border border-transparent text-muted-foreground outline-none transition-colors hover:bg-accent data-[pressed]:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            aria-label={gt("{provider} {window} usage: {percent}% remaining", {
+              provider: displayName,
+              window: windowLabel.toLowerCase(),
+              percent: Math.round(remainingPercent),
+            })}
           >
             <UsageGauge remainingPercent={remainingPercent} />
           </button>
@@ -99,7 +110,9 @@ export function ProviderUsageMeter(props: {
           <div className="flex items-start justify-between gap-2">
             <div className="shrink-0">
               <div className="whitespace-nowrap font-medium text-muted-foreground text-xs">
-                {windowLabel} usage
+                <T>
+                  <Var>{windowLabel}</Var> usage
+                </T>
               </div>
               <div className="mt-0.5 max-w-32 truncate text-2xs text-muted-foreground/65">
                 {displayName}
@@ -112,7 +125,7 @@ export function ProviderUsageMeter(props: {
                   render={
                     <span
                       tabIndex={0}
-                      className="min-w-0 max-w-24 truncate rounded-full bg-muted px-2 py-0.5 text-3xs font-medium capitalize text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="min-w-0 max-w-24 truncate rounded-full bg-muted px-2 py-0.5 text-3xs font-medium capitalize text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                     />
                   }
                 >
@@ -124,7 +137,7 @@ export function ProviderUsageMeter(props: {
           </div>
           {provider.usageLimits.windows.map((window) => {
             const remaining = Math.max(0, Math.min(100, 100 - window.usedPercent));
-            const resetLabel = formatReset(window.resetsAt);
+            const resetLabel = formatReset(window.resetsAt, messages);
             return (
               <div key={window.id} className="space-y-1.5">
                 <div className="flex items-baseline justify-between gap-3 text-2xs">
@@ -132,13 +145,15 @@ export function ProviderUsageMeter(props: {
                     {window.id === activeWindow.id ? windowLabel : window.label}
                   </span>
                   <span className="shrink-0 font-medium tabular-nums text-muted-foreground/85">
-                    {Math.round(remaining)}% left
+                    <T>
+                      <Var>{Math.round(remaining)}</Var>% left
+                    </T>
                   </span>
                 </div>
                 <div
                   className="h-1.5 overflow-hidden rounded-full bg-muted/60"
                   role="progressbar"
-                  aria-label={`${window.label} usage remaining`}
+                  aria-label={gt("{window} usage remaining", { window: window.label })}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.round(remaining)}
@@ -157,14 +172,15 @@ export function ProviderUsageMeter(props: {
           {provider.usageLimits.unavailable ? (
             <div className="text-3xs text-muted-foreground/60">
               {provider.usageLimits.unavailable.message ??
-                "Could not refresh usage. Showing last reported limits."}
+                gt("Could not refresh usage. Showing last reported limits.")}
             </div>
           ) : null}
           <div className="text-3xs text-muted-foreground/55">
-            Updated{" "}
-            {new Date(provider.usageLimits.checkedAt).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
+            {gt("Updated {time}", {
+              time: new Date(provider.usageLimits.checkedAt).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit",
+              }),
             })}
           </div>
         </div>

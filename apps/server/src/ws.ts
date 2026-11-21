@@ -313,7 +313,6 @@ import {
 } from "./provider/SkillCreator.ts";
 import { hermesClient } from "./agents/HermesClient.ts";
 import { agentDiscovery } from "./agents/AgentDiscovery.ts";
-import * as ScheduledJobs from "./agents/ScheduledJobs.ts";
 import {
   THREAD_GOAL_CLEAR_COMMAND,
   threadGoalChangeCommand,
@@ -756,11 +755,6 @@ const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 // instantiation depth and silently turns the layer's types into `any`.
 const AFTER_DARK_AGENT_RPC_TAGS = [
   WS_METHODS.agentsDiscover,
-  WS_METHODS.scheduledList,
-  WS_METHODS.scheduledSave,
-  WS_METHODS.scheduledSetEnabled,
-  WS_METHODS.scheduledDelete,
-  WS_METHODS.scheduledRun,
   WS_METHODS.agentsHermesStatus,
   WS_METHODS.agentsHermesListSessions,
   WS_METHODS.agentsHermesListCronJobs,
@@ -811,41 +805,6 @@ const layerAfterDarkAgentRpcs = Layer.mergeAll(
       try: () => agentDiscovery.discover(),
       catch: () =>
         new AgentDiscoveryError({ message: "Could not discover agents on this computer." }),
-    }),
-  ),
-  ServerWsRpcGroup.toLayerHandler(
-    WS_METHODS.scheduledList,
-    Effect.gen(function* () {
-      const scheduledJobs = yield* ScheduledJobs.ScheduledJobs;
-      return () => scheduledJobs.list();
-    }),
-  ),
-  ServerWsRpcGroup.toLayerHandler(
-    WS_METHODS.scheduledSave,
-    Effect.gen(function* () {
-      const scheduledJobs = yield* ScheduledJobs.ScheduledJobs;
-      return ({ id, job }) => scheduledJobs.save(job, id);
-    }),
-  ),
-  ServerWsRpcGroup.toLayerHandler(
-    WS_METHODS.scheduledSetEnabled,
-    Effect.gen(function* () {
-      const scheduledJobs = yield* ScheduledJobs.ScheduledJobs;
-      return ({ id, enabled }) => scheduledJobs.setEnabled(id, enabled);
-    }),
-  ),
-  ServerWsRpcGroup.toLayerHandler(
-    WS_METHODS.scheduledDelete,
-    Effect.gen(function* () {
-      const scheduledJobs = yield* ScheduledJobs.ScheduledJobs;
-      return ({ id }) => scheduledJobs.remove(id);
-    }),
-  ),
-  ServerWsRpcGroup.toLayerHandler(
-    WS_METHODS.scheduledRun,
-    Effect.gen(function* () {
-      const scheduledJobs = yield* ScheduledJobs.ScheduledJobs;
-      return ({ id }) => scheduledJobs.runNow(id);
     }),
   ),
   ServerWsRpcGroup.toLayerHandler(WS_METHODS.agentsHermesStatus, (_input) =>

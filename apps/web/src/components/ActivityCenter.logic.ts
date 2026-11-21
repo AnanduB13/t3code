@@ -4,6 +4,9 @@ import {
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
 import { isLatestTurnCompleted } from "@t3tools/client-runtime/state/thread-settled";
+import { msg } from "gt-react";
+
+import { m, type MessageResolver } from "~/i18n/messages";
 
 import { isThreadCompletionUnread } from "./ThreadCompletionNotifications.logic";
 
@@ -55,11 +58,9 @@ export function buildCompletionNotifications(input: {
 }
 
 /**
- * What a thread is doing right now, or null when it is idle or waiting on the
- * user. A run in progress
- * is "Working"; after the run settles, background work that will wake the
- * agent reads as "Monitoring" when only watch loops remain and "Background
- * work" otherwise. Commands left running (a dev server) do not count.
+ * Idle or waiting on the user is null. A settled run whose background work only watches
+ * reads as "Monitoring", other background work as "Background work"; commands left running
+ * (a dev server) do not count.
  */
 export function resolveThreadActivityStatus(
   thread: Pick<
@@ -70,11 +71,27 @@ export function resolveThreadActivityStatus(
   // A thread blocked on an approval or question waits on the user, not the
   // agent, so it belongs under "Needs you" rather than "Working".
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return null;
+  // oxlint-disable-next-line t3code/no-untranslated-copy -- Status id; threadActivityStatusLabel translates it.
   if (threadRuntimeIsActive(thread.runtime)) return "Working";
   if (thread.runtime?.status !== "idle") return null;
   const holding = thread.pendingBackgroundTasks.filter((task) => task.kind !== "command");
   if (holding.length === 0) return null;
+  // oxlint-disable-next-line t3code/no-untranslated-copy -- Status ids; threadActivityStatusLabel translates them.
   return holding.every((task) => task.kind === "monitor") ? "Monitoring" : "Background work";
+}
+
+export function threadActivityStatusLabel(
+  status: ActivityCenterRunningThread["status"],
+  resolve: MessageResolver = m,
+): string {
+  switch (status) {
+    case "Working":
+      return resolve(msg("Working", { $context: "thread activity status" }));
+    case "Background work":
+      return resolve(msg("Background work"));
+    case "Monitoring":
+      return resolve(msg("Monitoring", { $context: "thread activity status" }));
+  }
 }
 
 export function buildRunningThreads(

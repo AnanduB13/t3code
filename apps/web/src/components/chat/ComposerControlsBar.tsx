@@ -6,6 +6,7 @@ import { useGT, useMessages } from "gt-react";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl } from "./ComposerControl";
+import { Separator } from "../ui/separator";
 import {
   ComposerFooterModeControls,
   ComposerModelPicker,
@@ -64,6 +65,9 @@ export function ComposerControlsBar(props: {
   composerControlsCollapsed: boolean;
   composerControlsHidden: boolean;
   restingHiddenBlockCount: number;
+  /** False when the controls are portaled into the strip under the card. */
+  showInlineRestingControls: boolean;
+  showLeadingSeparator: boolean;
   iconOnlyBlockCount: number;
   showProviderUnavailable: boolean;
   providerSetupInstanceId: ProviderInstanceId | undefined;
@@ -108,6 +112,8 @@ export function ComposerControlsBar(props: {
     composerControlsCollapsed,
     composerControlsHidden,
     restingHiddenBlockCount: measuredHiddenBlockCount,
+    showInlineRestingControls,
+    showLeadingSeparator,
     iconOnlyBlockCount,
     showProviderUnavailable,
     providerSetupInstanceId,
@@ -218,6 +224,9 @@ export function ComposerControlsBar(props: {
         "group/model-trigger",
         MODEL_TRIGGER_STATES,
         composerControlsCollapsed ? "min-w-13 shrink text-xs!" : "min-w-13",
+        composerControlsCollapsed &&
+          !showInlineRestingControls &&
+          "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
       )}
       triggerSuffix={effort.suffix}
       triggerDetail={effort.detail}
@@ -240,8 +249,15 @@ export function ComposerControlsBar(props: {
           ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
           : "var(--contrast-input)"
       }
-      {...(modelPickerIconClassName
-        ? { activeProviderIconClassName: modelPickerIconClassName }
+      {...(modelPickerIconClassName || composerControlsCollapsed
+        ? {
+            activeProviderIconClassName: cn(
+              modelPickerIconClassName,
+              composerControlsCollapsed &&
+                !showInlineRestingControls &&
+                "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
+            ),
+          }
         : {})}
       onOpenChange={onModelPickerOpenChange}
       getModelDisabledReason={getModelDisabledReason}
@@ -265,6 +281,13 @@ export function ComposerControlsBar(props: {
     </ComposerControl>
   ) : (
     <>
+      {showLeadingSeparator ? (
+        <Separator
+          orientation="vertical"
+          className="mx-0.5 hidden h-3.5! sm:block @max-[400px]/composer-surface:hidden"
+          data-resting-controls-separator="true"
+        />
+      ) : null}
       {composerModelPicker}
 
       <>

@@ -17,7 +17,7 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "@t3tools/shared/pendingUserInput";
-import { formatTaskElapsed } from "./taskPanelState.ts";
+import { formatTaskElapsed, UNKNOWN_TASK_ELAPSED } from "./taskPanelState.ts";
 
 interface RequestDraft {
   answers: Record<string, PendingUserInputDraftAnswer>;
@@ -147,7 +147,7 @@ export function createTaskPanelRequests(options: {
       element(
         "span",
         "elapsed request-elapsed",
-        clockNow ? formatTaskElapsed(task, clockNow) : "—",
+        clockNow ? formatTaskElapsed(task, clockNow) : UNKNOWN_TASK_ELAPSED,
       ),
     );
     context.append(options.projectIcon(task), copy, model);

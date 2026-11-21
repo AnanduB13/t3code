@@ -1,3 +1,7 @@
+import * as Cron from "effect/Cron";
+import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -70,6 +74,48 @@ const ScheduledTaskOnceSchedule = Schema.Struct({
     Schema.makeFilter(
       (value) => isIsoWithOffset(value) || "Expected an ISO date and time with an offset.",
     ),
+  ),
+});
+
+/** A five-field cron expression (minute hour day month weekday) that `effect/Cron` parses. */
+export function isScheduledTaskCronExpression(value: string): boolean {
+  return value.trim().split(/\s+/).length === 5 && Result.isSuccess(Cron.parse(value));
+}
+
+export function isScheduledTaskTimeZone(value: string): boolean {
+  return Option.isSome(DateTime.zoneMakeNamed(value));
+}
+
+/** The first run of a cron schedule after `from`, or null when it is invalid or never matches. */
+export function nextCronScheduleRun(
+  schedule: { readonly expression: string; readonly timeZone: string },
+  from: Date,
+): Date | null {
+  const cron = Cron.parse(schedule.expression, schedule.timeZone);
+  if (Result.isFailure(cron)) return null;
+  try {
+    return Cron.next(cron.success, from);
+  } catch {
+    return null;
+  }
+}
+
+// Stored and listed schedules skip these checks, so a zone one client lacks keeps the task visible.
+const ScheduledTaskCronSchedule = Schema.Struct({
+  type: Schema.Literal("cron"),
+  expression: TrimmedNonEmptyString,
+  timeZone: TrimmedNonEmptyString,
+});
+
+const ScheduledTaskUpsertCronSchedule = Schema.Struct({
+  type: Schema.Literal("cron"),
+  expression: TrimmedNonEmptyString.check(
+    Schema.makeFilter(
+      (value) => isScheduledTaskCronExpression(value) || "Expected a five-field cron expression.",
+    ),
+  ),
+  timeZone: TrimmedNonEmptyString.check(
+    Schema.makeFilter((value) => isScheduledTaskTimeZone(value) || "Expected an IANA time zone."),
   ),
 });
 
@@ -195,6 +241,7 @@ export const ScheduledTaskSchedule = Schema.Union([
   ScheduledTaskIntervalSchedule,
   ScheduledTaskFixedTimeSchedule,
   ScheduledTaskOnceSchedule,
+  ScheduledTaskCronSchedule,
   ScheduledTaskWebhookSchedule,
 ]);
 export type ScheduledTaskSchedule = typeof ScheduledTaskSchedule.Type;
@@ -210,6 +257,7 @@ export const ScheduledTaskUpsertSchedule = Schema.Union([
   }),
   ScheduledTaskFixedTimeSchedule,
   ScheduledTaskOnceSchedule,
+  ScheduledTaskUpsertCronSchedule,
   ScheduledTaskUpsertWebhookSchedule,
 ]);
 export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Type;
@@ -271,7 +319,7 @@ export type ScheduledTaskListInput = typeof ScheduledTaskListInput.Type;
 
 export const ScheduledTaskListResult = Schema.Struct({
   tasks: ForwardCompatibleArray(ScheduledTask),
-  /** The server's IANA zone for fixed-time schedules. Absent from older servers. */
+  /** The server's IANA zone for fixed-time schedules and new cron schedules. Absent from older servers. */
   timeZone: Schema.optional(TrimmedNonEmptyString),
 });
 export type ScheduledTaskListResult = typeof ScheduledTaskListResult.Type;

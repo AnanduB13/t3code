@@ -1,24 +1,13 @@
-/**
- * Framework-free client for expo-device-hub's per-device streams, reached
- * through the T3 proxy. One class handles both platforms because the hub
- * vendors two servers with different wire formats:
- *
- * - iOS (serve-sim): video is an HTTP `stream.avcc` body of length-prefixed
- *   envelopes (`u32be length, u8 tag, payload`; tag 1 avcC description,
- *   2 keyframe, 3 delta, 4 JPEG seed) decoded with WebCodecs; input goes over
- *   `helper/ws?device=<udid>` as `[tag][json]` packets. When WebCodecs is
- *   unavailable (plain-http remote origins) the MJPEG endpoint is used as an
- *   `<img>` source instead.
- * - Android (serve-emu): one WebSocket at `ws?device=<serial>&frame-meta=1`
- *   carries H.264 access units prefixed with a 16-byte "SEMU" header
- *   (magic, version, key flag, pts) and accepts JSON gestures upstream.
- *
- * The decoder only runs while frames arrive and the viewer is attached; a
- * hidden panel calls `stop()` so an idle device costs nothing on the GPU.
- */
+// Client for expo-device-hub streams via the T3 proxy. iOS (serve-sim): `stream.avcc` envelopes
+// (u32be length, u8 tag 1-4) via WebCodecs, MJPEG without it, input over `helper/ws`. Android
+// (serve-emu): one WebSocket of "SEMU"-headed H.264 units plus JSON gestures. Hidden panels
+// call `stop()` so an idle device costs nothing on the GPU.
 import type { DeviceHubAccess } from "@t3tools/client-runtime/state/deviceHubAccess";
 import { withDeviceHubQuery } from "@t3tools/client-runtime/state/deviceHubAccess";
 import type { DevicePlatform } from "@t3tools/contracts";
+import { msg } from "gt-react";
+
+import { m } from "~/i18n/messages";
 
 export type DeviceStreamStatus = "connecting" | "streaming" | "error";
 
@@ -371,7 +360,7 @@ export function createDeviceStreamClient(
     const support = await VideoDecoder.isConfigSupported(full).catch(() => ({ supported: false }));
     if (stopped) return false;
     if (!support.supported) {
-      setStatus("error", `This browser cannot decode ${config.codec}.`);
+      setStatus("error", m(msg("This browser cannot decode {codec}.", { codec: config.codec })));
       return false;
     }
     if (!videoDecoder || videoDecoder.state === "closed") videoDecoder = makeDecoder();
@@ -379,7 +368,7 @@ export function createDeviceStreamClient(
       videoDecoder.configure(full);
       return true;
     } catch (cause) {
-      setStatus("error", `Video decoder: ${(cause as Error).message}`);
+      setStatus("error", m(msg("Video decoder: {error}", { error: (cause as Error).message })));
       return false;
     }
   };
@@ -614,7 +603,10 @@ export function createDeviceStreamClient(
     } else if (useWebCodecs) {
       connectAndroid();
     } else {
-      setStatus("error", "This browser cannot decode the Android stream (WebCodecs unavailable).");
+      setStatus(
+        "error",
+        m(msg("This browser cannot decode the Android stream (WebCodecs unavailable).")),
+      );
     }
   };
 

@@ -105,6 +105,19 @@ describe("mobile slash commands", () => {
     expect(build(false)).toEqual(["pcmd:clear"]);
     expect(build(true, false)).toEqual([]);
   });
+
+  it("offers /skills only where the skills browser is available", () => {
+    const build = (offersSkills: boolean) =>
+      buildComposerSlashCommandItems({
+        query: "sk",
+        atMessageStart: true,
+        hasThread: true,
+        offersSkills,
+        selectedProviderStatus: null,
+      }).map((item) => item.id);
+    expect(build(true)).toEqual(["cmd:skills"]);
+    expect(build(false)).toEqual([]);
+  });
 });
 
 describe("mobile model mentions", () => {

@@ -18,11 +18,10 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import {
-  useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -43,9 +42,11 @@ import {
 import ChatMarkdown from "../components/ChatMarkdown";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { InputGroup, InputGroupAddon } from "../components/ui/input-group";
 import { SidebarInset } from "../components/ui/sidebar";
 import { Textarea } from "../components/ui/textarea";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
+import { m as resolveNow, type MessageResolver } from "../i18n/messages";
 import { cn } from "../lib/utils";
 import { useAgentEnvironment } from "../components/agents/useAgentEnvironment";
 import { hermesAgentEnvironment } from "../state/hermesAgents";
@@ -53,7 +54,10 @@ import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
-import { resolveHermesConnectionState } from "../components/agents/Agents.logic";
+import {
+  resolveHermesConnectionState,
+  type HermesConnectionState,
+} from "../components/agents/Agents.logic";
 import {
   chronologicalCronRuns,
   groupHermesTasks,
@@ -67,9 +71,25 @@ import {
 } from "../components/agents/ScheduledTaskDialog";
 import { useProjects } from "../state/entities";
 
-function sessionTitle(session: HermesSession): string {
-  return session.title?.trim() || "Untitled Hermes chat";
+function sessionTitle(session: HermesSession, resolve: MessageResolver = resolveNow): string {
+  return session.title?.trim() || resolve(msg("Untitled Hermes chat"));
 }
+
+const HERMES_CONNECTION_LABELS = {
+  connected: msg("Hermes connected"),
+  connecting: msg("Hermes connecting"),
+  offline: msg("Hermes offline"),
+  error: msg("Hermes error"),
+  disconnected: msg("Hermes disconnected"),
+} satisfies Record<HermesConnectionState | "disconnected", string>;
+
+const SCHEDULER_CONNECTION_LABELS = {
+  connected: msg("Scheduler connected"),
+  connecting: msg("Scheduler connecting"),
+  offline: msg("Scheduler offline"),
+  error: msg("Scheduler error"),
+  disconnected: msg("Scheduler disconnected"),
+} satisfies Record<HermesConnectionState | "disconnected", string>;
 
 function commandError(result: AsyncResult.AsyncResult<unknown, unknown>, fallback: string): string {
   if (result._tag !== "Failure") return fallback;
@@ -84,23 +104,29 @@ function TaskRunView({
   readonly run: HermesCronRun;
   readonly isLatest: boolean;
 }) {
+  const m = useMessages();
   const timestamp = run.responseAt ?? run.completedAt ?? run.startedAt;
   const response =
     run.response?.trim() === "[SILENT]"
-      ? "No update was delivered for this run."
-      : run.response?.trim() || "The scheduled agent did not record a response for this run.";
+      ? m(msg("No update was delivered for this run."))
+      : run.response?.trim() ||
+        m(msg("The scheduled agent did not record a response for this run."));
 
   return (
     <article className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5">
       <header className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
         <span className="text-sm font-medium">
-          {timestamp ? runLabelFromTimestamp(timestamp) : "Run"}
+          {timestamp ? runLabelFromTimestamp(timestamp, m) : m(RUN_LABEL)}
         </span>
         <div className="flex items-center gap-2">
-          {isLatest ? <Badge variant="success">Latest</Badge> : null}
+          {isLatest ? (
+            <Badge variant="success">
+              <T context="the newest scheduled task run">Latest</T>
+            </Badge>
+          ) : null}
           {timestamp ? (
             <span className="text-xs text-muted-foreground">
-              {formatRelativeTimeLabel(timestamp)}
+              {formatRelativeTimeLabel(timestamp, undefined, m)}
             </span>
           ) : null}
         </div>
@@ -112,9 +138,11 @@ function TaskRunView({
   );
 }
 
-function runLabelFromTimestamp(value: string): string {
+const RUN_LABEL = msg("Run", { $context: "noun, one execution of a scheduled task" });
+
+function runLabelFromTimestamp(value: string, resolve: MessageResolver = resolveNow): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Run";
+  if (Number.isNaN(date.getTime())) return resolve(RUN_LABEL);
   return date.toLocaleString(undefined, {
     weekday: "short",
     month: "short",
@@ -134,7 +162,7 @@ function HermesMessageView({ message }: { readonly message: HermesMessage }) {
       <details className="mx-auto w-full max-w-3xl rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs">
         <summary className="flex cursor-pointer list-none items-center gap-2 text-muted-foreground">
           <WrenchIcon className="size-3.5" />
-          <span>{message.toolName || "Hermes tool"}</span>
+          <span>{message.toolName || <T>Hermes tool</T>}</span>
         </summary>
         <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-foreground/80">
           {message.content}
@@ -159,7 +187,9 @@ function HermesMessageView({ message }: { readonly message: HermesMessage }) {
           <>
             {message.reasoning ? (
               <details className="mb-3 rounded-lg border border-border/50 px-3 py-2 text-xs text-muted-foreground">
-                <summary className="cursor-pointer">Reasoning</summary>
+                <summary className="cursor-pointer">
+                  <T>Reasoning</T>
+                </summary>
                 <p className="mt-2 whitespace-pre-wrap">{message.reasoning}</p>
               </details>
             ) : null}
@@ -171,9 +201,9 @@ function HermesMessageView({ message }: { readonly message: HermesMessage }) {
   );
 }
 
-export type HermesWorkspaceSection = "tasks" | "chats";
+type HermesWorkspaceSection = "tasks" | "chats";
 
-export function HermesWorkspaceView({
+function HermesWorkspaceView({
   section,
   standaloneScheduled = false,
 }: {
@@ -200,21 +230,22 @@ function HermesEnvironmentWorkspace({
   readonly section: HermesWorkspaceSection;
   readonly standaloneScheduled: boolean;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const { environment, environments } = useAgentEnvironment();
   const setEnvironmentId = useAgentsSidebarStore((state) => state.setEnvironmentId);
   const showOverview = useAgentsSidebarStore((state) => state.showOverview);
-  const deviceLabel = environment?.label ?? "this computer";
+  const deviceLabel = environment?.label ?? gt("this computer");
   const deviceConnected = environment?.connection.phase === "connected";
-  const selectedId = useAgentsSidebarStore((state) => state.selectedSessionId);
+  const storedSessionId = useAgentsSidebarStore((state) => state.selectedSessionId);
   const setSelectedId = useAgentsSidebarStore((state) => state.setSelectedSessionId);
-  const selectedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
+  const storedTaskId = useAgentsSidebarStore((state) => state.selectedTaskId);
   const setSelectedTaskId = useAgentsSidebarStore((state) => state.setSelectedTaskId);
   const taskFilter = useAgentsSidebarStore((state) => state.taskFilter);
   const setTaskFilter = useAgentsSidebarStore((state) => state.setTaskFilter);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<HermesCronJob | null>(null);
   const [taskMutation, setTaskMutation] = useState<string | null>(null);
-  const [taskRunLimit, setTaskRunLimit] = useState(20);
   const [taskRunSnapshot, setTaskRunSnapshot] = useState<{
     readonly jobId: string;
     readonly runs: readonly HermesCronRun[];
@@ -224,6 +255,7 @@ function HermesEnvironmentWorkspace({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const mountedRef = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks unmount so command results that resolve after an environment switch skip state updates
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -233,8 +265,8 @@ function HermesEnvironmentWorkspace({
   const scrollRef = useRef<HTMLDivElement>(null);
   const taskScrollRef = useRef<HTMLDivElement>(null);
   const pendingPrependRef = useRef<{ readonly height: number; readonly top: number } | null>(null);
+  const scrolledTaskRef = useRef<string | null>(null);
   const autoScrolledTaskRef = useRef<string | null>(null);
-  const pendingSelectedTaskIdRef = useRef<string | null>(null);
   const projects = useProjects();
 
   const status = useEnvironmentQuery(
@@ -246,6 +278,8 @@ function HermesEnvironmentWorkspace({
     error: status.error,
   });
   const connected = deviceConnected && connectionState === "connected";
+  const timezone = status.data?.timezone ?? gt("server local time");
+  const endpoint = status.data?.endpoint ?? "http://127.0.0.1:8642";
   const sessions = useEnvironmentQuery(
     environmentId && connected
       ? hermesAgentEnvironment.sessions({ environmentId, input: {} })
@@ -256,26 +290,29 @@ function HermesEnvironmentWorkspace({
       ? hermesAgentEnvironment.cronJobs({ environmentId, input: {} })
       : null,
   );
-  const grouped = useMemo(
-    () => groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []),
-    [cronJobs.data?.jobs, sessions.data?.sessions],
-  );
-  const scheduledTasks = useMemo(
-    () => (standaloneScheduled ? localScheduledTasks(grouped.tasks) : grouped.tasks),
-    [grouped.tasks, standaloneScheduled],
-  );
-  const visibleTasks = useMemo(
-    () =>
-      taskFilter === "active"
-        ? scheduledTasks.filter((task) => task.job?.enabled === true)
-        : scheduledTasks,
-    [scheduledTasks, taskFilter],
-  );
-  const selectedTask = useMemo(
-    () => scheduledTasks.find((task) => task.id === selectedTaskId) ?? null,
-    [scheduledTasks, selectedTaskId],
-  );
+  const grouped = groupHermesTasks(cronJobs.data?.jobs ?? [], sessions.data?.sessions ?? []);
+  const scheduledTasks = standaloneScheduled ? localScheduledTasks(grouped.tasks) : grouped.tasks;
+  const visibleTasks =
+    taskFilter === "active"
+      ? scheduledTasks.filter((task) => task.job?.enabled === true)
+      : scheduledTasks;
+  // A stored selection that is not listed (yet) falls back to the first task, and becomes
+  // selected again once it appears, such as a task created before the list refreshes.
+  const selectedTaskId =
+    storedTaskId && visibleTasks.some((task) => task.id === storedTaskId)
+      ? storedTaskId
+      : (visibleTasks[0]?.id ?? null);
+  const selectedTask = scheduledTasks.find((task) => task.id === selectedTaskId) ?? null;
   const visibleSessions = grouped.chats;
+  const selectedId =
+    storedSessionId && visibleSessions.some((session) => session.id === storedSessionId)
+      ? storedSessionId
+      : (visibleSessions[0]?.id ?? null);
+  const [taskRunPage, setTaskRunPage] = useState({ jobId: selectedTaskId, limit: 20 });
+  if (taskRunPage.jobId !== selectedTaskId) {
+    setTaskRunPage({ jobId: selectedTaskId, limit: 20 });
+  }
+  const taskRunLimit = taskRunPage.jobId === selectedTaskId ? taskRunPage.limit : 20;
   const taskRuns = useEnvironmentQuery(
     environmentId && connected && section === "tasks" && selectedTaskId
       ? hermesAgentEnvironment.cronRuns({
@@ -284,11 +321,16 @@ function HermesEnvironmentWorkspace({
         })
       : null,
   );
+  // Keeps the loaded runs on screen while a larger page loads.
+  if (
+    taskRuns.data &&
+    taskRuns.data.jobId === selectedTaskId &&
+    taskRuns.data !== taskRunSnapshot
+  ) {
+    setTaskRunSnapshot(taskRuns.data);
+  }
   const visibleTaskRunSnapshot = taskRunSnapshot?.jobId === selectedTaskId ? taskRunSnapshot : null;
-  const chronologicalRuns = useMemo(
-    () => chronologicalCronRuns(visibleTaskRunSnapshot?.runs ?? []),
-    [visibleTaskRunSnapshot?.runs],
-  );
+  const chronologicalRuns = chronologicalCronRuns(visibleTaskRunSnapshot?.runs ?? []);
   const messages = useEnvironmentQuery(
     environmentId && connected && section === "chats" && selectedId
       ? hermesAgentEnvironment.messages({
@@ -326,29 +368,13 @@ function HermesEnvironmentWorkspace({
     reportFailure: false,
   });
 
-  useEffect(() => {
-    if (selectedTaskId && visibleTasks.some((task) => task.id === selectedTaskId)) {
-      if (pendingSelectedTaskIdRef.current === selectedTaskId) {
-        pendingSelectedTaskIdRef.current = null;
-      }
-      return;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pins the results scroller to the newest run before paint, and keeps it anchored when older runs are prepended
+  useLayoutEffect(() => {
+    if (scrolledTaskRef.current !== selectedTaskId) {
+      scrolledTaskRef.current = selectedTaskId;
+      pendingPrependRef.current = null;
+      autoScrolledTaskRef.current = null;
     }
-    if (selectedTaskId && pendingSelectedTaskIdRef.current === selectedTaskId) return;
-    setSelectedTaskId(visibleTasks[0]?.id ?? null);
-  }, [selectedTaskId, visibleTasks]);
-
-  useLayoutEffect(() => {
-    setTaskRunLimit(20);
-    pendingPrependRef.current = null;
-    autoScrolledTaskRef.current = null;
-  }, [selectedTaskId]);
-
-  useLayoutEffect(() => {
-    if (!taskRuns.data || taskRuns.data.jobId !== selectedTaskId) return;
-    setTaskRunSnapshot(taskRuns.data);
-  }, [selectedTaskId, taskRuns.data]);
-
-  useLayoutEffect(() => {
     const scroll = taskScrollRef.current;
     if (!scroll || !visibleTaskRunSnapshot || !selectedTaskId) return;
     const pending = pendingPrependRef.current;
@@ -363,120 +389,101 @@ function HermesEnvironmentWorkspace({
     }
   }, [selectedTaskId, visibleTaskRunSnapshot]);
 
-  useEffect(() => {
-    if (selectedId && visibleSessions.some((session) => session.id === selectedId)) return;
-    setSelectedId(visibleSessions[0]?.id ?? null);
-  }, [selectedId, visibleSessions]);
-
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the chat scroller to the newest message
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [messages.data?.messages.length, section, sending, selectedId]);
+  }, [
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new message, a sending indicator, or another chat must scroll to the bottom again.
+    messages.data?.messages.length,
+    section,
+    sending,
+    selectedId,
+  ]);
 
-  const selectedSession = useMemo(
-    () => sessions.data?.sessions.find((session) => session.id === selectedId) ?? null,
-    [selectedId, sessions.data],
-  );
+  const selectedSession =
+    sessions.data?.sessions.find((session) => session.id === selectedId) ?? null;
 
-  const showError = useCallback((title: string, description: string) => {
+  const showError = (title: string, description: string) => {
     toastManager.add(stackedThreadToast({ type: "error", title, description }));
-  }, []);
+  };
 
-  const openNewTask = useCallback(() => {
+  const openNewTask = () => {
     setEditingTask(null);
     setTaskDialogOpen(true);
-  }, []);
+  };
 
-  const handleTaskSave = useCallback(
-    async (input: ScheduledTaskInput): Promise<boolean> => {
-      if (!environmentId) return false;
-      setTaskMutation("save");
-      const result = editingTask
-        ? await updateCronJob({
-            environmentId,
-            input: { jobId: editingTask.id, ...input, workdir: input.workdir ?? "" },
-          })
-        : await createCronJob({ environmentId, input });
-      if (!mountedRef.current) return false;
-      setTaskMutation(null);
-      if (result._tag === "Success") {
-        pendingSelectedTaskIdRef.current = result.value.id;
-        setSelectedTaskId(result.value.id);
-        cronJobs.refresh();
-        return true;
-      }
-      if (!isAtomCommandInterrupted(result)) {
-        showError(
-          "Couldn’t save scheduled task",
-          commandError(result, "The scheduler rejected the schedule."),
-        );
-      }
-      return false;
-    },
-    [
-      createCronJob,
-      cronJobs,
-      editingTask,
-      environmentId,
-      setSelectedTaskId,
-      showError,
-      updateCronJob,
-    ],
-  );
+  const handleTaskSave = async (input: ScheduledTaskInput): Promise<boolean> => {
+    if (!environmentId) return false;
+    setTaskMutation("save");
+    const result = editingTask
+      ? await updateCronJob({
+          environmentId,
+          input: { jobId: editingTask.id, ...input, workdir: input.workdir ?? "" },
+        })
+      : await createCronJob({ environmentId, input });
+    if (!mountedRef.current) return false;
+    setTaskMutation(null);
+    if (result._tag === "Success") {
+      setSelectedTaskId(result.value.id);
+      cronJobs.refresh();
+      return true;
+    }
+    if (!isAtomCommandInterrupted(result)) {
+      showError(
+        gt("Couldn’t save scheduled task"),
+        commandError(result, gt("The scheduler rejected the schedule.")),
+      );
+    }
+    return false;
+  };
 
-  const handleTaskAction = useCallback(
-    async (action: "pause" | "resume" | "run" | "delete") => {
-      if (!environmentId || !selectedTask?.job || taskMutation) return;
-      const job = selectedTask.job;
-      if (
-        action === "delete" &&
-        !window.confirm(
-          `Delete “${job.name}”? Its previous result sessions will remain in history.`,
-        )
+  const handleTaskAction = async (action: "pause" | "resume" | "run" | "delete") => {
+    if (!environmentId || !selectedTask?.job || taskMutation) return;
+    const job = selectedTask.job;
+    if (
+      action === "delete" &&
+      !window.confirm(
+        gt("Delete “{name}”? Its previous result sessions will remain in history.", {
+          name: job.name,
+        }),
       )
-        return;
-      setTaskMutation(action);
-      const command =
+    )
+      return;
+    setTaskMutation(action);
+    const command =
+      action === "pause"
+        ? pauseCronJob
+        : action === "resume"
+          ? resumeCronJob
+          : action === "run"
+            ? runCronJob
+            : deleteCronJob;
+    const result = await command({ environmentId, input: { jobId: job.id } });
+    if (!mountedRef.current) return;
+    setTaskMutation(null);
+    if (result._tag === "Success") {
+      if (action === "delete") setSelectedTaskId(null);
+      cronJobs.refresh();
+      sessions.refresh();
+      taskRuns.refresh();
+    } else if (!isAtomCommandInterrupted(result)) {
+      showError(
         action === "pause"
-          ? pauseCronJob
+          ? gt("Couldn’t pause scheduled task")
           : action === "resume"
-            ? resumeCronJob
+            ? gt("Couldn’t resume scheduled task")
             : action === "run"
-              ? runCronJob
-              : deleteCronJob;
-      const result = await command({ environmentId, input: { jobId: job.id } });
-      if (!mountedRef.current) return;
-      setTaskMutation(null);
-      if (result._tag === "Success") {
-        if (action === "delete") setSelectedTaskId(null);
-        cronJobs.refresh();
-        sessions.refresh();
-        taskRuns.refresh();
-      } else if (!isAtomCommandInterrupted(result)) {
-        showError(
-          `Couldn’t ${action} scheduled task`,
-          commandError(result, "The scheduler could not complete that action."),
-        );
-      }
-    },
-    [
-      cronJobs,
-      deleteCronJob,
-      environmentId,
-      pauseCronJob,
-      resumeCronJob,
-      runCronJob,
-      selectedTask,
-      sessions,
-      showError,
-      taskMutation,
-      taskRuns,
-    ],
-  );
+              ? gt("Couldn’t run scheduled task")
+              : gt("Couldn’t delete scheduled task"),
+        commandError(result, gt("The scheduler could not complete that action.")),
+      );
+    }
+  };
 
-  const handleCreate = useCallback(async () => {
+  const handleCreate = async () => {
     if (!environmentId) return;
     const result = await createSession({ environmentId, input: {} });
     if (!mountedRef.current) return;
@@ -487,15 +494,15 @@ function HermesEnvironmentWorkspace({
     }
     if (!isAtomCommandInterrupted(result)) {
       showError(
-        "Couldn’t start a Hermes chat",
-        commandError(result, "The session could not be created."),
+        gt("Couldn’t start a Hermes chat"),
+        commandError(result, gt("The session could not be created.")),
       );
     }
-  }, [createSession, environmentId, sessions, showError]);
+  };
 
-  const handleRename = useCallback(async () => {
+  const handleRename = async () => {
     if (!environmentId || !selectedSession) return;
-    const title = window.prompt("Rename this Hermes chat", sessionTitle(selectedSession));
+    const title = window.prompt(gt("Rename this Hermes chat"), sessionTitle(selectedSession, m));
     if (title === null || !title.trim()) return;
     const result = await updateSession({
       environmentId,
@@ -503,11 +510,14 @@ function HermesEnvironmentWorkspace({
     });
     if (AsyncResult.isSuccess(result)) sessions.refresh();
     else if (!isAtomCommandInterrupted(result)) {
-      showError("Couldn’t rename chat", commandError(result, "Hermes rejected the new title."));
+      showError(
+        gt("Couldn’t rename chat"),
+        commandError(result, gt("Hermes rejected the new title.")),
+      );
     }
-  }, [environmentId, selectedSession, sessions, showError, updateSession]);
+  };
 
-  const handleFork = useCallback(async () => {
+  const handleFork = async () => {
     if (!environmentId || !selectedSession) return;
     const result = await forkSession({
       environmentId,
@@ -519,15 +529,21 @@ function HermesEnvironmentWorkspace({
       sessions.refresh();
     } else if (!isAtomCommandInterrupted(result)) {
       showError(
-        "Couldn’t fork chat",
-        commandError(result, "Hermes could not branch this conversation."),
+        gt("Couldn’t fork chat"),
+        commandError(result, gt("Hermes could not branch this conversation.")),
       );
     }
-  }, [environmentId, forkSession, selectedSession, sessions, showError]);
+  };
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = async () => {
     if (!environmentId || !selectedSession) return;
-    if (!window.confirm(`Delete “${sessionTitle(selectedSession)}”? This cannot be undone.`))
+    if (
+      !window.confirm(
+        gt("Delete “{name}”? This cannot be undone.", {
+          name: sessionTitle(selectedSession, m),
+        }),
+      )
+    )
       return;
     const result = await deleteSession({
       environmentId,
@@ -539,13 +555,13 @@ function HermesEnvironmentWorkspace({
       sessions.refresh();
     } else if (!isAtomCommandInterrupted(result)) {
       showError(
-        "Couldn’t delete chat",
-        commandError(result, "Hermes could not delete this conversation."),
+        gt("Couldn’t delete chat"),
+        commandError(result, gt("Hermes could not delete this conversation.")),
       );
     }
-  }, [deleteSession, environmentId, selectedSession, sessions, showError]);
+  };
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = async () => {
     if (!environmentId || !selectedId || !draft.trim() || sending) return;
     const message = draft.trim();
     setDraft("");
@@ -557,9 +573,12 @@ function HermesEnvironmentWorkspace({
       sessions.refresh();
     } else if (!isAtomCommandInterrupted(result)) {
       setDraft(message);
-      showError("Hermes couldn’t complete the request", commandError(result, "The task failed."));
+      showError(
+        gt("Hermes couldn’t complete the request"),
+        commandError(result, gt("The task failed.")),
+      );
     }
-  }, [draft, environmentId, messages, selectedId, sendMessage, sending, sessions, showError]);
+  };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -573,7 +592,7 @@ function HermesEnvironmentWorkspace({
   };
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header
           className={cn(
@@ -587,15 +606,15 @@ function HermesEnvironmentWorkspace({
             <BotIcon className="size-4" />
           )}
           <span className="text-sm font-semibold">
-            {standaloneScheduled ? "Scheduled" : "Agents"}
+            {standaloneScheduled ? <T>Scheduled</T> : <T>Agents</T>}
           </span>
           {!standaloneScheduled ? (
             <Button size="xs" variant="ghost" onClick={showOverview}>
-              All agents
+              <T>All agents</T>
             </Button>
           ) : null}
           <select
-            aria-label="Computer for scheduled tasks and agents"
+            aria-label={gt("Computer for scheduled tasks and agents")}
             className="h-7 min-w-0 max-w-48 rounded-md border bg-background px-2 text-sm"
             value={environmentId ?? ""}
             disabled={taskMutation !== null || sending || taskDialogOpen}
@@ -606,11 +625,14 @@ function HermesEnvironmentWorkspace({
               if (target) setEnvironmentId(target.environmentId);
             }}
           >
-            {!environment ? <option value={environmentId ?? ""}>Choose a computer</option> : null}
+            {!environment ? (
+              <option value={environmentId ?? ""}>{gt("Choose a computer")}</option>
+            ) : null}
             {environments.map((entry) => (
               <option key={entry.environmentId} value={entry.environmentId}>
-                {entry.label}
-                {entry.connection.phase === "connected" ? "" : " (disconnected)"}
+                {entry.connection.phase === "connected"
+                  ? entry.label
+                  : gt("{label} (disconnected)", { label: entry.label })}
               </option>
             ))}
           </select>
@@ -629,8 +651,11 @@ function HermesEnvironmentWorkspace({
                       : "bg-muted-foreground",
               )}
             />
-            {standaloneScheduled ? "Scheduler" : "Hermes"}{" "}
-            {deviceConnected ? connectionState : "disconnected"}
+            {m(
+              (standaloneScheduled ? SCHEDULER_CONNECTION_LABELS : HERMES_CONNECTION_LABELS)[
+                deviceConnected ? connectionState : "disconnected"
+              ],
+            )}
           </Badge>
           {!standaloneScheduled && status.data?.model ? (
             <span className="hidden text-xs text-muted-foreground sm:inline">
@@ -645,7 +670,7 @@ function HermesEnvironmentWorkspace({
             onClick={() => (section === "tasks" ? openNewTask() : void handleCreate())}
           >
             <PlusIcon className="size-3.5" />{" "}
-            {section === "tasks" ? "New scheduled task" : "New chat"}
+            {section === "tasks" ? <T>New scheduled task</T> : <T>New chat</T>}
           </Button>
         </header>
 
@@ -663,7 +688,7 @@ function HermesEnvironmentWorkspace({
                 sessions.refresh();
               }}
             >
-              Retry
+              <T>Retry</T>
             </Button>
           </div>
         ) : null}
@@ -677,21 +702,37 @@ function HermesEnvironmentWorkspace({
             <div className="max-w-lg rounded-2xl border border-border bg-card p-7 text-center shadow-sm">
               <WifiOffIcon className="mx-auto size-8 text-muted-foreground" />
               <h1 className="mt-4 text-lg font-semibold">
-                {standaloneScheduled
-                  ? "Scheduled task runner isn’t reachable"
-                  : "Hermes API isn’t reachable"}
+                {standaloneScheduled ? (
+                  <T>Scheduled task runner isn’t reachable</T>
+                ) : (
+                  <T>Hermes API isn’t reachable</T>
+                )}
               </h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {deviceConnected
-                  ? `T3 looked for Hermes on ${deviceLabel} at `
-                  : `Connect ${deviceLabel} in Settings → Connections. Its Hermes runner is at `}
-                <code className="rounded bg-muted px-1.5 py-0.5">
-                  {status.data?.endpoint ?? "http://127.0.0.1:8642"}
-                </code>
-                . You can choose another connected computer above. Enable Hermes’ API server on the
-                selected computer and restart its gateway. T3 reads the API key server-side from{" "}
-                <code className="rounded bg-muted px-1.5 py-0.5">~/.hermes/.env</code> or{" "}
-                <code className="rounded bg-muted px-1.5 py-0.5">HERMES_API_KEY</code>.
+                {deviceConnected ? (
+                  <T>
+                    T3 looked for Hermes on <Var>{deviceLabel}</Var> at{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5">
+                      <Var>{endpoint}</Var>
+                    </code>
+                    .
+                  </T>
+                ) : (
+                  <T>
+                    Connect <Var>{deviceLabel}</Var> in Settings → Connections. Its Hermes runner is
+                    at{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5">
+                      <Var>{endpoint}</Var>
+                    </code>
+                    .
+                  </T>
+                )}{" "}
+                <T>
+                  You can choose another connected computer above. Enable Hermes’ API server on the
+                  selected computer and restart its gateway. T3 reads the API key server-side from{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5">~/.hermes/.env</code> or{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5">HERMES_API_KEY</code>.
+                </T>
               </p>
               <pre className="mt-4 overflow-x-auto rounded-lg bg-muted/60 p-3 text-left text-xs">
                 hermes config set API_SERVER_ENABLED true{"\n"}hermes gateway restart
@@ -702,7 +743,7 @@ function HermesEnvironmentWorkspace({
                 </p>
               ) : null}
               <Button className="mt-5" size="sm" variant="outline" onClick={status.refresh}>
-                <RefreshCwIcon className="size-3.5" /> Retry
+                <RefreshCwIcon className="size-3.5" /> <T>Retry</T>
               </Button>
             </div>
           </div>
@@ -717,22 +758,28 @@ function HermesEnvironmentWorkspace({
                         key={filter}
                         type="button"
                         className={cn(
-                          "rounded px-2 py-1 text-xs capitalize text-muted-foreground",
+                          "rounded px-2 py-1 text-xs text-muted-foreground",
                           taskFilter === filter && "bg-background text-foreground shadow-sm",
                         )}
                         onClick={() => setTaskFilter(filter)}
                       >
-                        {filter}
+                        {filter === "active" ? (
+                          <T context="scheduled task filter">Active</T>
+                        ) : (
+                          <T context="scheduled task filter">All</T>
+                        )}
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-xs font-medium text-muted-foreground">Hermes chats</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    <T>Hermes chats</T>
+                  </span>
                 )}
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  aria-label={`Refresh ${section}`}
+                  aria-label={section === "tasks" ? gt("Refresh tasks") : gt("Refresh chats")}
                   onClick={() => {
                     sessions.refresh();
                     cronJobs.refresh();
@@ -755,8 +802,14 @@ function HermesEnvironmentWorkspace({
                         )}
                       >
                         <span className="block truncate text-sm font-medium">{task.name}</span>
-                        <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          {task.job?.scheduleDisplay ?? "Past task"} · {task.runs.length} runs
+                        <span className="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                          {gt(
+                            "{schedule} · {count, plural, one {{count} run} other {{count} runs}}",
+                            {
+                              schedule: task.job?.scheduleDisplay ?? gt("Past task"),
+                              count: task.runs.length,
+                            },
+                          )}
                         </span>
                       </button>
                     ))
@@ -771,12 +824,14 @@ function HermesEnvironmentWorkspace({
                         )}
                       >
                         <span className="block truncate text-sm font-medium">
-                          {sessionTitle(session)}
+                          {sessionTitle(session, m)}
                         </span>
-                        <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          {session.messageCount} messages
+                        <span className="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                          {gt("{count, plural, one {{count} message} other {{count} messages}}", {
+                            count: session.messageCount,
+                          })}
                           {session.lastActive ? (
-                            <>· {formatRelativeTimeLabel(session.lastActive)}</>
+                            <>· {formatRelativeTimeLabel(session.lastActive, undefined, m)}</>
                           ) : null}
                         </span>
                       </button>
@@ -784,11 +839,15 @@ function HermesEnvironmentWorkspace({
                 {!sessions.isPending &&
                 (section === "tasks" ? visibleTasks.length === 0 : grouped.chats.length === 0) ? (
                   <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-                    {section === "tasks"
-                      ? taskFilter === "active"
-                        ? "No active scheduled tasks."
-                        : "No scheduled tasks yet."
-                      : "No Hermes chats yet."}
+                    {section === "tasks" ? (
+                      taskFilter === "active" ? (
+                        <T>No active scheduled tasks.</T>
+                      ) : (
+                        <T>No scheduled tasks yet.</T>
+                      )
+                    ) : (
+                      <T>No Hermes chats yet.</T>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -802,7 +861,7 @@ function HermesEnvironmentWorkspace({
                       className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none md:hidden"
                       value={selectedTaskId ?? ""}
                       onChange={(event) => setSelectedTaskId(event.target.value)}
-                      aria-label="Scheduled task"
+                      aria-label={gt("Scheduled task")}
                     >
                       {visibleTasks.map((task) => (
                         <option key={task.id} value={task.id}>
@@ -812,9 +871,14 @@ function HermesEnvironmentWorkspace({
                     </select>
                     <div className="hidden min-w-0 flex-1 md:block">
                       <div className="truncate text-sm font-medium">{selectedTask.name}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {selectedTask.job?.scheduleDisplay ?? "Archived task"} ·{" "}
-                        {taskRuns.data?.total ?? selectedTask.runs.length} runs
+                      <div className="text-2xs text-muted-foreground">
+                        {gt(
+                          "{schedule} · {count, plural, one {{count} run} other {{count} runs}}",
+                          {
+                            schedule: selectedTask.job?.scheduleDisplay ?? gt("Archived task"),
+                            count: taskRuns.data?.total ?? selectedTask.runs.length,
+                          },
+                        )}
                       </div>
                     </div>
                     {selectedTask.job ? (
@@ -830,12 +894,12 @@ function HermesEnvironmentWorkspace({
                         </Badge>
                         <span className="hidden items-center gap-1 text-muted-foreground lg:flex">
                           <CalendarClockIcon className="size-3.5" />
-                          {selectedTask.job.scheduleDisplay ?? "No schedule"}
+                          {selectedTask.job.scheduleDisplay ?? gt("No schedule")}
                         </span>
                         <Button
                           size="icon-xs"
                           variant="ghost"
-                          aria-label="Edit scheduled task"
+                          aria-label={gt("Edit scheduled task")}
                           disabled={taskMutation !== null}
                           onClick={() => {
                             setEditingTask(selectedTask.job);
@@ -849,8 +913,8 @@ function HermesEnvironmentWorkspace({
                           variant="ghost"
                           aria-label={
                             selectedTask.job.enabled
-                              ? "Pause scheduled task"
-                              : "Resume scheduled task"
+                              ? gt("Pause scheduled task")
+                              : gt("Resume scheduled task")
                           }
                           disabled={taskMutation !== null}
                           onClick={() =>
@@ -862,7 +926,7 @@ function HermesEnvironmentWorkspace({
                         <Button
                           size="icon-xs"
                           variant="ghost"
-                          aria-label="Run scheduled task now"
+                          aria-label={gt("Run scheduled task now")}
                           disabled={taskMutation !== null}
                           onClick={() => void handleTaskAction("run")}
                         >
@@ -875,7 +939,7 @@ function HermesEnvironmentWorkspace({
                         <Button
                           size="icon-xs"
                           variant="ghost"
-                          aria-label="Delete scheduled task"
+                          aria-label={gt("Delete scheduled task")}
                           disabled={taskMutation !== null}
                           onClick={() => void handleTaskAction("delete")}
                         >
@@ -886,17 +950,26 @@ function HermesEnvironmentWorkspace({
                   </div>
                   <div
                     ref={taskScrollRef}
-                    className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6"
+                    className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6"
                   >
                     <div className="mx-auto max-w-3xl space-y-4">
                       {selectedTask.job ? (
                         <section className="rounded-xl border border-border bg-muted/20 p-4 text-sm">
                           <p className="whitespace-pre-wrap leading-6">{selectedTask.job.prompt}</p>
                           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground">
-                            <span>Runs in {selectedTask.job.workdir ?? "the agent workspace"}</span>
                             <span>
-                              New result chat for every run ·{" "}
-                              {status.data?.timezone ?? "server local time"}
+                              {selectedTask.job.workdir ? (
+                                <T>
+                                  Runs in <Var>{selectedTask.job.workdir}</Var>
+                                </T>
+                              ) : (
+                                <T>Runs in the agent workspace</T>
+                              )}
+                            </span>
+                            <span>
+                              <T>
+                                New result chat for every run · <Var>{timezone}</Var>
+                              </T>
                             </span>
                           </div>
                         </section>
@@ -904,7 +977,9 @@ function HermesEnvironmentWorkspace({
                       {visibleTaskRunSnapshot === null ? (
                         taskRuns.error ? (
                           <div className="mx-auto mt-12 max-w-md rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-center">
-                            <h2 className="text-sm font-semibold">Couldn’t load task results</h2>
+                            <h2 className="text-sm font-semibold">
+                              <T>Couldn’t load task results</T>
+                            </h2>
                             <p className="mt-2 text-xs leading-5 text-muted-foreground">
                               {taskRuns.error}
                             </p>
@@ -914,13 +989,13 @@ function HermesEnvironmentWorkspace({
                               variant="outline"
                               onClick={taskRuns.refresh}
                             >
-                              <RefreshCwIcon className="size-3.5" /> Retry
+                              <RefreshCwIcon className="size-3.5" /> <T>Retry</T>
                             </Button>
                           </div>
                         ) : (
                           <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
                             <LoaderCircleIcon className="size-4 animate-spin" />
-                            Loading task results…
+                            <T>Loading task results…</T>
                           </div>
                         )
                       ) : null}
@@ -938,26 +1013,33 @@ function HermesEnvironmentWorkspace({
                                   top: scroll.scrollTop,
                                 };
                               }
-                              setTaskRunLimit((limit) => limit + 20);
+                              setTaskRunPage({ jobId: selectedTaskId, limit: taskRunLimit + 20 });
                             }}
                           >
                             {taskRuns.isPending ? (
                               <LoaderCircleIcon className="animate-spin" />
                             ) : null}
-                            Load older results
+                            <T>Load older results</T>
                           </Button>
                         </div>
                       ) : visibleTaskRunSnapshot?.runs.length ? (
                         <p className="pb-2 text-center text-xs text-muted-foreground">
-                          Beginning of history · all {visibleTaskRunSnapshot.total} results loaded
+                          {gt(
+                            "Beginning of history · {count, plural, one {{count} result loaded} other {all {count} results loaded}}",
+                            { count: visibleTaskRunSnapshot.total },
+                          )}
                         </p>
                       ) : null}
                       {!taskRuns.isPending && visibleTaskRunSnapshot?.runs.length === 0 ? (
                         <div className="py-16 text-center">
                           <ListTodoIcon className="mx-auto size-8 text-muted-foreground" />
-                          <h2 className="mt-4 font-semibold">No results yet</h2>
+                          <h2 className="mt-4 font-semibold">
+                            <T>No results yet</T>
+                          </h2>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            The scheduled agent’s response will appear here after the first run.
+                            <T>
+                              The scheduled agent’s response will appear here after the first run.
+                            </T>
                           </p>
                         </div>
                       ) : null}
@@ -970,7 +1052,12 @@ function HermesEnvironmentWorkspace({
                       ))}
                       {selectedTask.job?.nextRunAt ? (
                         <p className="pt-2 text-center text-xs text-muted-foreground">
-                          Next run {formatRelativeTimeLabel(selectedTask.job.nextRunAt)}
+                          <T>
+                            Next run{" "}
+                            <Var>
+                              {formatRelativeTimeLabel(selectedTask.job.nextRunAt, undefined, m)}
+                            </Var>
+                          </T>
                         </p>
                       ) : null}
                     </div>
@@ -983,18 +1070,18 @@ function HermesEnvironmentWorkspace({
                       className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none md:pointer-events-none md:appearance-none"
                       value={selectedId ?? ""}
                       onChange={(event) => setSelectedId(event.target.value)}
-                      aria-label="Hermes chat"
+                      aria-label={gt("Hermes chat")}
                     >
                       {visibleSessions.map((session) => (
                         <option key={session.id} value={session.id}>
-                          {sessionTitle(session)}
+                          {sessionTitle(session, m)}
                         </option>
                       ))}
                     </select>
                     <Button
                       size="icon-xs"
                       variant="ghost"
-                      aria-label="Rename chat"
+                      aria-label={gt("Rename chat")}
                       onClick={() => void handleRename()}
                     >
                       <PencilIcon />
@@ -1002,7 +1089,7 @@ function HermesEnvironmentWorkspace({
                     <Button
                       size="icon-xs"
                       variant="ghost"
-                      aria-label="Fork chat"
+                      aria-label={gt("Fork chat")}
                       onClick={() => void handleFork()}
                     >
                       <CopyPlusIcon />
@@ -1010,13 +1097,16 @@ function HermesEnvironmentWorkspace({
                     <Button
                       size="icon-xs"
                       variant="ghost"
-                      aria-label="Delete chat"
+                      aria-label={gt("Delete chat")}
                       onClick={() => void handleDelete()}
                     >
                       <Trash2Icon />
                     </Button>
                   </div>
-                  <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+                  <div
+                    ref={scrollRef}
+                    className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+                  >
                     <div className="space-y-6">
                       {messages.isPending && messages.data === null ? (
                         <LoaderCircleIcon className="mx-auto mt-12 size-5 animate-spin text-muted-foreground" />
@@ -1026,8 +1116,8 @@ function HermesEnvironmentWorkspace({
                       ))}
                       {sending ? (
                         <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-1 text-sm text-muted-foreground">
-                          <LoaderCircleIcon className="size-4 animate-spin" /> Hermes is working on
-                          the task…
+                          <LoaderCircleIcon className="size-4 animate-spin" />{" "}
+                          <T>Hermes is working on the task…</T>
                         </div>
                       ) : null}
                     </div>
@@ -1037,29 +1127,32 @@ function HermesEnvironmentWorkspace({
                     className="shrink-0 border-t border-border bg-background p-3 sm:px-6 sm:py-4"
                   >
                     <div className="mx-auto max-w-3xl">
-                      <div className="relative">
+                      <InputGroup className="items-end">
                         <Textarea
                           value={draft}
                           onChange={(event) => setDraft(event.target.value)}
                           onKeyDown={onComposerKeyDown}
                           disabled={sending}
-                          placeholder="Ask Hermes to chat, research, or do a task…"
-                          className="pr-12"
-                          aria-label="Message Hermes"
+                          placeholder={gt("Ask Hermes to chat, research, or do a task…")}
+                          aria-label={gt("Message Hermes")}
                         />
-                        <Button
-                          type="submit"
-                          size="icon-sm"
-                          className="absolute bottom-2 right-2"
-                          disabled={sending || !draft.trim()}
-                          aria-label="Send to Hermes"
-                        >
-                          {sending ? <LoaderCircleIcon className="animate-spin" /> : <SendIcon />}
-                        </Button>
-                      </div>
-                      <p className="mt-1.5 text-[11px] text-muted-foreground">
-                        Enter to send · Shift+Enter for a new line · Hermes uses its configured
-                        tools, skills, memory, and model
+                        <InputGroupAddon align="inline-end">
+                          <Button
+                            type="submit"
+                            size="icon-sm"
+                            className="mb-2"
+                            disabled={sending || !draft.trim()}
+                            aria-label={gt("Send to Hermes")}
+                          >
+                            {sending ? <LoaderCircleIcon className="animate-spin" /> : <SendIcon />}
+                          </Button>
+                        </InputGroupAddon>
+                      </InputGroup>
+                      <p className="mt-1.5 text-2xs text-muted-foreground">
+                        <T>
+                          Enter to send · Shift+Enter for a new line · Hermes uses its configured
+                          tools, skills, memory, and model
+                        </T>
                       </p>
                     </div>
                   </form>
@@ -1069,24 +1162,32 @@ function HermesEnvironmentWorkspace({
                   <div>
                     <MessageSquarePlusIcon className="mx-auto size-8 text-muted-foreground" />
                     <h2 className="mt-4 font-semibold">
-                      {section === "tasks"
-                        ? "No scheduled tasks yet"
-                        : "Start a Hermes conversation"}
+                      {section === "tasks" ? (
+                        <T>No scheduled tasks yet</T>
+                      ) : (
+                        <T>Start a Hermes conversation</T>
+                      )}
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {section === "tasks"
-                        ? standaloneScheduled
-                          ? "Your recurring tasks will appear here with their result history."
-                          : "Recurring Hermes jobs will appear here with their result history."
-                        : "Chat, run tasks, and use the same agent capabilities you use from Discord."}
+                      {section === "tasks" ? (
+                        standaloneScheduled ? (
+                          <T>Your recurring tasks will appear here with their result history.</T>
+                        ) : (
+                          <T>Recurring Hermes jobs will appear here with their result history.</T>
+                        )
+                      ) : (
+                        <T>
+                          Chat, run tasks, and use the same agent capabilities you use from Discord.
+                        </T>
+                      )}
                     </p>
                     {section === "chats" ? (
                       <Button className="mt-4" size="sm" onClick={() => void handleCreate()}>
-                        <PlusIcon /> New chat
+                        <PlusIcon /> <T>New chat</T>
                       </Button>
                     ) : (
                       <Button className="mt-4" size="sm" onClick={openNewTask}>
-                        <PlusIcon /> New scheduled task
+                        <PlusIcon /> <T>New scheduled task</T>
                       </Button>
                     )}
                   </div>
@@ -1104,7 +1205,7 @@ function HermesEnvironmentWorkspace({
         projects={projects
           .filter((project) => project.environmentId === environmentId)
           .map((project) => ({ title: project.title, workspaceRoot: project.workspaceRoot }))}
-        timezone={status.data?.timezone ?? "server local time"}
+        timezone={timezone}
         saving={taskMutation === "save"}
         onSave={handleTaskSave}
       />

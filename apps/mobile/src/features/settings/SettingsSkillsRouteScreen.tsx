@@ -11,12 +11,14 @@ import {
   type ServerProviderSkill,
 } from "@t3tools/contracts";
 import { normalizeSkillName } from "@t3tools/shared/skillName";
+import { msg, T, useGT, Var } from "gt-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppBar } from "../../components/ui/AppBar";
 import { AppText as Text } from "../../components/ui/AppText";
+import { m } from "../../i18n/messages";
 import { useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
@@ -61,6 +63,7 @@ function Pill(props: {
 }
 
 export function SettingsSkillsRouteScreen() {
+  const gt = useGT();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { environments } = useEnvironments();
@@ -135,8 +138,8 @@ export function SettingsSkillsRouteScreen() {
       } else if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         Alert.alert(
-          "Could not open skill",
-          error instanceof Error ? error.message : "The skill could not be read.",
+          m(msg("Could not open skill")),
+          error instanceof Error ? error.message : m(msg("The skill could not be read.")),
         );
       }
     });
@@ -155,12 +158,15 @@ export function SettingsSkillsRouteScreen() {
     setIsSaving(false);
     if (result._tag === "Success") {
       setSavedContent(content);
-      Alert.alert("Skill saved", `$${selectedSkill.name} was updated.`);
+      Alert.alert(
+        m(msg("Skill saved")),
+        m(msg("{skill} was updated.", { skill: `$${selectedSkill.name}` })),
+      );
     } else if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       Alert.alert(
-        "Could not save skill",
-        error instanceof Error ? error.message : "The environment rejected the edit.",
+        m(msg("Could not save skill")),
+        error instanceof Error ? error.message : m(msg("The environment rejected the edit.")),
       );
     }
   };
@@ -200,19 +206,22 @@ export function SettingsSkillsRouteScreen() {
       setDescription("");
       setInstructions("");
       setShowCreate(false);
-      Alert.alert("Skill created", `$${result.value.skill.name} is ready to use.`);
+      Alert.alert(
+        m(msg("Skill created")),
+        m(msg("{skill} is ready to use.", { skill: `$${result.value.skill.name}` })),
+      );
     } else if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       Alert.alert(
-        "Could not create skill",
-        error instanceof Error ? error.message : "The environment rejected the skill.",
+        m(msg("Could not create skill")),
+        error instanceof Error ? error.message : m(msg("The environment rejected the skill.")),
       );
     }
   };
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <AppBar title="Skills" onBack={() => navigation.goBack()} />
+      <AppBar title={gt("Skills")} onBack={() => navigation.goBack()} />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
@@ -222,7 +231,7 @@ export function SettingsSkillsRouteScreen() {
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
         {environments.length > 1 ? (
-          <SettingsSection title="Device">
+          <SettingsSection title={gt("Device")}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -244,7 +253,7 @@ export function SettingsSkillsRouteScreen() {
           </SettingsSection>
         ) : null}
 
-        <SettingsSection title="Providers">
+        <SettingsSection title={gt("Providers")}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -262,13 +271,15 @@ export function SettingsSkillsRouteScreen() {
               />
             ))}
             {providers.length === 0 ? (
-              <Text className="p-2 text-foreground-muted">Connect Codex or Claude first.</Text>
+              <Text className="p-2 text-foreground-muted">
+                <T>Connect Codex or Claude first.</T>
+              </Text>
             ) : null}
           </ScrollView>
         </SettingsSection>
 
         {selectedProvider ? (
-          <SettingsSection title="Skills">
+          <SettingsSection title={gt("Skills")}>
             <View className="p-2">
               {skills.map((skill, index) => (
                 <Pressable
@@ -288,12 +299,14 @@ export function SettingsSkillsRouteScreen() {
                     </Text>
                   </View>
                   <Text className="text-sm text-foreground-muted">
-                    {skill.description ?? "No description"}
+                    {skill.description ?? gt("No description")}
                   </Text>
                 </Pressable>
               ))}
               {skills.length === 0 ? (
-                <Text className="p-4 text-center text-foreground-muted">No skills found.</Text>
+                <Text className="p-4 text-center text-foreground-muted">
+                  <T>No skills found.</T>
+                </Text>
               ) : null}
             </View>
           </SettingsSection>
@@ -318,8 +331,8 @@ export function SettingsSkillsRouteScreen() {
               />
               <Text className="text-xs text-foreground-muted">
                 {editable
-                  ? "Keep the frontmatter name unchanged."
-                  : "Managed and project skills are read-only in global Settings."}
+                  ? gt("Keep the frontmatter name unchanged.")
+                  : gt("Managed and project skills are read-only in global Settings.")}
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -328,7 +341,7 @@ export function SettingsSkillsRouteScreen() {
                 className="items-center rounded-xl bg-primary p-3 disabled:opacity-40"
               >
                 <Text className="font-t3-medium text-primary-foreground">
-                  {isSaving ? "Saving…" : "Save skill"}
+                  {isSaving ? gt("Saving…") : gt("Save skill")}
                 </Text>
               </Pressable>
             </View>
@@ -336,7 +349,7 @@ export function SettingsSkillsRouteScreen() {
         ) : null}
 
         {selectedProvider ? (
-          <SettingsSection title="Add global skill">
+          <SettingsSection title={gt("Add global skill")}>
             <View className="gap-3 p-4">
               {showCreate ? (
                 <>
@@ -351,15 +364,19 @@ export function SettingsSkillsRouteScreen() {
                   />
                   {name && name !== normalizedName ? (
                     <Text className="text-xs text-foreground-muted">
-                      Saved as {normalizedName || "invalid-name"}
+                      <T>
+                        Saved as <Var>{normalizedName || "invalid-name"}</Var>
+                      </T>
                     </Text>
                   ) : null}
                   {duplicate ? (
-                    <Text className="text-xs text-red-500">This skill already exists.</Text>
+                    <Text className="text-xs text-red-500">
+                      <T>This skill already exists.</T>
+                    </Text>
                   ) : null}
                   <TextInput
                     value={description}
-                    placeholder="What it does and when to use it"
+                    placeholder={gt("What it does and when to use it")}
                     placeholderTextColor="#71717a"
                     onChangeText={setDescription}
                     className="rounded-xl border border-border px-3 py-2.5 text-foreground"
@@ -368,7 +385,7 @@ export function SettingsSkillsRouteScreen() {
                     value={instructions}
                     multiline
                     textAlignVertical="top"
-                    placeholder="Instructions for the agent…"
+                    placeholder={gt("Instructions for the agent…")}
                     placeholderTextColor="#71717a"
                     onChangeText={setInstructions}
                     className="min-h-32 rounded-xl border border-border p-3 text-foreground"
@@ -378,7 +395,9 @@ export function SettingsSkillsRouteScreen() {
                       onPress={() => setShowCreate(false)}
                       className="rounded-xl px-4 py-3"
                     >
-                      <Text className="font-t3-medium text-foreground">Cancel</Text>
+                      <Text className="font-t3-medium text-foreground">
+                        <T>Cancel</T>
+                      </Text>
                     </Pressable>
                     <Pressable
                       disabled={
@@ -392,7 +411,7 @@ export function SettingsSkillsRouteScreen() {
                       className="rounded-xl bg-primary px-4 py-3 disabled:opacity-40"
                     >
                       <Text className="font-t3-medium text-primary-foreground">
-                        {isCreating ? "Creating…" : "Create"}
+                        {isCreating ? gt("Creating…") : gt("Create")}
                       </Text>
                     </Pressable>
                   </View>
@@ -403,7 +422,9 @@ export function SettingsSkillsRouteScreen() {
                   onPress={() => setShowCreate(true)}
                   className="items-center rounded-xl border border-border p-3"
                 >
-                  <Text className="font-t3-medium text-foreground">New global skill</Text>
+                  <Text className="font-t3-medium text-foreground">
+                    <T>New global skill</T>
+                  </Text>
                 </Pressable>
               )}
             </View>

@@ -1,4 +1,5 @@
 import type { MenuAction } from "@react-native-menu/menu";
+import { useGT } from "gt-react-native";
 import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 
@@ -15,16 +16,17 @@ export function MaterialProjectPicker(props: {
   readonly selectedProjectKey: string | null;
   readonly onProjectChange: (projectKey: string | null) => void;
 }) {
+  const gt = useGT();
   const { scale, smallIconSize } = useAndroidControlSizing();
   const selectedProject = props.projects.find(
     (project) => project.key === props.selectedProjectKey,
   );
-  const label = selectedProject?.label ?? "All projects";
+  const label = selectedProject?.label ?? gt("All projects");
   const actions = useMemo<MenuAction[]>(
     () => [
       {
         id: "project:all",
-        title: "All projects",
+        title: gt("All projects"),
         state: props.selectedProjectKey === null ? "on" : undefined,
       },
       ...props.projects.map((project) => ({
@@ -33,7 +35,7 @@ export function MaterialProjectPicker(props: {
         state: props.selectedProjectKey === project.key ? ("on" as const) : undefined,
       })),
     ],
-    [props.projects, props.selectedProjectKey],
+    [gt, props.projects, props.selectedProjectKey],
   );
 
   return (
@@ -67,7 +69,7 @@ export function MaterialProjectPicker(props: {
     >
       {(open) => (
         <Pressable
-          accessibilityLabel={`Filter by project: ${label}`}
+          accessibilityLabel={gt("Filter by project: {label}", { label })}
           accessibilityRole="button"
           accessibilityState={{ selected: selectedProject !== undefined }}
           onPress={open}

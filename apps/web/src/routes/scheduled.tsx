@@ -1,15 +1,8 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { ScheduledJobsPage } from "../components/agents/ScheduledJobsPage";
-
+// Old After Dark links and bookmarks pointed at the separate scheduled jobs page.
 export const Route = createFileRoute("/scheduled")({
-  beforeLoad: ({ context }) => {
-    if (
-      context.authGateState.status !== "authenticated" &&
-      context.authGateState.status !== "hosted-static"
-    ) {
-      throw redirect({ to: "/pair", replace: true });
-    }
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/scheduled-tasks", replace: true });
   },
-  component: ScheduledJobsPage,
 });

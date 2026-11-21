@@ -29,31 +29,24 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { Atom, AtomRegistry } from "effect/reactivity";
-import { act, type ReactNode } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, expect, it } from "@effect/vitest";
+import type { ReactNode } from "react";
+import { expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
+import { act, render } from "../../../test/render";
 import { makeThreadFixture, makeThreadProjectionFixture } from "../../test-fixtures";
 import { useChatWorkspaceLayoutStore } from "../../chatWorkspaceLayout";
 import { DraftId } from "../../composerDraftStore";
 import { useThreadProjection } from "../../state/entities";
 import { ChatWorkspace } from "./ChatWorkspace";
 
-// These renders have no I18nProvider, so GT passes copy through untranslated.
-vi.mock("gt-react", async (importOriginal) => {
-  const gt = (text: string) => text;
-  return {
-    ...(await importOriginal<typeof import("gt-react")>()),
-    T: ({ children }: { children: React.ReactNode }) => children,
-    useGT: () => gt,
-  };
-});
-
 const sources = vi.hoisted(() => ({
   details: null as ReturnType<typeof createEnvironmentThreadDetailAtoms> | null,
   shell: null as Atom.Writable<EnvironmentThreadShell | null> | null,
 }));
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
+  useNavigate: () => vi.fn(),
+}));
 vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => false }));
 vi.mock("../../state/threads", () => ({
   environmentThreadDetails: {
@@ -81,17 +74,8 @@ vi.mock("../ChatView", () => ({
   },
 }));
 
-let renderer: ReactTestRenderer | undefined;
-let registry: AtomRegistry.AtomRegistry | undefined;
-afterEach(async () => {
-  await act(() => renderer?.unmount());
-  registry?.dispose();
-  vi.unstubAllGlobals();
-});
-
 it.effect("receives new-thread responses without reloading after visiting the unsent draft", () =>
   Effect.gen(function* () {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const projection = makeThreadProjectionFixture();
     const environmentId = EnvironmentId.make("environment");
     const ref = { environmentId, threadId: projection.thread.id };
@@ -177,7 +161,10 @@ it.effect("receives new-thread responses without reloading after visiting the un
     );
     sources.details = createEnvironmentThreadDetailAtoms(() => state);
     sources.shell = Atom.make<EnvironmentThreadShell | null>(null);
-    registry = AtomRegistry.make();
+    const registry = yield* Effect.acquireRelease(
+      Effect.sync(() => AtomRegistry.make()),
+      (registry) => Effect.sync(() => registry.dispose()),
+    );
     useChatWorkspaceLayoutStore.setState({
       paneThreadKeys: [],
       activePaneIndex: 0,
@@ -186,31 +173,29 @@ it.effect("receives new-thread responses without reloading after visiting the un
       rowWeights: [1],
     });
     const workspace = (routeKind: "draft" | "server") => (
-      <RegistryContext.Provider value={registry!}>
+      <RegistryContext.Provider value={registry}>
         <ChatWorkspace
           routeThreadRef={ref}
           routePane={{ routeKind, draftId: DraftId.make("draft"), chatViewKey: "draft" }}
         />
       </RegistryContext.Provider>
     );
-    yield* Effect.promise(async () =>
-      act(() => {
-        renderer = create(workspace("draft"));
-      }),
+    const screen = yield* Effect.acquireDisposable(
+      Effect.promise(() => render(workspace("draft"))),
     );
     expect(snapshotLoads).toBe(0);
 
-    yield* Effect.promise(async () =>
-      act(() => {
-        created = true;
-        registry!.set(sources.shell!, makeThreadFixture({ environmentId, id: ref.threadId }));
-        renderer!.update(workspace("server"));
-      }),
+    created = true;
+    yield* Effect.promise(() =>
+      act(() =>
+        registry.set(sources.shell!, makeThreadFixture({ environmentId, id: ref.threadId })),
+      ),
     );
+    yield* Effect.promise(() => screen.rerender(workspace("server")));
     yield* Queue.take(subscriptions);
     const response = "This response appears without a reload";
     const observed = new Promise<void>((resolve) => {
-      const stop = registry!.subscribe(sources.details!.threadAtom(ref), (thread) => {
+      const stop = registry.subscribe(sources.details!.threadAtom(ref), (thread) => {
         if (thread?.projection.messages.some((message) => message.text === response)) {
           stop();
           resolve();
@@ -245,7 +230,7 @@ it.effect("receives new-thread responses without reloading after visiting the un
       },
     ]);
     yield* Effect.promise(async () => act(() => observed));
-    expect(renderer!.root.findByType("p").children).toEqual([response]);
+    expect(screen.container.querySelector("p")?.textContent).toBe(response);
     expect(snapshotLoads).toBe(1);
   }),
 );

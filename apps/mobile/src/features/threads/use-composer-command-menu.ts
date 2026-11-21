@@ -115,6 +115,7 @@ export function buildComposerSlashCommandItems(
     /** T3's `/clear` replaces the provider's, which would clear a session T3 still treats as live. */
     readonly offersFreshSession?: boolean;
     readonly offersSideChat?: boolean;
+    readonly offersSkills?: boolean;
     readonly selectedProviderStatus: Pick<ServerProvider, "driver" | "slashCommands"> | null;
   },
   resolve: MessageResolver = m,
@@ -131,6 +132,15 @@ export function buildComposerSlashCommandItems(
         },
       ]
     : [];
+  if (input.offersSkills && "skills".includes(query)) {
+    items.push({
+      id: "cmd:skills",
+      type: "slash-command",
+      command: "skills",
+      label: "/skills",
+      description: resolve(msg("View and create skills")),
+    });
+  }
 
   // Providers expand commands only at the start of a message. T3 commands
   // change local state and do not have this restriction, except `/clear`.
@@ -272,6 +282,7 @@ export function useComposerCommandMenu({
   modelProviders,
   onFreshSession,
   offersSideChat = false,
+  onOpenSkills,
 }: {
   readonly draftMessage: string;
   readonly ownerKey: string | null;
@@ -299,6 +310,8 @@ export function useComposerCommandMenu({
   /** Arms a fresh session for the next message; absent where `/clear` is unavailable. */
   readonly onFreshSession?: () => void;
   readonly offersSideChat?: boolean;
+  /** `/skills` opens the skills browser; absent where it is unavailable. */
+  readonly onOpenSkills?: () => void;
 }) {
   const gt = useGT();
   const messages = useMessages();
@@ -408,6 +421,7 @@ export function useComposerCommandMenu({
           offersUsageLimits,
           offersFreshSession: onFreshSession !== undefined,
           offersSideChat,
+          offersSkills: onOpenSkills !== undefined,
           selectedProviderStatus: selectedProviderStatus
             ? {
                 ...selectedProviderStatus,
@@ -670,6 +684,10 @@ export function useComposerCommandMenu({
     };
     if (item.type === "slash-command" && item.command === "model") {
       clearTriggerThen(onOpenModelPicker);
+      return;
+    }
+    if (item.type === "slash-command" && item.command === "skills" && onOpenSkills) {
+      clearTriggerThen(onOpenSkills);
       return;
     }
     if (item.type === "slash-command" && item.command === "clear" && onFreshSession) {

@@ -6,7 +6,7 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("@pierre/diffs/edit", () => ({
-  Editor: class {},
+  Editor: vi.fn(),
 }));
 
 vi.mock("@pierre/diffs/react", () => ({

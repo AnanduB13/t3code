@@ -5,7 +5,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 
-export const MAX_CHAT_PANES = 16;
+const MAX_CHAT_PANES = 16;
 
 export interface ChatWorkspaceLayout {
   readonly paneThreadKeys: readonly string[];
@@ -17,7 +17,7 @@ export interface ChatWorkspaceLayout {
 
 export type ChatWorkspaceAxis = "columns" | "rows";
 
-export function normalizeChatWorkspaceWeights(
+function normalizeChatWorkspaceWeights(
   value: readonly number[] | undefined,
   count: number,
 ): number[] {

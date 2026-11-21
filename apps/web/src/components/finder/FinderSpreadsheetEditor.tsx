@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { T, Var } from "gt-react";
 
 const MAX_RENDERED_CELLS = 10_000;
 
@@ -55,10 +55,7 @@ export function FinderSpreadsheetEditor(props: {
   readonly readOnly: boolean;
   readonly onChange: (contents: string) => void;
 }) {
-  const rows = useMemo(
-    () => parseDelimitedText(props.contents, props.delimiter),
-    [props.contents, props.delimiter],
-  );
+  const rows = parseDelimitedText(props.contents, props.delimiter);
   const columnCount = Math.max(0, ...rows.map((row) => row.length));
   const visibleRowCount = Math.min(
     rows.length,
@@ -75,9 +72,13 @@ export function FinderSpreadsheetEditor(props: {
   return (
     <div className="relative min-h-0 flex-1 overflow-auto bg-background">
       {visibleRowCount < rows.length ? (
-        <div className="sticky left-0 top-0 z-40 border-b bg-amber-950/90 px-3 py-2 text-xs text-amber-100">
-          Showing the first {visibleRowCount.toLocaleString()} of {rows.length.toLocaleString()}{" "}
-          rows to keep this large sheet responsive.
+        <div className="sticky left-0 top-0 z-40 border-b bg-background">
+          <div className="bg-warning-surface px-3 py-2 text-xs text-warning-foreground">
+            <T>
+              Showing the first <Var>{visibleRowCount.toLocaleString()}</Var> of{" "}
+              <Var>{rows.length.toLocaleString()}</Var> rows to keep this large sheet responsive.
+            </T>
+          </div>
         </div>
       ) : null}
       <table className="w-max min-w-full border-separate border-spacing-0 font-mono text-xs">

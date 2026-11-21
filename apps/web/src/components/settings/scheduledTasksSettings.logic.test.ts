@@ -18,6 +18,8 @@ import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope"
 
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
+  cronRunPreview,
+  scheduleDraftErrors,
   scheduledTaskDefaultModel,
   defaultScheduledTaskProjectId,
   matchesScheduledTaskScope,
@@ -195,6 +197,42 @@ describe("fixed-time scheduled tasks", () => {
     expect(scheduleFromDraft(draft)).toEqual({ type: "fixed_time", timeOfDay: "14:30" });
     // A native time input reports "" when it is cleared or only partly filled.
     expect(scheduleFromDraft({ ...draft, timeOfDay: "" })).toBeNull();
+  });
+});
+
+describe("cron scheduled tasks", () => {
+  const cronTask = {
+    ...legacyTask,
+    schedule: { type: "cron", expression: "30 9 * * 1-5", timeZone: "Europe/London" },
+  } as const;
+
+  it("round-trips the expression and zone, and normalizes spacing", () => {
+    const draft = taskToDraft(cronTask);
+    expect(draft.scheduleMode).toBe("cron");
+    expect(scheduleFromDraft(draft)).toEqual(cronTask.schedule);
+    expect(scheduleFromDraft({ ...draft, cronExpression: " 30  9 * * 1-5 " })).toEqual(
+      cronTask.schedule,
+    );
+  });
+
+  it("rejects an invalid expression or zone with a reason", () => {
+    const draft = taskToDraft(cronTask);
+    for (const invalid of [
+      { ...draft, cronExpression: "0 30 9 * * 1-5" },
+      { ...draft, cronExpression: "every 2h" },
+      { ...draft, cronTimeZone: "London" },
+      { ...draft, cronExpression: "0 0 30 2 *" },
+    ]) {
+      expect(scheduleFromDraft(invalid)).toBeNull();
+      expect(scheduleDraftErrors(invalid)).toHaveLength(1);
+    }
+  });
+
+  it("summarizes the schedule and previews runs in the task's zone", () => {
+    expect(scheduleLabel(cronTask.schedule)).toBe("Cron 30 9 * * 1-5 (Europe/London)");
+    expect(
+      cronRunPreview(taskToDraft(cronTask), new Date("2026-07-03T12:00:00Z"), "en-US", 2),
+    ).toEqual(["Mon, Jul 6, 9:30 AM", "Tue, Jul 7, 9:30 AM"]);
   });
 });
 

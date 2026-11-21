@@ -72,7 +72,7 @@ import {
   useState,
 } from "react";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -437,6 +437,11 @@ export interface ChatComposerProps {
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
+  /** The strip under the card that holds the resting controls; null keeps them in the card. */
+  restingControlsHost: HTMLDivElement | null;
+  restingControlsHaveLeadingContext: boolean;
+  onRestingControlsVisibilityChange: (visible: boolean) => void;
+  onRestingChange: (resting: boolean) => void;
   onComposerOverlayHeightChange: (height: number) => void;
   /** The new-thread strip names the permissions, so the controls row hides its chip. */
   permissionsShownInStrip: boolean;
@@ -553,6 +558,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pullRequestProjectId,
     pullRequestRepository,
     threadPullRequests,
+    restingControlsHost,
+    restingControlsHaveLeadingContext,
+    onRestingControlsVisibilityChange,
+    onRestingChange,
     onComposerOverlayHeightChange,
     promptRef,
     composerRef,
@@ -1252,7 +1261,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     hiddenBlockCount: restingControlsHiddenBlockCount,
     iconOnlyBlockCount: restingControlsIconOnlyBlockCount,
     controlsVisible: restingControlsVisible,
-  } = useRestingComposerControlsLayout(inlineRestingControlsHost);
+  } = useRestingComposerControlsLayout(restingControlsHost ?? inlineRestingControlsHost);
   const {
     attachControls: attachExpandedComposerControls,
     hiddenBlockCount: expandedControlsHiddenBlockCount,
@@ -2517,7 +2526,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     dictationTakesFooter ||
     speechInput.preview !== null ||
     // Focusing still reveals editable image attachments and controls that
-    // cannot fit in the resting controls row.
+    // cannot fit in the context strip.
     (isComposerFocused && (standaloneComposerImages.length > 0 || !restingControlsVisible)) ||
     preparingComposerImages.length > 0;
   // After Dark keeps an existing thread's desktop composer resting on one row.
@@ -2530,9 +2539,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ? standaloneComposerImages.filter((image) => pendingSnapShotIds.includes(image.id))
     : standaloneComposerImages;
   const composerControlsCollapsed = isComposerResting || isComposerCollapsedMobile;
-  // A collapsed composer keeps a second controls row inside the card.
-  const showInlineRestingControls = composerControlsCollapsed;
-  const composerControlsHidden = showInlineRestingControls && !restingControlsVisible;
+  // Without a strip host, a collapsed composer keeps a second controls row inside the card.
+  const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
+  const composerControlsVisibleInStrip =
+    composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
+  const composerControlsHidden = composerControlsCollapsed && !restingControlsVisible;
   const [restingFooterWidth, setRestingFooterWidth] = useState<number | null>(null);
   const measureRestingFooter = (element: HTMLDivElement | null) => {
     if (!element) return;
@@ -2543,6 +2554,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   if (composerControlsHidden && isComposerModelPickerOpen) {
     setIsComposerModelPickerOpen(false);
   }
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the chat view shows the strip around the portaled controls only once they fit
+  useLayoutEffect(() => {
+    onRestingControlsVisibilityChange(composerControlsVisibleInStrip);
+  }, [composerControlsVisibleInStrip, onRestingControlsVisibilityChange]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the resting flag before the chat view's overlay measurement reads it
+  useLayoutEffect(() => {
+    onRestingChange(isComposerResting);
+  }, [isComposerResting, onRestingChange]);
   const collapsedComposerImagePreviews =
     standaloneComposerImages.length > 0 ? (
       <ComposerRestingImagePreviews
@@ -2565,21 +2584,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     usePanelAnimationSettings();
   const composerMainSurfaceRef = useComposerRestingTransition(
     composerControlsCollapsed,
+    isComposerResting,
     restingComposerControlsRef,
     onComposerOverlayHeightChange,
     panelAnimationsActive,
     panelAnimationDurationMs,
   );
-  const restingHiddenBlockCount = showInlineRestingControls
+  const restingHiddenBlockCount = composerControlsCollapsed
     ? restingControlsHiddenBlockCount
-    : composerControlsCollapsed
-      ? 0
-      : expandedControlsHiddenBlockCount;
-  const iconOnlyBlockCount = showInlineRestingControls
+    : expandedControlsHiddenBlockCount;
+  const iconOnlyBlockCount = composerControlsCollapsed
     ? restingControlsIconOnlyBlockCount
-    : composerControlsCollapsed
-      ? 0
-      : expandedControlsIconOnlyBlockCount;
+    : expandedControlsIconOnlyBlockCount;
   const composerControls = (
     <ComposerControlsBar
       environmentId={environmentId}
@@ -2605,6 +2621,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerControlsHidden={composerControlsHidden}
       restingHiddenBlockCount={restingHiddenBlockCount}
       iconOnlyBlockCount={iconOnlyBlockCount}
+      showInlineRestingControls={showInlineRestingControls}
+      showLeadingSeparator={
+        composerControlsCollapsed &&
+        restingControlsHost !== null &&
+        restingControlsHaveLeadingContext
+      }
       showProviderUnavailable={showProviderUnavailable}
       providerSetupInstanceId={providerSetupInstanceId}
       onOpenProviderSetup={onOpenProviderSetup}
@@ -3569,6 +3591,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         data-chat-composer-form="true"
         {...threadContextDropTargetProps()}
       >
+        {composerControlsCollapsed && restingControlsHost
+          ? createPortal(
+              <div
+                ref={attachRestingComposerControls}
+                data-chat-composer-resting-controls="true"
+                aria-hidden={restingControlsVisible ? undefined : true}
+                inert={restingControlsVisible ? undefined : true}
+                className={cn(
+                  "relative flex w-max min-w-0 max-w-full items-center gap-1 font-normal text-muted-foreground/70 [&_button]:text-xs!",
+                  !restingControlsVisible && "invisible",
+                )}
+              >
+                {composerControls}
+              </div>,
+              restingControlsHost,
+            )
+          : null}
         <ComposerBanner.Dock>
           <ComposerBanner.Column>
             <ComposerBannerStack items={shelfItems} />
@@ -3607,7 +3646,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         <div className="relative">
           <ComposerSurface.Main
             ref={composerMainSurfaceRef}
-            data-inline-resting-controls="true"
+            data-inline-resting-controls={restingControlsHost === null ? "true" : undefined}
+            data-model-only-strip={
+              restingControlsHost?.closest("[data-composer-model-strip]") ? "true" : undefined
+            }
             className={composerProviderState.composerFrameClassName}
           >
             <div
@@ -3936,8 +3978,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     showMobilePendingAnswerActions &&
                       speechInput.state.phase === "idle" &&
                       "hidden sm:flex",
+                    isComposerResting && "absolute right-px z-10 h-12 w-auto py-0",
                     isComposerResting &&
-                      "absolute right-px bottom-[calc(2rem+1px)] z-10 h-12 w-auto py-0",
+                      (showInlineRestingControls ? "bottom-[calc(2rem+1px)]" : "bottom-px"),
                   )}
                 >
                   {composerAttachButton && !dictationTakesFooter ? (

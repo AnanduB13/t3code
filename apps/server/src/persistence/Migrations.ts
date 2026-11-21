@@ -8,7 +8,11 @@ import {
 } from "@t3tools/shared/databaseMigrationLog";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
-import { hasPendingAfterDarkMigrations, runAfterDarkMigrations } from "./AfterDarkMigrations.ts";
+import {
+  hasPendingAfterDarkMigrations,
+  runAfterDarkDataMigrations,
+  runAfterDarkMigrations,
+} from "./AfterDarkMigrations.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
@@ -375,6 +379,9 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       );
     }
     executedMigrations.push(...(yield* run({ loader: makeMigrationLoader(id) })));
+  }
+  if (hasPending && toMigrationInclusive === undefined) {
+    yield* runAfterDarkDataMigrations();
   }
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0

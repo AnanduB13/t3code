@@ -1,4 +1,4 @@
-export const WORKING_STATUS_LABELS = [
+const WORKING_STATUS_LABELS = [
   "Churning",
   "Scheming",
   "Tinkering",

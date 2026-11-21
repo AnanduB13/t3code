@@ -14,11 +14,14 @@ export function nextTask(tasks: readonly DesktopTask[], key: string | null) {
   return tasks[(index + 1) % tasks.length];
 }
 
+// oxlint-disable-next-line t3code/no-em-dash-copy -- Placeholder glyph for an unknown duration, not prose.
+export const UNKNOWN_TASK_ELAPSED = "—";
+
 /** Clock time comes from the current turn, never from volatile shell update timestamps. */
 export function formatTaskElapsed(task: DesktopTask, now: number): string {
-  if (!task.startedAt) return "—";
+  if (!task.startedAt) return UNKNOWN_TASK_ELAPSED;
   const start = Date.parse(task.startedAt);
-  if (!Number.isFinite(start)) return "—";
+  if (!Number.isFinite(start)) return UNKNOWN_TASK_ELAPSED;
   const seconds = Math.max(0, Math.floor((now - start) / 1_000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);

@@ -1275,6 +1275,7 @@ const readQueue = Effect.fn("EnvironmentCommands.readQueue")(function* (threadId
 });
 
 function missingQueuedPrompt(messageId: MessageId): string {
+  // oxlint-disable-next-line t3code/no-untranslated-copy -- Mirrors the server's OrchestrationV2DispatchCommandError text, which has no i18n field.
   return `Queued message '${messageId}' is no longer queued.`;
 }
 

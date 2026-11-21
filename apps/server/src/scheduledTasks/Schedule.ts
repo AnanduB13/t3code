@@ -1,4 +1,8 @@
-import { MIN_SCHEDULED_TASK_INTERVAL_MS, type ScheduledTaskSchedule } from "@t3tools/contracts";
+import {
+  MIN_SCHEDULED_TASK_INTERVAL_MS,
+  nextCronScheduleRun,
+  type ScheduledTaskSchedule,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
@@ -25,6 +29,11 @@ export function nextScheduledRunAt(
   if (schedule.type === "interval") {
     // Intervals advance elapsed time, including across daylight-saving changes.
     return DateTime.addDuration(from, Math.max(schedule.everyMs, MIN_SCHEDULED_TASK_INTERVAL_MS));
+  }
+  if (schedule.type === "cron") {
+    // The task's own zone, not the server's, decides wall-clock times and DST shifts.
+    const next = nextCronScheduleRun(schedule, DateTime.toDate(from));
+    return next === null ? null : DateTime.fromDateUnsafe(next);
   }
 
   const time = parseTimeOfDay(schedule.timeOfDay);
@@ -57,6 +66,13 @@ export function isSameSchedule(a: ScheduledTaskSchedule, b: ScheduledTaskSchedul
   }
   if (a.type === "webhook") return b.type === "webhook";
   if (a.type === "once") return b.type === "once" && Date.parse(a.runAt) === Date.parse(b.runAt);
+  if (a.type === "cron") {
+    return (
+      b.type === "cron" &&
+      a.timeZone === b.timeZone &&
+      a.expression.trim().split(/\s+/).join(" ") === b.expression.trim().split(/\s+/).join(" ")
+    );
+  }
   if (b.type !== "fixed_time") return false;
   // Compare parsed times so padded-hour edits do not reschedule pending runs.
   const aTime = parseTimeOfDay(a.timeOfDay);
@@ -70,13 +86,14 @@ export function isSameSchedule(a: ScheduledTaskSchedule, b: ScheduledTaskSchedul
   );
 }
 
-const MISSED_FIXED_TIME_GRACE_MS = 10 * MINUTE_MS;
+const MISSED_CALENDAR_RUN_GRACE_MS = 10 * MINUTE_MS;
 
-export function isMissedFixedTimeRun(
+/** Clock-time schedules skip a run the server slept through; intervals and one-time runs catch up. */
+export function isMissedCalendarRun(
   schedule: ScheduledTaskSchedule,
   dueAt: DateTime.DateTime,
   now: DateTime.DateTime,
 ): boolean {
-  if (schedule.type !== "fixed_time") return false;
-  return DateTime.toEpochMillis(now) - DateTime.toEpochMillis(dueAt) > MISSED_FIXED_TIME_GRACE_MS;
+  if (schedule.type !== "fixed_time" && schedule.type !== "cron") return false;
+  return DateTime.toEpochMillis(now) - DateTime.toEpochMillis(dueAt) > MISSED_CALENDAR_RUN_GRACE_MS;
 }

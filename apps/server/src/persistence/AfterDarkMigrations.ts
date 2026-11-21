@@ -7,6 +7,7 @@ import ClearAutomaticProjectModelDefaults from "./Migrations/044_ClearAutomaticP
 import ProjectionProjectsAutoPull from "./Migrations/045_ProjectionProjectsAutoPull.ts";
 import ProjectionThreadLastVisitedAt from "./Migrations/045_ProjectionThreadLastVisitedAt.ts";
 import ProjectionThreadsAutoSettleDisabledAt from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
+import ImportScheduledJobs from "./Migrations/AfterDarkImportScheduledJobs.ts";
 import LegacyTokenUsage from "./Migrations/AfterDarkLegacyTokenUsage.ts";
 import ScheduledJobs from "./Migrations/AfterDarkScheduledJobs.ts";
 
@@ -83,9 +84,6 @@ const afterDarkMigrations = {
   "8_LegacyQueueImports": legacyQueueImports,
   "9_LegacyTokenUsage": LegacyTokenUsage,
 };
-const latestAfterDarkMigrationId = Math.max(
-  ...Object.keys(afterDarkMigrations).map((key) => Number.parseInt(key, 10)),
-);
 
 /** Runs fork additions separately, including repairs for old shared migration IDs. */
 export const runAfterDarkMigrations = (throughUpstreamId?: number) =>
@@ -98,17 +96,44 @@ export const runAfterDarkMigrations = (throughUpstreamId?: number) =>
     ),
   });
 
+/**
+ * Fork data copied into upstream tables. A separate ledger lets these run after every
+ * upstream migration, when those tables have their final columns.
+ */
+const afterDarkDataMigrations = {
+  "1_ImportScheduledJobs": ImportScheduledJobs,
+};
+
+export const runAfterDarkDataMigrations = () =>
+  run({
+    table: "after_dark_data_migrations",
+    loader: Migrator.fromRecord(afterDarkDataMigrations),
+  });
+
+const latestId = (migrations: Record<string, unknown>) =>
+  Math.max(...Object.keys(migrations).map((key) => Number.parseInt(key, 10)));
+
 /** Like the migrator, counts only ledger ids above the highest recorded one. */
+const isLedgerBehind = Effect.fn("isAfterDarkLedgerBehind")(function* (
+  table: "after_dark_migrations" | "after_dark_data_migrations",
+  latest: number,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${table}
+  `;
+  if (tables.length === 0) return true;
+  const rows = yield* sql<{
+    readonly latestId: number | null;
+  }>`SELECT MAX(migration_id) AS latestId FROM ${sql(table)}`;
+  return (rows[0]?.latestId ?? 0) < latest;
+});
+
 export const hasPendingAfterDarkMigrations = Effect.fn("hasPendingAfterDarkMigrations")(
   function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const tables = yield* sql`
-      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'after_dark_migrations'
-    `;
-    if (tables.length === 0) return true;
-    const rows = yield* sql<{
-      readonly latestId: number | null;
-    }>`SELECT MAX(migration_id) AS latestId FROM after_dark_migrations`;
-    return (rows[0]?.latestId ?? 0) < latestAfterDarkMigrationId;
+    return (
+      (yield* isLedgerBehind("after_dark_migrations", latestId(afterDarkMigrations))) ||
+      (yield* isLedgerBehind("after_dark_data_migrations", latestId(afterDarkDataMigrations)))
+    );
   },
 );

@@ -32,7 +32,7 @@ const decodeContext = Schema.decodeUnknownOption(
 const decodeModelSelection = Schema.decodeUnknownOption(Schema.fromJsonString(ModelSelection));
 
 /** Deterministic, so a retried import replays the recorded receipt instead of queueing twice. */
-export const legacyQueuedMessageCommandId = (messageId: string) =>
+const legacyQueuedMessageCommandId = (messageId: string) =>
   CommandId.make(`migration:v1:queued:${messageId}`);
 
 /**

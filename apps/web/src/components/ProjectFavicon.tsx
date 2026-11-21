@@ -150,24 +150,6 @@ function ProjectFaviconFallback({
   return <Icon className={cn("size-3.5 shrink-0 text-icon-muted", className)} />;
 }
 
-function projectAvatarLabel(cwd: string): string {
-  const directory =
-    cwd
-      .replace(/[/\\]+$/, "")
-      .split(/[/\\]/)
-      .at(-1) ?? "";
-  const letter = directory.match(/[a-z0-9]/i)?.[0];
-  return (letter ?? "?").toLocaleUpperCase();
-}
-
-function projectAvatarColor(label: string): string {
-  const hue = [...label].reduce(
-    (hash, character) => (hash * 31 + character.charCodeAt(0)) % 360,
-    0,
-  );
-  return `hsl(${hue} 54% 42%)`;
-}
-
 function ProjectFaviconImage({
   src,
   className,

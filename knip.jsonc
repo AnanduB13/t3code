@@ -64,6 +64,9 @@
       ],
       // The generated operations export every selection's class.
       "ignoreIssues": { "**/*.graphql.ts": ["exports", "types", "namespaceMembers"] },
+      // Old After Dark builds recorded this id; the ledger reconciles it by name and the
+      // launcher reads migration ids from file names, so the file stays without an importer.
+      "ignore": ["src/persistence/Migrations/042_EnsureProjectionThreadsPinned.ts"],
       // Keep the transitive Effect runtime pinned for standalone npm installs.
       // The Vite+ web build prerequisite.
       // Native and disk-loaded provider packages stay external to the bundle; the

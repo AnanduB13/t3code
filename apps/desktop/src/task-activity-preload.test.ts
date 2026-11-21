@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { ipcRenderer } from "electron";
 import {
   RuntimeRequestId,

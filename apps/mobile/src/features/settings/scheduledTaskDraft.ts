@@ -1,4 +1,10 @@
-import { isWebhookDedupeTemplate, scheduledTaskThreadMode } from "@t3tools/contracts";
+import {
+  isScheduledTaskCronExpression,
+  isScheduledTaskTimeZone,
+  isWebhookDedupeTemplate,
+  nextCronScheduleRun,
+  scheduledTaskThreadMode,
+} from "@t3tools/contracts";
 import type {
   ModelSelection,
   ServerConfig,
@@ -53,12 +59,15 @@ export function scheduledTaskDefaultModel(
 }
 
 export type ScheduleDraft = {
-  readonly mode: "fixed_time" | "once" | "interval" | "webhook";
+  readonly mode: "fixed_time" | "once" | "interval" | "cron" | "webhook";
   readonly timeOfDay: string;
   /** ISO time for a one-time run. Empty until the user picks the "Once" mode. */
   readonly runAt: string;
   readonly weekdays: ReadonlyArray<number>;
   readonly intervalMinutes: string;
+  /** Five cron fields, read in `cronTimeZone`. */
+  readonly cronExpression: string;
+  readonly cronTimeZone: string;
   readonly signature: ScheduledTaskWebhookSignature | null;
   readonly maxDeliveryAgeMinutes: string;
   readonly replayKey: string;
@@ -75,6 +84,8 @@ export const DEFAULT_SCHEDULE: ScheduleDraft = {
   runAt: "",
   weekdays: [1, 2, 3, 4, 5],
   intervalMinutes: "15",
+  cronExpression: "0 9 * * *",
+  cronTimeZone: "",
   signature: null,
   maxDeliveryAgeMinutes: "",
   replayKey: "",
@@ -96,6 +107,13 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
       };
     case "once":
       return { ...DEFAULT_SCHEDULE, mode: "once", runAt: task.schedule.runAt };
+    case "cron":
+      return {
+        ...DEFAULT_SCHEDULE,
+        mode: "cron",
+        cronExpression: task.schedule.expression,
+        cronTimeZone: task.schedule.timeZone,
+      };
     case "interval":
       return {
         ...DEFAULT_SCHEDULE,
@@ -127,7 +145,47 @@ export function parseIntervalMinutes(value: string): number {
   return Number(value.trim().replace(",", "."));
 }
 
+type CronDraftProblem = "expression" | "timeZone" | "never";
+
+/** Why a cron draft cannot save, or null when it can. */
+export function cronDraftProblem(
+  draft: Pick<ScheduleDraft, "cronExpression" | "cronTimeZone">,
+  now: Date,
+): CronDraftProblem | null {
+  if (!isScheduledTaskCronExpression(draft.cronExpression)) return "expression";
+  if (!isScheduledTaskTimeZone(draft.cronTimeZone.trim())) return "timeZone";
+  return nextCronScheduleRun(cronSchedule(draft), now) === null ? "never" : null;
+}
+
+function cronSchedule(draft: Pick<ScheduleDraft, "cronExpression" | "cronTimeZone">) {
+  return {
+    type: "cron" as const,
+    expression: draft.cronExpression.trim().split(/\s+/).join(" "),
+    timeZone: draft.cronTimeZone.trim(),
+  };
+}
+
+/** The next `count` runs of a valid cron draft after `from`. */
+export function nextCronRuns(
+  draft: Pick<ScheduleDraft, "cronExpression" | "cronTimeZone">,
+  from: Date,
+  count: number,
+): ReadonlyArray<Date> {
+  if (cronDraftProblem(draft, from) !== null) return [];
+  const schedule = cronSchedule(draft);
+  const runs: Date[] = [];
+  let next = nextCronScheduleRun(schedule, from);
+  while (next !== null && runs.length < count) {
+    runs.push(next);
+    next = nextCronScheduleRun(schedule, next);
+  }
+  return runs;
+}
+
 export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSchedule | null {
+  if (draft.mode === "cron") {
+    return cronDraftProblem(draft, new Date()) === null ? cronSchedule(draft) : null;
+  }
   if (draft.mode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;
@@ -232,6 +290,8 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.schedule.runAt,
     [...draft.schedule.weekdays].sort((a, b) => a - b),
     draft.schedule.intervalMinutes,
+    draft.schedule.cronExpression,
+    draft.schedule.cronTimeZone,
     draft.schedule.maxDeliveryAgeMinutes,
     draft.schedule.replayKey,
     draft.schedule.coalesceKey,

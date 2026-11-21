@@ -1,6 +1,6 @@
 "use client";
 
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import type {
   ComputerUseDevice,
   ComputerUseHost,
@@ -9,9 +9,11 @@ import type {
 } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { createSerializedAbortableExecutor } from "@t3tools/shared/serializedAbortableExecutor";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useGT } from "gt-react";
+import { useEffect, useRef, useState } from "react";
 
 import { isElectron } from "~/env";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { useEnvironments } from "~/state/environments";
 import { computerUseEnvironment } from "~/state/computerUse";
 import {
@@ -38,123 +40,128 @@ const desktopExecutor = createSerializedAbortableExecutor(
 );
 
 export function ComputerUseHosts() {
+  const gt = useGT();
   const { environments } = useEnvironments();
   const [hostEnabled, setHostEnabled] = useComputerUseHostEnabled();
   const [allowedEnvironmentIds, setAllowedEnvironmentIds] = useComputerUseAllowedEnvironmentIds();
-  const allowedEnvironmentIdSet = useMemo(
-    () => new Set(allowedEnvironmentIds ?? []),
-    [allowedEnvironmentIds],
+  const allowedEnvironmentIdSet = new Set(allowedEnvironmentIds ?? []);
+  const hostedEnvironments = environments.filter(({ environmentId }) =>
+    allowedEnvironmentIdSet.has(environmentId),
   );
-  const hostedEnvironments = useMemo(
-    () => environments.filter(({ environmentId }) => allowedEnvironmentIdSet.has(environmentId)),
-    [allowedEnvironmentIdSet, environments],
-  );
-  const [device, setDevice] = useState<ComputerUseDevice | null>(null);
   const [monitor, setMonitor] = useState<ComputerUseMonitorState | null>(null);
+  // Each enable starts a fresh hosting session: no stale monitor or device carries over.
+  const [hostSession, setHostSession] = useState({ enabled: hostEnabled, epoch: 0 });
+  if (hostSession.enabled !== hostEnabled) {
+    setHostSession({ enabled: hostEnabled, epoch: hostSession.epoch + 1 });
+    if (!hostEnabled) setMonitor(null);
+  }
+  const describeKey =
+    hostEnabled && hostedEnvironments.length > 0
+      ? `${hostSession.epoch}:${hostedEnvironments.length}`
+      : null;
+  const [described, setDescribed] = useState<{
+    readonly key: string;
+    readonly device: ComputerUseDevice;
+  } | null>(null);
+  const device = describeKey !== null && described?.key === describeKey ? described.device : null;
   const pointerSequence = useRef(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Seeds the persisted (localStorage) allow-list with every environment the first time the host is enabled.
   useEffect(() => {
     if (!hostEnabled || allowedEnvironmentIds !== null) return;
     setAllowedEnvironmentIds(environments.map(({ environmentId }) => environmentId));
   }, [allowedEnvironmentIds, environments, hostEnabled, setAllowedEnvironmentIds]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Asks the native desktop bridge to describe this machine while hosting.
   useEffect(() => {
-    if (!hostEnabled || hostedEnvironments.length === 0) {
-      setDevice(null);
-      return;
-    }
+    if (describeKey === null) return;
     let active = true;
-    setDevice(null);
     void window.desktopBridge?.computerUse?.describe().then((value) => {
-      if (active) setDevice(value);
+      if (active) setDescribed({ key: describeKey, device: value });
     });
     return () => {
       active = false;
     };
-  }, [hostEnabled, hostedEnvironments.length]);
+  }, [describeKey]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Cancels in-flight native Computer Use actions when hosting is turned off.
   useEffect(() => {
     if (!hostEnabled) {
       desktopExecutor.cancelAll();
       void window.desktopBridge?.computerUse?.cancelAll();
-      setMonitor(null);
     }
   }, [hostEnabled]);
-  const onRequestStarted = useCallback(
-    (request: ComputerUseRequest) => {
-      pointerSequence.current += 1;
-      setMonitor((current) => {
-        const pointer = pointerForAction(
-          current?.observation,
-          request.operation,
-          request.input,
-          pointerSequence.current,
-        );
-        return {
-          deviceLabel: device?.label ?? "Desktop host",
-          sessionIsolation: device?.sessionIsolation ?? "shared",
-          phase: request.operation === "getAppState" ? "capturing" : "acting",
-          operation: request.operation,
-          ...(current?.observation ? { observation: current.observation, app: current.app } : {}),
-          ...(pointer ? { pointer } : current?.pointer ? { pointer: current.pointer } : {}),
-        };
-      });
-    },
-    [device?.label, device?.sessionIsolation],
-  );
-  const onRequestSucceeded = useCallback(
-    (request: ComputerUseRequest, result: unknown) => {
-      setMonitor((current) => {
-        const observation = isComputerUseAppState(result)
-          ? result
-          : typeof result === "object" &&
-              result !== null &&
-              "observation" in result &&
-              isComputerUseAppState(result.observation)
-            ? result.observation
-            : undefined;
-        if (observation) {
-          return {
-            deviceLabel: device?.label ?? "Desktop host",
-            sessionIsolation: device?.sessionIsolation ?? "shared",
-            phase: "idle",
-            operation: request.operation,
-            app: observation.app,
-            observation,
-            message: "Latest application screenshot",
-          };
-        }
-        const observationError =
-          typeof result === "object" &&
-          result !== null &&
-          "observationError" in result &&
-          typeof result.observationError === "string"
-            ? result.observationError
-            : undefined;
-        return current
-          ? {
-              ...current,
-              phase: observationError ? "error" : "idle",
-              message: observationError
-                ? `${request.operation} completed. ${observationError}`
-                : `${request.operation} completed`,
-            }
-          : current;
-      });
-    },
-    [device?.label, device?.sessionIsolation],
-  );
-  const onRequestFailed = useCallback(
-    (request: ComputerUseRequest, cause: unknown) => {
-      setMonitor((current) => ({
-        deviceLabel: device?.label ?? "Desktop host",
-        sessionIsolation: device?.sessionIsolation ?? "shared",
-        phase: "error",
+  const deviceLabel = device?.label ?? gt("Desktop host");
+  const sessionIsolation = device?.sessionIsolation ?? "shared";
+  const onRequestStarted = (request: ComputerUseRequest) => {
+    pointerSequence.current += 1;
+    setMonitor((current) => {
+      const pointer = pointerForAction(
+        current?.observation,
+        request.operation,
+        request.input,
+        pointerSequence.current,
+      );
+      return {
+        deviceLabel,
+        sessionIsolation,
+        phase: request.operation === "getAppState" ? "capturing" : "acting",
         operation: request.operation,
         ...(current?.observation ? { observation: current.observation, app: current.app } : {}),
-        ...(current?.pointer ? { pointer: current.pointer } : {}),
-        message: cause instanceof Error ? cause.message : String(cause),
-      }));
-    },
-    [device?.label, device?.sessionIsolation],
-  );
+        ...(pointer ? { pointer } : current?.pointer ? { pointer: current.pointer } : {}),
+      };
+    });
+  };
+  const onRequestSucceeded = (request: ComputerUseRequest, result: unknown) => {
+    setMonitor((current) => {
+      const observation = isComputerUseAppState(result)
+        ? result
+        : typeof result === "object" &&
+            result !== null &&
+            "observation" in result &&
+            isComputerUseAppState(result.observation)
+          ? result.observation
+          : undefined;
+      if (observation) {
+        return {
+          deviceLabel,
+          sessionIsolation,
+          phase: "idle",
+          operation: request.operation,
+          app: observation.app,
+          observation,
+          message: gt("Latest application screenshot"),
+        };
+      }
+      const observationError =
+        typeof result === "object" &&
+        result !== null &&
+        "observationError" in result &&
+        typeof result.observationError === "string"
+          ? result.observationError
+          : undefined;
+      return current
+        ? {
+            ...current,
+            phase: observationError ? "error" : "idle",
+            message: observationError
+              ? gt("{operation} completed. {error}", {
+                  operation: request.operation,
+                  error: observationError,
+                })
+              : gt("{operation} completed", { operation: request.operation }),
+          }
+        : current;
+    });
+  };
+  const onRequestFailed = (request: ComputerUseRequest, cause: unknown) => {
+    setMonitor((current) => ({
+      deviceLabel,
+      sessionIsolation,
+      phase: "error",
+      operation: request.operation,
+      ...(current?.observation ? { observation: current.observation, app: current.app } : {}),
+      ...(current?.pointer ? { pointer: current.pointer } : {}),
+      message: cause instanceof Error ? cause.message : String(cause),
+    }));
+  };
   if (!isElectron || !window.desktopBridge?.computerUse || !device || !hostEnabled) return null;
   return (
     <>
@@ -181,66 +188,48 @@ function ComputerUseHostConnection(props: {
   readonly onRequestFailed: (request: ComputerUseRequest, cause: unknown) => void;
 }) {
   const { environmentId, device, onRequestFailed, onRequestStarted, onRequestSucceeded } = props;
+  const gt = useGT();
   const [clientId] = useState(makeClientId);
-  const host = useMemo<ComputerUseHost>(
-    () => ({ clientId, environmentId, device }),
-    [clientId, device, environmentId],
-  );
+  const host: ComputerUseHost = { clientId, environmentId, device };
   const requestsAtom = computerUseEnvironment.requests({ environmentId, input: host });
   const respond = useAtomCommand(computerUseEnvironment.respond, "computer use response");
-  const executionId = useCallback(
-    (requestId: string) => `${environmentId}:${clientId}:${requestId}`,
-    [clientId, environmentId],
-  );
-  const handleRequest = useCallback(
-    (request: ComputerUseRequest) => {
-      const id = executionId(request.requestId);
-      return desktopExecutor.execute(id, async (signal) => {
-        const bridge = window.desktopBridge?.computerUse;
-        if (!bridge) throw new Error("The native Computer Use bridge is unavailable.");
-        const onAbort = () => {
-          void bridge.cancel(id);
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        onRequestStarted(request);
-        try {
-          const result = await bridge.execute(id, request.operation, request.input);
-          if (!signal.aborted) onRequestSucceeded(request, result);
-          return result;
-        } catch (cause) {
-          if (!signal.aborted) onRequestFailed(request, cause);
-          throw cause;
-        } finally {
-          signal.removeEventListener("abort", onAbort);
-        }
-      });
-    },
-    [executionId, onRequestFailed, onRequestStarted, onRequestSucceeded],
-  );
-  const cancelRequest = useCallback(
-    (requestId: string) => {
-      desktopExecutor.cancel(executionId(requestId));
-    },
-    [executionId],
-  );
+  const executionId = (requestId: string) => `${environmentId}:${clientId}:${requestId}`;
+  const handleRequest = useStableCallback((request: ComputerUseRequest) => {
+    const id = executionId(request.requestId);
+    return desktopExecutor.execute(id, async (signal) => {
+      const bridge = window.desktopBridge?.computerUse;
+      if (!bridge) throw new Error(gt("The native Computer Use bridge is unavailable."));
+      const onAbort = () => {
+        void bridge.cancel(id);
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      onRequestStarted(request);
+      try {
+        const result = await bridge.execute(id, request.operation, request.input);
+        if (!signal.aborted) onRequestSucceeded(request, result);
+        return result;
+      } catch (cause) {
+        if (!signal.aborted) onRequestFailed(request, cause);
+        throw cause;
+      } finally {
+        signal.removeEventListener("abort", onAbort);
+      }
+    });
+  });
+  const cancelRequest = useStableCallback((requestId: string) => {
+    desktopExecutor.cancel(executionId(requestId));
+  });
+  // The consumer reads the handler when a request arrives; the stable callbacks call this render's.
   const [requestHandlerAtom] = useState(() =>
     Atom.make({ handle: handleRequest, cancel: cancelRequest }),
   );
-  const setRequestHandler = useAtomSet(requestHandlerAtom);
-  useEffect(() => {
-    setRequestHandler({ handle: handleRequest, cancel: cancelRequest });
-  }, [cancelRequest, handleRequest, setRequestHandler]);
-  const consumerAtom = useMemo(
-    () =>
-      createComputerUseRequestConsumerAtom({
-        requestsAtom,
-        clientId,
-        requestHandlerAtom,
-        respond: (response) => respond({ environmentId, input: response }),
-        label: `computer-use:host:${environmentId}:${clientId}`,
-      }),
-    [clientId, environmentId, requestHandlerAtom, requestsAtom, respond],
-  );
+  const consumerAtom = createComputerUseRequestConsumerAtom({
+    requestsAtom,
+    clientId,
+    requestHandlerAtom,
+    respond: (response) => respond({ environmentId, input: response }),
+    label: `computer-use:host:${environmentId}:${clientId}`,
+  });
   useAtomValue(consumerAtom);
   return null;
 }

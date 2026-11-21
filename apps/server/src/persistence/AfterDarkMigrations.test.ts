@@ -6,6 +6,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { hasPendingMigrations, migrationManifest, runMigrations } from "./Migrations.ts";
 import compatibility from "./Migrations/044_AfterDarkUpstreamCompatibility.ts";
 import lastVisited from "./Migrations/045_ProjectionThreadLastVisitedAt.ts";
+import { legacyJobSchedule } from "./Migrations/AfterDarkImportScheduledJobs.ts";
 
 const now = "2026-09-01T00:00:00.000Z";
 
@@ -175,3 +176,84 @@ it.effect("reports a pending After Dark ledger entry on an otherwise current dat
     assert.isFalse(yield* hasPendingMigrations());
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
+
+it.effect("imports After Dark scheduled jobs into scheduled tasks once", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations();
+    const job = (id: string, schedule: string, enabled: boolean) =>
+      JSON.stringify({
+        id,
+        name: `Job ${id}`,
+        prompt: "Review the open pull requests.",
+        projectId: "project-1",
+        modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+        runtimeMode: "full-access",
+        schedule,
+        timezone: "Europe/London",
+        enabled,
+        nextRunAt: "2026-09-02T08:00:00.000Z",
+        createdAt: now,
+        updatedAt: now,
+      });
+    yield* sql`INSERT INTO scheduled_jobs (id, data) VALUES
+      ('cron', ${job("cron", "0  9 * * 1-5", true)}),
+      ('interval', ${job("interval", "every 2h", false)}),
+      ('broken', '{"id":"broken"}')`;
+    yield* sql`INSERT INTO scheduled_job_runs (id, job_id, created_at, data) VALUES
+      ('run-1', 'cron', '2026-09-01T08:00:00.000Z', '{"state":"started","message":null}'),
+      ('run-2', 'cron', '2026-09-01T09:00:00.000Z', '{"state":"failed","message":"Project missing."}'),
+      ('run-3', 'cron', '2026-09-01T10:00:00.000Z', '{"state":"pending","message":null}')`;
+    yield* sql`DELETE FROM after_dark_data_migrations`;
+    assert.isTrue(yield* hasPendingMigrations());
+    yield* runMigrations();
+    assert.isFalse(yield* hasPendingMigrations());
+    // A deleted import stays deleted on later startups.
+    yield* sql`DELETE FROM scheduled_tasks WHERE task_id = 'scheduled-task:after-dark-job-interval'`;
+    yield* runMigrations();
+
+    const tasks = yield* sql`
+      SELECT task_id, title, enabled, schedule_json, thread_id, thread_mode, workspace_strategy_json,
+        runtime_mode, interaction_mode, created_by, creation_source, next_run_at, last_run_at,
+        last_run_status, last_run_error, run_count
+      FROM scheduled_tasks ORDER BY task_id`;
+    assert.deepEqual(tasks, [
+      {
+        task_id: "scheduled-task:after-dark-job-cron",
+        title: "Job cron",
+        enabled: 1,
+        schedule_json: JSON.stringify({
+          type: "cron",
+          expression: "0 9 * * 1-5",
+          timeZone: "Europe/London",
+        }),
+        thread_id: null,
+        thread_mode: "new_thread",
+        workspace_strategy_json: '{"type":"root"}',
+        runtime_mode: "full-access",
+        interaction_mode: "default",
+        created_by: "user",
+        creation_source: "web",
+        next_run_at: "2026-09-02T08:00:00.000Z",
+        last_run_at: "2026-09-01T09:00:00.000Z",
+        last_run_status: "failed",
+        last_run_error: "Project missing.",
+        run_count: 2,
+      },
+    ]);
+    assert.equal(
+      (yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM scheduled_jobs`)[0]?.count,
+      3,
+    );
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);
+
+it("maps legacy job schedules to interval and cron tasks", () => {
+  assert.deepEqual(legacyJobSchedule("every 2h", "UTC"), { type: "interval", everyMs: 7_200_000 });
+  assert.deepEqual(legacyJobSchedule("Every 30m", "UTC"), { type: "interval", everyMs: 1_800_000 });
+  assert.deepEqual(legacyJobSchedule("0 9 * * *", "Asia/Kolkata"), {
+    type: "cron",
+    expression: "0 9 * * *",
+    timeZone: "Asia/Kolkata",
+  });
+});

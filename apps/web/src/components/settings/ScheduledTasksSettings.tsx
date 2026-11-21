@@ -113,6 +113,7 @@ import {
   type DraftState,
   type ScheduleMode,
   type WorkspaceMode,
+  cronRunPreview,
 } from "./scheduledTasksSettings.logic";
 import { Label } from "../ui/label";
 import { Menu, MenuTrigger, MenuPopup, MenuItem, MenuSeparator } from "../ui/menu";
@@ -192,6 +193,8 @@ const EMPTY_DRAFT: DraftState = {
   runAt: "",
   savedRunAt: "",
   weekdays: new Set([1, 2, 3, 4, 5]),
+  cronExpression: "0 9 * * *",
+  cronTimeZone: "",
   projectId: "",
   threadId: "",
   savedThreadId: "",
@@ -1248,6 +1251,55 @@ function WebhookDeliveryMode({ environmentId }: { readonly environmentId: Enviro
   );
 }
 
+const EXAMPLE_TIME_ZONE = "Europe/London";
+
+function CronScheduleFields({
+  draft,
+  setDraft,
+}: {
+  readonly draft: DraftState;
+  readonly setDraft: (update: (current: DraftState) => DraftState) => void;
+}) {
+  const gt = useGT();
+  const locale = useLocale();
+  const [openedAt] = useState(() => new Date());
+  const preview = cronRunPreview(draft, openedAt, locale);
+  const error = scheduleDraftErrors(draft)[0];
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={gt("Cron expression")} htmlFor="scheduled-task-cron">
+          <Input
+            id="scheduled-task-cron"
+            nativeInput
+            spellCheck={false}
+            placeholder="0 9 * * 1-5"
+            value={draft.cronExpression}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, cronExpression: event.target.value }))
+            }
+          />
+        </Field>
+        <Field label={gt("Time zone")} htmlFor="scheduled-task-cron-zone">
+          <Input
+            id="scheduled-task-cron-zone"
+            nativeInput
+            spellCheck={false}
+            placeholder={EXAMPLE_TIME_ZONE}
+            value={draft.cronTimeZone}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, cronTimeZone: event.target.value }))
+            }
+          />
+        </Field>
+      </div>
+      <p className="text-xs text-muted-foreground" role="status">
+        {error ? error.description : gt("Next runs: {runs}", { runs: preview.join(" · ") })}
+      </p>
+    </div>
+  );
+}
+
 function ScheduledTaskEditorDialog({
   initialEnvironmentId,
   task,
@@ -1476,6 +1528,9 @@ function ScheduledTaskEditorForm({
   const offersOnce =
     environment?.serverConfig?.environment.capabilities.oneTimeSchedules === true ||
     task?.schedule.type === "once";
+  const offersCron =
+    environment?.serverConfig?.environment.capabilities.cronSchedules === true ||
+    task?.schedule.type === "cron";
   const offersThreadModes =
     environment?.serverConfig?.environment.capabilities.scheduledTaskThreadModes === true;
   const connected =
@@ -1645,6 +1700,15 @@ function ScheduledTaskEditorForm({
         gt("Once is not available here"),
         gt(
           "This environment runs an older T3 Code. Update it to schedule a one-time task, or pick another schedule.",
+        ),
+      );
+      return;
+    }
+    if (schedule.type === "cron" && !offersCron) {
+      reportFailure(
+        gt("Cron is not available here"),
+        gt(
+          "This environment runs an older T3 Code. Update it to use a cron schedule, or pick another schedule.",
         ),
       );
       return;
@@ -1983,6 +2047,7 @@ function ScheduledTaskEditorForm({
                     mode === "fixed" ||
                     mode === "once" ||
                     mode === "interval" ||
+                    mode === "cron" ||
                     mode === "webhook"
                   )
                     setDraft((current) => {
@@ -1993,6 +2058,10 @@ function ScheduledTaskEditorForm({
                       return {
                         ...current,
                         scheduleMode: mode,
+                        cronTimeZone:
+                          current.cronTimeZone ||
+                          tasksQuery.data?.timeZone ||
+                          Intl.DateTimeFormat().resolvedOptions().timeZone,
                         // Keep the instant too, so an hour that repeats when clocks go back stays exact.
                         ...(suggested === null
                           ? {}
@@ -2019,6 +2088,11 @@ function ScheduledTaskEditorForm({
                 <Toggle value="interval">
                   <T>Every interval</T>
                 </Toggle>
+                {offersCron || draft.scheduleMode === "cron" ? (
+                  <Toggle value="cron">
+                    <T>Custom (cron)</T>
+                  </Toggle>
+                ) : null}
                 <Toggle
                   value="webhook"
                   disabled={webhookDenial !== undefined && draft.scheduleMode !== "webhook"}
@@ -2295,6 +2369,8 @@ function ScheduledTaskEditorForm({
                   ))}
                 </ToggleGroup>
               </div>
+            ) : draft.scheduleMode === "cron" ? (
+              <CronScheduleFields draft={draft} setDraft={setDraft} />
             ) : (
               <div className="flex items-center gap-2">
                 <Label htmlFor="scheduled-task-interval">

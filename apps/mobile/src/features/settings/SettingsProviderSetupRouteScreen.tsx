@@ -9,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
+import { T, useGT, Var } from "gt-react-native";
 import { useCallback, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -81,7 +82,9 @@ export function SettingsProviderSetupRouteScreen({
   ) {
     return (
       <View className="flex-1 bg-black p-5">
-        <Text className="text-base text-white">This provider link is not valid.</Text>
+        <Text className="text-base text-white">
+          <T>This provider link is not valid.</T>
+        </Text>
       </View>
     );
   }
@@ -94,11 +97,12 @@ export function SettingsProviderSetupRouteScreen({
 }
 
 function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRouteParams) {
+  const gt = useGT();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { presentationById } = useEnvironments();
   const environment = presentationById.get(environmentId);
-  const environmentLabel = environment?.entry.target.label ?? "this environment";
+  const environmentLabel = environment?.entry.target.label ?? gt("this environment");
   const isConnected = environment?.connection.phase === "connected";
   const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const provider = config?.providers.find((item) => item.instanceId === instanceId);
@@ -161,7 +165,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
   const usesBrowser = authMethod === "oauth-personal" || authMethod === "oauth-business";
   const methodLabel =
     ANTIGRAVITY_AUTH_METHODS.find((method) => method.value === authMethod)?.label ??
-    "Google account";
+    gt("Google account");
 
   // Return URLs never enter saved drafts, navigation params, or diagnostics.
   const [callbackAuth, setCallbackAuth] = useState({ flowId: auth?.flowId, phase: auth?.phase });
@@ -202,7 +206,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
     if (!patch) return;
     void perform(
       () => updateSettings({ environmentId, input: { patch } }),
-      "Could not change this provider. Reconnect and try again.",
+      gt("Could not change this provider. Reconnect and try again."),
     );
   };
 
@@ -236,38 +240,53 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
         </View>
         {!isConnected ? (
           <Text className="text-base text-white">
-            Reconnect to this environment to continue setup.
+            <T>Reconnect to this environment to continue setup.</T>
           </Text>
         ) : access.error ? (
           <View className="gap-3">
-            <Text className="text-base text-white">Could not check your environment access.</Text>
-            <SetupButton label="Retry" onPress={access.refresh} />
+            <Text className="text-base text-white">
+              <T>Could not check your environment access.</T>
+            </Text>
+            <SetupButton label={gt("Retry")} onPress={access.refresh} />
           </View>
         ) : !access.data ? (
-          <Text className="text-base text-white">Checking environment access.</Text>
+          <Text className="text-base text-white">
+            <T>Checking environment access.</T>
+          </Text>
         ) : !canOperate ? (
           <Text className="text-base text-white">
-            This connection cannot manage providers. Pair again with permission to operate this
-            environment.
+            <T>
+              This connection cannot manage providers. Pair again with permission to operate this
+              environment.
+            </T>
           </Text>
         ) : null}
         {!config ? (
-          <Text className="text-base text-white">Loading provider settings.</Text>
+          <Text className="text-base text-white">
+            <T>Loading provider settings.</T>
+          </Text>
         ) : !provider || provider.driver !== "antigravity" ? (
           <Text className="text-base text-white">
-            This provider is not available on this environment.
+            <T>This provider is not available on this environment.</T>
           </Text>
         ) : (
           <>
             <View className="gap-3">
               <Text className="text-base text-white">
-                {provider.enabled ? "Enabled" : "Disabled"}
-                {provider.installed
-                  ? `. Installed${provider.version ? ` ${provider.version}` : ""}`
-                  : ". Not installed"}
+                {provider.enabled
+                  ? provider.installed
+                    ? provider.version
+                      ? gt("Enabled. Installed {version}", { version: provider.version })
+                      : gt("Enabled. Installed")
+                    : gt("Enabled. Not installed")
+                  : provider.installed
+                    ? provider.version
+                      ? gt("Disabled. Installed {version}", { version: provider.version })
+                      : gt("Disabled. Installed")
+                    : gt("Disabled. Not installed")}
               </Text>
               <SetupButton
-                label={provider.enabled ? "Disable Antigravity" : "Enable Antigravity"}
+                label={provider.enabled ? gt("Disable Antigravity") : gt("Enable Antigravity")}
                 disabled={controlsDisabled}
                 onPress={() => {
                   if (!provider.enabled) {
@@ -275,11 +294,18 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                     return;
                   }
                   Alert.alert(
-                    "Disable Antigravity?",
-                    `This stops Antigravity sessions on ${environmentLabel}. Google credentials stay saved.`,
+                    gt("Disable Antigravity?"),
+                    gt(
+                      "This stops Antigravity sessions on {environment}. Google credentials stay saved.",
+                      { environment: environmentLabel },
+                    ),
                     [
-                      { text: "Cancel", style: "cancel" },
-                      { text: "Disable", style: "destructive", onPress: () => setEnabled(false) },
+                      { text: gt("Cancel"), style: "cancel" },
+                      {
+                        text: gt("Disable"),
+                        style: "destructive",
+                        onPress: () => setEnabled(false),
+                      },
                     ],
                   );
                 }}
@@ -291,13 +317,20 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                   <>
                     <Text accessibilityLiveRegion="polite" className="text-base text-white">
                       {installation.phase === "downloading"
-                        ? `Downloading ${Math.round(installation.downloadedBytes / 1_048_576)}${installation.totalBytes === null ? "" : ` of ${Math.round(installation.totalBytes / 1_048_576)}`} MB`
+                        ? installation.totalBytes === null
+                          ? gt("Downloading {downloaded} MB", {
+                              downloaded: Math.round(installation.downloadedBytes / 1_048_576),
+                            })
+                          : gt("Downloading {downloaded} of {total} MB", {
+                              downloaded: Math.round(installation.downloadedBytes / 1_048_576),
+                              total: Math.round(installation.totalBytes / 1_048_576),
+                            })
                         : installation.phase === "extracting"
-                          ? "Extracting Antigravity files."
-                          : "Checking the Antigravity installation."}
+                          ? gt("Extracting Antigravity files.")
+                          : gt("Checking the Antigravity installation.")}
                     </Text>
                     <SetupButton
-                      label="Cancel install"
+                      label={gt("Cancel install")}
                       disabled={controlsDisabled || installation.operationId === null}
                       onPress={() => {
                         const operationId = installation.operationId;
@@ -305,7 +338,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                         void perform(
                           () =>
                             cancelInstall({ environmentId, input: { instanceId, operationId } }),
-                          "Could not cancel the install. Try again.",
+                          gt("Could not cancel the install. Try again."),
                         );
                       }}
                     />
@@ -314,15 +347,15 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                   <SetupButton
                     label={
                       installation?.phase === "failed" || installation?.phase === "cancelled"
-                        ? "Retry install"
-                        : "Install Antigravity"
+                        ? gt("Retry install")
+                        : gt("Install Antigravity")
                     }
                     primary
                     disabled={controlsDisabled || authActive}
                     onPress={() =>
                       void perform(
                         () => startInstall(target),
-                        "Could not start the install. Try again.",
+                        gt("Could not start the install. Try again."),
                       )
                     }
                   />
@@ -332,22 +365,25 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                 ) : null}
                 {installation?.canRemove && !installActive ? (
                   <SetupButton
-                    label="Remove managed install"
+                    label={gt("Remove managed install")}
                     destructive
                     disabled={controlsDisabled || authActive}
                     onPress={() => {
                       Alert.alert(
-                        "Remove the Antigravity install?",
-                        `This removes T3's managed install from ${environmentLabel}. Providers that use it will need it installed again. Google credentials and threads stay.`,
+                        gt("Remove the Antigravity install?"),
+                        gt(
+                          "This removes T3's managed install from {environment}. Providers that use it will need it installed again. Google credentials and threads stay.",
+                          { environment: environmentLabel },
+                        ),
                         [
-                          { text: "Cancel", style: "cancel" },
+                          { text: gt("Cancel"), style: "cancel" },
                           {
-                            text: "Remove",
+                            text: gt("Remove"),
                             style: "destructive",
                             onPress: () =>
                               void perform(
                                 () => removeInstall(target),
-                                "Could not remove the managed install. Try again.",
+                                gt("Could not remove the managed install. Try again."),
                               ),
                           },
                         ],
@@ -357,14 +393,16 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                 ) : null}
                 {installQuery.error ? (
                   <Text className="text-sm text-white">
-                    Install status is unavailable. Reconnect and try again.
+                    <T>Install status is unavailable. Reconnect and try again.</T>
                   </Text>
                 ) : null}
               </View>
             ) : !provider.installed ? (
               <Text className="text-base text-white">
-                Antigravity cannot be installed on this environment. Use a supported server host or
-                set an executable path in provider settings.
+                <T>
+                  Antigravity cannot be installed on this environment. Use a supported server host
+                  or set an executable path in provider settings.
+                </T>
               </Text>
             ) : null}
             {provider.setup?.canAuthenticate ? (
@@ -372,32 +410,36 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                 <Text className="text-lg font-t3-medium text-white">{methodLabel}</Text>
                 <Text className="text-base text-white">
                   {signedIn
-                    ? "Signed in. Credentials stay on this environment."
+                    ? gt("Signed in. Credentials stay on this environment.")
                     : provider.auth.status === "unknown"
-                      ? "Sign-in has not been checked."
+                      ? gt("Sign-in has not been checked.")
                       : usesBrowser
-                        ? "Sign in with the Google account you use for Antigravity."
-                        : "Connect with the credentials set in provider settings on web or desktop."}
+                        ? gt("Sign in with the Google account you use for Antigravity.")
+                        : gt(
+                            "Connect with the credentials set in provider settings on web or desktop.",
+                          )}
                 </Text>
                 {authActive ? (
                   <>
                     <Text accessibilityLiveRegion="polite" className="text-base text-white">
                       {auth.phase === "starting"
                         ? usesBrowser
-                          ? "Starting Google sign-in."
-                          : "Checking credentials."
+                          ? gt("Starting Google sign-in.")
+                          : gt("Checking credentials.")
                         : auth.phase === "verifying"
                           ? usesBrowser
-                            ? "Checking Google sign-in."
-                            : "Checking credentials."
+                            ? gt("Checking Google sign-in.")
+                            : gt("Checking credentials.")
                           : auth.authorizationUrl
-                            ? "Complete sign-in in your browser."
-                            : "Sign-in is open on another client. Complete it there or wait for it to expire."}
+                            ? gt("Complete sign-in in your browser.")
+                            : gt(
+                                "Sign-in is open on another client. Complete it there or wait for it to expire.",
+                              )}
                     </Text>
                     {auth.authorizationUrl && auth.phase === "waiting" ? (
                       <>
                         <SetupButton
-                          label="Open Google sign-in"
+                          label={gt("Open Google sign-in")}
                           primary
                           disabled={controlsDisabled}
                           onPress={() => {
@@ -406,30 +448,34 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                               (opened) => {
                                 if (!opened)
                                   setError(
-                                    "Could not open Google sign-in. Copy the link and open it in your browser.",
+                                    gt(
+                                      "Could not open Google sign-in. Copy the link and open it in your browser.",
+                                    ),
                                   );
                               },
                             );
                           }}
                         />
                         <SetupButton
-                          label="Copy sign-in link"
+                          label={gt("Copy sign-in link")}
                           disabled={controlsDisabled}
                           onPress={() => {
                             if (!auth.authorizationUrl) return;
                             void tryCopyTextWithHaptic(auth.authorizationUrl, {
                               target: "provider-sign-in-link",
                             }).then((copied) => {
-                              if (!copied) setError("Could not copy the sign-in link.");
+                              if (!copied) setError(gt("Could not copy the sign-in link."));
                             });
                           }}
                         />
                         <Text className="text-sm leading-5 text-white">
-                          After sign-in, the browser will open a 127.0.0.1 address that cannot load
-                          on your phone. Copy that full address and paste it here.
+                          <T>
+                            After sign-in, the browser will open a 127.0.0.1 address that cannot
+                            load on your phone. Copy that full address and paste it here.
+                          </T>
                         </Text>
                         <TextInput
-                          accessibilityLabel="Google sign-in return URL"
+                          accessibilityLabel={gt("Google sign-in return URL")}
                           autoCapitalize="none"
                           autoComplete="off"
                           autoCorrect={false}
@@ -442,7 +488,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                           value={callbackUrl}
                         />
                         <SetupButton
-                          label="Complete sign-in"
+                          label={gt("Complete sign-in")}
                           primary
                           disabled={
                             controlsDisabled || callbackUrl.trim().length === 0 || !auth.flowId
@@ -458,7 +504,9 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                                   environmentId,
                                   input: { instanceId, flowId, callbackUrl: submittedUrl },
                                 }),
-                              "Could not complete Google sign-in. Check the return URL and try again.",
+                              gt(
+                                "Could not complete Google sign-in. Check the return URL and try again.",
+                              ),
                             );
                           }}
                         />
@@ -466,17 +514,21 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                     ) : null}
                     {auth.expiresAt ? (
                       <Text className="text-sm text-white">
-                        Sign-in expires at{" "}
-                        {new Date(auth.expiresAt).toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                        .
+                        <T>
+                          Sign-in expires at{" "}
+                          <Var>
+                            {new Date(auth.expiresAt).toLocaleTimeString([], {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </Var>
+                          .
+                        </T>
                       </Text>
                     ) : null}
                     {auth.flowId ? (
                       <SetupButton
-                        label="Cancel sign-in"
+                        label={gt("Cancel sign-in")}
                         disabled={controlsDisabled}
                         onPress={() => {
                           const flowId = auth.flowId;
@@ -484,7 +536,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                           setCallbackUrl("");
                           void perform(
                             () => cancelAuth({ environmentId, input: { instanceId, flowId } }),
-                            "Could not cancel sign-in. Try again.",
+                            gt("Could not cancel sign-in. Try again."),
                           );
                         }}
                       />
@@ -492,22 +544,25 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                   </>
                 ) : showSignOut ? (
                   <SetupButton
-                    label={usesBrowser ? "Sign out of Google" : "Disconnect"}
+                    label={usesBrowser ? gt("Sign out of Google") : gt("Disconnect")}
                     destructive
                     disabled={controlsDisabled}
                     onPress={() => {
                       Alert.alert(
-                        usesBrowser ? "Sign out of Google?" : "Disconnect Antigravity?",
-                        `This stops Antigravity sessions for ${title} on ${environmentLabel}. Threads and files stay.`,
+                        usesBrowser ? gt("Sign out of Google?") : gt("Disconnect Antigravity?"),
+                        gt(
+                          "This stops Antigravity sessions for {title} on {environment}. Threads and files stay.",
+                          { title, environment: environmentLabel },
+                        ),
                         [
-                          { text: "Cancel", style: "cancel" },
+                          { text: gt("Cancel"), style: "cancel" },
                           {
-                            text: "Sign out",
+                            text: gt("Sign out"),
                             style: "destructive",
                             onPress: () =>
                               void perform(
                                 () => logout(target),
-                                "Could not sign out of Google. Try again.",
+                                gt("Could not sign out of Google. Try again."),
                               ),
                           },
                         ],
@@ -519,11 +574,11 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                     label={
                       usesBrowser
                         ? auth?.phase === "failed" || auth?.phase === "cancelled"
-                          ? "Retry Google sign-in"
-                          : "Sign in with Google"
+                          ? gt("Retry Google sign-in")
+                          : gt("Sign in with Google")
                         : auth?.phase === "failed" || auth?.phase === "cancelled"
-                          ? "Retry connection"
-                          : "Connect"
+                          ? gt("Retry connection")
+                          : gt("Connect")
                     }
                     primary
                     disabled={
@@ -536,20 +591,24 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
                     onPress={() =>
                       void perform(
                         () => startAuth(target),
-                        "Could not start Google sign-in. Try again.",
+                        gt("Could not start Google sign-in. Try again."),
                       )
                     }
                   />
                 )}
                 {!provider.enabled && !signedIn ? (
-                  <Text className="text-sm text-white">Enable Antigravity to sign in.</Text>
+                  <Text className="text-sm text-white">
+                    <T>Enable Antigravity to sign in.</T>
+                  </Text>
                 ) : !provider.installed && !signedIn ? (
-                  <Text className="text-sm text-white">Install Antigravity to sign in.</Text>
+                  <Text className="text-sm text-white">
+                    <T>Install Antigravity to sign in.</T>
+                  </Text>
                 ) : null}
                 {authMessage ? <Text className="text-sm text-white">{authMessage}</Text> : null}
                 {authQuery.error ? (
                   <Text className="text-sm text-white">
-                    Sign-in status is unavailable. Reconnect and try again.
+                    <T>Sign-in status is unavailable. Reconnect and try again.</T>
                   </Text>
                 ) : null}
               </View>
@@ -566,7 +625,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
         ) : null}
         {busy ? (
           <Text accessibilityLiveRegion="polite" className="text-sm text-white">
-            Waiting for the environment.
+            <T>Waiting for the environment.</T>
           </Text>
         ) : null}
       </ScrollView>

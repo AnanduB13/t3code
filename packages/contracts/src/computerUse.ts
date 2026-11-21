@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
-export const COMPUTER_USE_OPERATIONS = [
+const COMPUTER_USE_OPERATIONS = [
   "listApps",
   "getAppState",
   "move",

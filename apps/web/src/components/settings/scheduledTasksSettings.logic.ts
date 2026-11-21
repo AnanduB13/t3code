@@ -1,4 +1,10 @@
-import { isListedThreadLineage, isWebhookDedupeTemplate } from "@t3tools/contracts";
+import {
+  isListedThreadLineage,
+  isScheduledTaskCronExpression,
+  isScheduledTaskTimeZone,
+  isWebhookDedupeTemplate,
+  nextCronScheduleRun,
+} from "@t3tools/contracts";
 import {
   EnvironmentId,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
@@ -59,6 +65,14 @@ export function scheduleLabel(
   if (schedule.type === "once") {
     return resolve(msg("Once, {time}", { time: ONCE_FORMATTER.format(new Date(schedule.runAt)) }));
   }
+  if (schedule.type === "cron") {
+    return resolve(
+      msg("Cron {expression} ({zone})", {
+        expression: schedule.expression,
+        zone: schedule.timeZone,
+      }),
+    );
+  }
   if (schedule.type === "interval") {
     const minutes = schedule.everyMs / 60_000;
     return Number.isInteger(minutes)
@@ -111,7 +125,7 @@ export function validateScheduledTasksSearch(raw: Record<string, unknown>) {
   };
 }
 
-export type ScheduleMode = "fixed" | "once" | "interval" | "webhook";
+export type ScheduleMode = "fixed" | "once" | "interval" | "cron" | "webhook";
 export type WorkspaceMode = "root" | "worktree" | "existing_worktree";
 
 export interface DraftState {
@@ -127,6 +141,9 @@ export interface DraftState {
   /** The stored ISO run time, sent back unchanged when the field was not edited. */
   readonly savedRunAt: string;
   readonly weekdays: ReadonlySet<number>;
+  /** Five cron fields, read in `cronTimeZone`. */
+  readonly cronExpression: string;
+  readonly cronTimeZone: string;
   readonly projectId: string;
   readonly threadId: string;
   /** The thread the form opened with, so a save can tell a cleared destination from an unbound one. */
@@ -182,6 +199,7 @@ export function scheduleDraftErrors(draft: DraftState, resolve: MessageResolver 
   }
   if (draft.scheduleMode === "fixed" && !draft.timeOfDay)
     return invalidRunTime(resolve(msg("Pick a time.")));
+  if (draft.scheduleMode === "cron") return cronDraftErrors(draft, resolve);
   if (draft.scheduleMode !== "webhook") return [];
   if (parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes) === undefined)
     return [
@@ -212,6 +230,66 @@ export function scheduleDraftErrors(draft: DraftState, resolve: MessageResolver 
       description: resolve(msg("Coalesce window must be whole seconds from 10 to 3600.")),
     });
   return errors;
+}
+
+function cronDraftErrors(
+  draft: Pick<DraftState, "cronExpression" | "cronTimeZone">,
+  resolve: MessageResolver,
+) {
+  const title = resolve(msg("Invalid cron schedule"));
+  if (!isScheduledTaskCronExpression(draft.cronExpression))
+    return [
+      {
+        title,
+        description: resolve(
+          msg("Enter five fields: minute, hour, day of month, month, and day of week."),
+        ),
+      },
+    ];
+  if (!isScheduledTaskTimeZone(draft.cronTimeZone.trim()))
+    return [
+      {
+        title,
+        description: resolve(msg("Enter an IANA time zone, such as Europe/London.")),
+      },
+    ];
+  if (nextCronScheduleRun(cronScheduleFromDraft(draft), new Date()) === null)
+    return [{ title, description: resolve(msg("This schedule never matches a date.")) }];
+  return [];
+}
+
+function cronScheduleFromDraft(draft: Pick<DraftState, "cronExpression" | "cronTimeZone">) {
+  return {
+    type: "cron" as const,
+    expression: draft.cronExpression.trim().split(/\s+/).join(" "),
+    timeZone: draft.cronTimeZone.trim(),
+  };
+}
+
+/** The next few runs of a cron draft, as wall-clock times in its own zone; empty while invalid. */
+export function cronRunPreview(
+  draft: Pick<DraftState, "cronExpression" | "cronTimeZone">,
+  from: Date,
+  locale: string = getActiveLocale(),
+  count = 3,
+): ReadonlyArray<string> {
+  if (cronDraftErrors(draft, m).length > 0) return [];
+  const schedule = cronScheduleFromDraft(draft);
+  const format = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: schedule.timeZone,
+  });
+  const runs: string[] = [];
+  let next = nextCronScheduleRun(schedule, from);
+  while (next !== null && runs.length < count) {
+    runs.push(format.format(next));
+    next = nextCronScheduleRun(schedule, next);
+  }
+  return runs;
 }
 
 const WEBHOOK_DELIVERY_LABELS: Record<string, string> = {
@@ -298,6 +376,7 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
         : {}),
     };
   }
+  if (draft.scheduleMode === "cron") return cronScheduleFromDraft(draft);
   if (draft.scheduleMode === "interval") {
     const everyMs = Math.round(Number(draft.intervalMinutes) * 60_000);
     return { type: "interval", everyMs };
@@ -330,6 +409,8 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     runAt: schedule.type === "once" ? toDateTimeLocalValue(new Date(schedule.runAt)) : "",
     savedRunAt: schedule.type === "once" ? schedule.runAt : "",
     weekdays,
+    cronExpression: schedule.type === "cron" ? schedule.expression : "0 9 * * *",
+    cronTimeZone: schedule.type === "cron" ? schedule.timeZone : "",
     projectId: task.projectId,
     threadId: task.threadId ?? "",
     savedThreadId: task.threadId ?? "",

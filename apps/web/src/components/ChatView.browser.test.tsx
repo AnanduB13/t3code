@@ -117,11 +117,13 @@ vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
   trackRpcRequestSent: () => {},
 }));
 
+// After Dark's resting composer fits its prompt beside the styled footer, so unstyled
+// layout leaves the editor zero-width. Every test here renders with the app stylesheet.
+const appStyle = document.createElement("style");
+appStyle.textContent = stylesheet;
+document.head.append(appStyle);
+
 it("opens a linked Linear issue from an inactive thread's sidebar badge", async () => {
-  const style = document.createElement("style");
-  style.textContent = stylesheet;
-  document.head.append(style);
-  using _style = { [Symbol.dispose]: () => style.remove() };
   const first = threadWithHistory("issue-first", 1);
   const linked = threadWithHistory("issue-linked", 1);
   const issueRef = {
