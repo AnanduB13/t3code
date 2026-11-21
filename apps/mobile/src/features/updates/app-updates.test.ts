@@ -1,11 +1,10 @@
+import { AppState } from "react-native";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createAppUpdateDeferral,
-  createAppUpdateLaunchCheck,
-  FOREGROUND_APP_UPDATE_RECHECK_AFTER_MS,
+  installAppUpdateChecks,
   runAppUpdateCheck,
-  shouldRecheckAppUpdateOnForeground,
   type AppUpdateCheckState,
   type AppUpdateClient,
   type AppUpdateEnvironment,
@@ -236,10 +235,9 @@ describe("runAppUpdateCheck", () => {
     const client = makeUpdateClient({
       checkForUpdateAsync: vi.fn(() => checkResult),
     });
-    const checkOnLaunch = createAppUpdateLaunchCheck(client);
     const manualStates: AppUpdateCheckState[] = [];
 
-    const launchCheck = checkOnLaunch();
+    const launchCheck = runAppUpdateCheck({ client });
     const manualCheck = runAppUpdateCheck({
       client,
       onStateChange: (state) => manualStates.push(state),
@@ -305,54 +303,16 @@ describe("runAppUpdateCheck", () => {
   });
 });
 
-describe("createAppUpdateLaunchCheck", () => {
-  it("checks at most once for each JavaScript launch", async () => {
+describe("installAppUpdateChecks", () => {
+  it("checks once at launch and stops listening for foregrounds when disposed", () => {
+    const remove = vi.fn();
+    vi.mocked(AppState.addEventListener).mockReturnValueOnce({ remove });
     const client = makeUpdateClient();
-    const checkOnLaunch = createAppUpdateLaunchCheck(client);
 
-    const first = checkOnLaunch();
-    const second = checkOnLaunch();
-    await first;
-
-    expect(second).toBeUndefined();
+    const dispose = installAppUpdateChecks(client);
     expect(client.checkForUpdateAsync).toHaveBeenCalledOnce();
-  });
+    dispose();
 
-  it("does nothing when Expo updates are disabled", () => {
-    const client = makeUpdateClient({ isEnabled: false });
-    const checkOnLaunch = createAppUpdateLaunchCheck(client);
-
-    expect(checkOnLaunch()).toBeUndefined();
-    expect(client.checkForUpdateAsync).not.toHaveBeenCalled();
-  });
-});
-
-describe("shouldRecheckAppUpdateOnForeground", () => {
-  it("requires a meaningful background gap", () => {
-    expect(shouldRecheckAppUpdateOnForeground(null, 100_000, false)).toBe(false);
-    expect(
-      shouldRecheckAppUpdateOnForeground(
-        100_000,
-        100_000 + FOREGROUND_APP_UPDATE_RECHECK_AFTER_MS - 1,
-        false,
-      ),
-    ).toBe(false);
-    expect(
-      shouldRecheckAppUpdateOnForeground(
-        100_000,
-        100_000 + FOREGROUND_APP_UPDATE_RECHECK_AFTER_MS,
-        false,
-      ),
-    ).toBe(true);
-  });
-
-  it("stays quiet while a downloaded update waits for its install", () => {
-    expect(
-      shouldRecheckAppUpdateOnForeground(
-        100_000,
-        100_000 + FOREGROUND_APP_UPDATE_RECHECK_AFTER_MS,
-        true,
-      ),
-    ).toBe(false);
+    expect(remove).toHaveBeenCalledOnce();
   });
 });

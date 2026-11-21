@@ -5,19 +5,28 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 
-import type { VoiceInputControllerInput } from "./useVoiceInputController.types";
+import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { useGlobalVoiceInput } from "./VoiceInputProvider";
 import { createVoiceInputTarget } from "./voiceInputSession";
 
 const IDLE_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 
-export function useVoiceInputController(input: VoiceInputControllerInput) {
+export function useVoiceInputController(input: {
+  readonly ownerKey: string | null;
+  readonly label: string;
+  readonly readDraftMessage: () => string | null;
+  readonly selection: ComposerEditorSelection;
+  readonly disabled?: boolean;
+  readonly onChangeDraftMessage: (value: string) => void;
+  readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
+}) {
   const global = useGlobalVoiceInput();
-  const { setOwnerFocused, session } = global;
+  const { session } = global;
   const latestInput = useRef(input);
   // oxlint-disable-next-line react/refs -- Transcription finishes asynchronously and must reach the composer's current selection setter, not the one captured at start.
   latestInput.current = input;
   const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks mount so async transcription results skip a composer that has unmounted
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -29,9 +38,9 @@ export function useVoiceInputController(input: VoiceInputControllerInput) {
     useCallback(() => {
       const ownerKey = input.ownerKey;
       if (!ownerKey) return;
-      setOwnerFocused(ownerKey, true);
-      return () => setOwnerFocused(ownerKey, false);
-    }, [input.ownerKey, setOwnerFocused]),
+      session.setOwnerFocused(ownerKey, true);
+      return () => session.setOwnerFocused(ownerKey, false);
+    }, [input.ownerKey, session]),
   );
 
   const start = useCallback(() => {
@@ -48,7 +57,6 @@ export function useVoiceInputController(input: VoiceInputControllerInput) {
           }
         },
         captured.selection,
-        captured.subscribeToDraftChanges,
       ),
       label: captured.label,
     });

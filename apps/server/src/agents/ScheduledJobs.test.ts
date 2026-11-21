@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -10,7 +11,7 @@ import {
   type OrchestrationV2ThreadShell,
   type ScheduledJobInput,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -55,6 +56,7 @@ function makeOrchestration() {
   const project = (id: ProjectId): ProjectRow => ({
     projectId: id,
     title: "Project",
+    hasCustomTitle: false,
     workspaceRoot: "/tmp/scheduled-test-project",
     defaultModelSelection: null,
     defaultThreadEnvMode: null,
@@ -62,6 +64,8 @@ function makeOrchestration() {
     faviconPath: null,
     projectIcon: null,
     scripts: [],
+    pinnedAt: null,
+    archivedAt: null,
     createdAt: at,
     updatedAt: at,
     deletedAt: null,
@@ -132,7 +136,7 @@ type SchedulerTestServices =
   | ThreadLaunchService
   | ThreadManagementService
   | ProjectStoreV2
-  | Crypto.Crypto;
+  | SecureRandom.SecureRandom;
 
 const withScheduler = <A, E>(
   body: (
@@ -148,7 +152,7 @@ const withScheduler = <A, E>(
       Layer.effect(ScheduledJobs, make).pipe(
         Layer.provideMerge(orchestration.layer),
         Layer.provideMerge(SqlitePersistence.layerMemory),
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
   );

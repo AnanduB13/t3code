@@ -1,10 +1,11 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import * as Effect from "effect/Effect";
 import * as Notifications from "expo-notifications";
 import { useEffect, useState } from "react";
 import { Alert, AppState, Linking, Platform } from "react-native";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { requestAgentNotificationPermission } from "./notificationPermissions";
 import { androidNotifications } from "./androidChatNotifications";
@@ -12,10 +13,10 @@ import { directChatNotificationsEnabled } from "./directNotificationPreferences"
 
 export function DirectNotificationSettings() {
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const save = useAtomSet(updateMobilePreferencesAtom);
+  const save = useAtomCommand(saveMobilePreferences, "save direct notifications");
   const [granted, setGranted] = useState(false);
   const [busy, setBusy] = useState(false);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Read native system permission and refresh it after returning from OS settings.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Read native system permission and refresh it after returning from OS settings.
   useEffect(() => {
     if (Platform.OS !== "android" && Platform.OS !== "ios") return;
     let disposed = false;
@@ -39,14 +40,17 @@ export function DirectNotificationSettings() {
     setBusy(true);
     try {
       if (!enabled) {
-        save({ directChatNotificationsEnabled: false, androidChatNotificationsEnabled: false });
+        void save({
+          directChatNotificationsEnabled: false,
+          androidChatNotificationsEnabled: false,
+        });
         await androidNotifications?.stop();
         return;
       }
       const result = await Effect.runPromise(requestAgentNotificationPermission);
       setGranted(result.type === "granted");
       if (result.type === "granted")
-        save({ directChatNotificationsEnabled: true, androidChatNotificationsEnabled: true });
+        void save({ directChatNotificationsEnabled: true, androidChatNotificationsEnabled: true });
       else if (result.type === "denied" && !result.canAskAgain)
         Alert.alert("Allow notifications", "Enable notifications for T3 Code in system settings.", [
           { text: "Cancel", style: "cancel" },

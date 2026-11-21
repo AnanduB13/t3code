@@ -1,6 +1,7 @@
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { T, useGT } from "gt-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -22,7 +23,7 @@ import {
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { resolveThreadDetailRef, useThreadProjection, useThreadShell } from "../../state/entities";
-import { useIsMobile } from "../../hooks/useMediaQuery";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import ChatView from "../ChatView";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import { SidebarInset } from "../ui/sidebar";
@@ -51,9 +52,10 @@ function ChatWorkspaceDivider(props: {
 }) {
   const cleanupRef = useRef<(() => void) | null>(null);
   const position = dividerPosition(props.weights, props.dividerIndex);
+  const gt = useGT();
   const vertical = props.axis === "columns";
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- A resize owns window listeners and pointer capture until it ends or the divider unmounts.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- A resize owns window listeners and pointer capture until it ends or the divider unmounts.
   useEffect(() => () => cleanupRef.current?.(), []);
 
   const resizeByKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -164,7 +166,17 @@ function ChatWorkspaceDivider(props: {
   return (
     <div
       role="separator"
-      aria-label={`Resize chat ${vertical ? "columns" : "rows"} ${props.dividerIndex + 1} and ${props.dividerIndex + 2}`}
+      aria-label={
+        vertical
+          ? gt("Resize chat columns {first} and {second}", {
+              first: props.dividerIndex + 1,
+              second: props.dividerIndex + 2,
+            })
+          : gt("Resize chat rows {first} and {second}", {
+              first: props.dividerIndex + 1,
+              second: props.dividerIndex + 2,
+            })
+      }
       aria-orientation={vertical ? "vertical" : "horizontal"}
       aria-valuemin={0}
       aria-valuemax={100}
@@ -219,7 +231,9 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
   if (!shell && !projection && props.routePane?.routeKind !== "draft") {
     return (
       <div className="grid min-h-0 place-items-center bg-background p-6 text-center text-sm text-muted-foreground">
-        This chat is unavailable. Select this pane, then choose another thread from the sidebar.
+        <T>
+          This chat is unavailable. Select this pane, then choose another thread from the sidebar.
+        </T>
       </div>
     );
   }
@@ -239,7 +253,6 @@ const ChatWorkspacePane = memo(function ChatWorkspacePane(props: {
         chatPaneCount={props.paneCount}
         chatLayoutColumns={props.columns}
         onSetChatLayout={props.onSetLayout}
-        withDiffWorkerPool={false}
       />
     </div>
   );
@@ -254,8 +267,9 @@ export function ChatWorkspace({
   readonly background?: boolean;
   readonly routePane?: RoutePane;
 }) {
+  const gt = useGT();
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery("max-md");
   const paneThreadKeys = useChatWorkspaceLayoutStore((state) => state.paneThreadKeys);
   const activePaneIndex = useChatWorkspaceLayoutStore((state) => state.activePaneIndex);
   const columns = useChatWorkspaceLayoutStore((state) => state.columns);
@@ -281,7 +295,7 @@ export function ChatWorkspace({
 
   // Pane activation updates before URL navigation completes. Reconcile only when the URL itself
   // changes so the outgoing route never replaces and remounts the newly active pane.
-  // oxlint-disable-next-line t3code/react-effect-budget -- Reconcile the external pane store before paint only when the router changes its thread.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reconcile the external pane store before paint only when the router changes its thread.
   useLayoutEffect(
     () => syncRoute({ environmentId: routeEnvironmentId, threadId: routeThreadId }),
     [routeEnvironmentId, routeThreadId, syncRoute],
@@ -356,7 +370,10 @@ export function ChatWorkspace({
                     ? `relative isolate flex min-h-0 min-w-0 ${paneEntries.length > 1 ? "z-10 ring-1 ring-inset ring-info/70" : ""}`
                     : "relative isolate hidden min-h-0 min-w-0 md:flex"
                 }
-                aria-label={`Chat pane ${index + 1} of ${paneEntries.length}`}
+                aria-label={gt("Chat pane {index} of {count}", {
+                  index: index + 1,
+                  count: paneEntries.length,
+                })}
                 aria-current={active ? "true" : undefined}
                 data-chat-workspace-pane={index}
                 data-active={active ? "true" : "false"}
@@ -365,8 +382,12 @@ export function ChatWorkspace({
                 {placeholder ? (
                   <div className="grid min-h-0 flex-1 place-items-center bg-background p-6 text-center text-sm text-muted-foreground">
                     <div className="max-w-52 space-y-1">
-                      <p className="font-medium text-foreground">Empty chat pane</p>
-                      <p>Click here, then choose a thread from the sidebar.</p>
+                      <p className="font-medium text-foreground">
+                        <T>Empty chat pane</T>
+                      </p>
+                      <p>
+                        <T>Click here, then choose a thread from the sidebar.</T>
+                      </p>
                     </div>
                   </div>
                 ) : (

@@ -1,13 +1,8 @@
 # Antigravity
 
-T3 Code runs Google's official Antigravity ACP agent. By default it signs in with your personal
-Google account and uses that account's Antigravity access, including access provided by a
-Google AI subscription. It never falls back to a different sign-in method than the one you
-select.
-
-The agent, files, conversation state, and Google credentials stay on the selected environment.
-Your browser or phone controls that environment. Signing in to the Antigravity IDE or CLI does
-not sign in this T3 Code provider.
+T3 Code runs Google's official Antigravity ACP agent on your selected environment.
+T3 manages its own CLI installation and sign-in, separate from your terminal or IDE. Google controls
+which models and account access are available through this agent.
 
 ## Set up Antigravity
 
@@ -15,51 +10,31 @@ On web or desktop, open **Settings > Providers**, choose the environment that ru
 your project, and enable Antigravity. Install its runtime there, then choose
 **Sign in** and complete the browser sign-in. Wait for T3 Code to confirm
 account access and load models before starting a thread. Once the runtime is installed,
-you can also sign in from **Settings > Provider accounts** in the mobile app.
+you can also sign in from **Settings > Providers** in the mobile app.
 
-1. Choose **Enable Antigravity**. Antigravity is off by default.
-2. Choose **Install Antigravity**. T3 Code downloads the official runtime from Google to that
-   environment. Installation continues if you leave the page or reconnect.
-3. Choose **Sign in with Google**.
-4. Choose **Open sign-in page** on web or desktop, or **Open Google sign-in** on mobile. You can
-   use **Copy sign-in link** to open it in another browser.
-5. Complete Google sign-in. Use the account you use for Antigravity.
-6. Wait for T3 Code to confirm sign-in and load the model choices. Select an Antigravity model
-   in the thread's model picker.
-
-Setup requires a connection with permission to operate the environment. If setup is unavailable
-on an older server, update that environment first.
+Installation continues if you leave settings or reconnect. Setup requires
+permission to operate the environment; update an older server if it does not offer
+Antigravity setup.
 
 ### Sign in from a remote device
 
-Google returns to a `127.0.0.1` address on the device running your browser. If that is the same
-machine as the T3 Code environment, sign-in can finish directly.
+Google finishes on an Antigravity page that shows a code. Paste that code, or the
+page's full address, into the code field in the client where you started sign-in.
+This works the same from any device.
 
-Copy the full return address, including everything after `?`, into the return URL
-field in the client where you started sign-in, then choose
-**Continue**. Keep the original address; do not replace it with the server's
-hostname. Only that T3 Code sign-in session can finish the attempt. If it expires,
-retry sign-in and use the new link.
-
-Return to the same T3 Code client and environment where you started sign-in. Another client
-can see that sign-in is in progress, but cannot complete that attempt. The setup screen shows
-the expiry time. If it expires, choose **Retry Google sign-in** and use the new link.
-
-The return URL contains a temporary sign-in code. Paste it only into the setup field, not into
-a thread or bug report. T3 Code waits for Google's agent to confirm sign-in. A successful
-callback page alone does not prove account access.
+The code is temporary. Paste it only into the setup field. The page alone does not
+confirm account access; wait for T3 Code's confirmation.
 
 ### Other sign-in methods
 
-**Sign-in method** in the Antigravity provider settings on web or desktop selects how the
-agent authenticates. Mobile shows the selected method and its connect controls.
+Choose **Sign-in method** in the Antigravity provider settings:
 
-| Method                     | What you enter                           | How it signs in                 |
-| -------------------------- | ---------------------------------------- | ------------------------------- |
-| Google account             | Nothing                                  | Google sign-in page             |
-| Gemini Enterprise          | GCP project and GCP location             | Google sign-in page             |
-| Gemini API key             | API key                                  | Choose **Connect**. No browser. |
-| Agent Platform (Vertex AI) | API key, or GCP project and GCP location | Choose **Connect**. No browser. |
+| Method                     | Credentials                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| Google account             | Personal Google sign-in in the browser                                                       |
+| Gemini Enterprise          | Browser sign-in, GCP project, and GCP location                                               |
+| Gemini API key             | API key; choose Connect without a browser                                                    |
+| Agent Platform / Vertex AI | API key, or GCP project and location with Application Default Credentials on the environment |
 
 The environment stores the Antigravity API key outside its settings file, and
 clients only see whether one is saved. The agent uses the method and credentials selected for this instance;
@@ -69,83 +44,88 @@ account.
 
 ## Runtime installation
 
-Managed downloads are available for these environment hosts:
-
-| Host    | Architecture  |
-| ------- | ------------- |
-| macOS   | Apple Silicon |
-| Linux   | x64 or ARM64  |
-| Windows | x64 or ARM64  |
-
-Google does not publish a local Intel Mac runtime. Use an Intel Mac as a client connected to
-a supported remote environment.
-
-Allow several GB of free space, especially on Linux. An update keeps the previous runtime too.
-T3 Code does not download it until you choose to install it.
-
-On web or desktop, **Update Antigravity** appears when T3 Code has a newer managed release.
-Running sessions keep their current runtime. New sessions use the installed update.
+Managed installation supports Apple Silicon and Intel macOS, Linux x64 or ARM64
+with glibc or musl, and Windows x64 or ARM64. Allow at least 1.25 GiB of free disk
+space for downloading and staging an update.
 
 ### Use a manual installation
 
-Download the correct archive from the [official ACP Registry][registry] and extract both the
-ACP executable and its `localharness_external` helper into the same directory. Keep both files
-at the same version and make them executable on macOS or Linux. Windows uses `.exe` files.
+Install [Antigravity CLI](https://antigravity.google/docs/getting-started) on the environment.
+Set **Binary path** to its `agy` executable and update it yourself.
+Leave the field blank to use the managed runtime, or a compatible executable on
+`PATH` if no managed runtime is installed.
 
-On web or desktop, set **Binary path** in the Antigravity provider settings to the ACP
-executable on the selected environment. Do not point it at the helper or the Antigravity IDE.
+## Update the managed runtime
 
-A nonempty **Binary path** takes priority. With the field empty, T3 Code uses its managed
-runtime, then an installation on the environment's `PATH`. An invalid explicit path reports
-an error instead of selecting another installation. T3 Code does not update or remove manual
-installations. Clear **Binary path** to use managed installation controls.
+In web or desktop provider settings, choose **Update Antigravity** when an update
+is available. T3 checks Google's CLI release channel while provider update checks
+are enabled. Installing or reinstalling also checks that channel. Updates keep
+your profile and existing runtime available if the new release fails validation.
+
+T3 needs Antigravity 1.5 or newer and recommends 1.5.12 or newer. Sessions do not
+start on an older runtime: update the managed runtime here, or update the executable
+a custom binary path or `PATH` points at. You may need to sign in again after
+updating from a runtime older than 1.5. Threads already running finish with their
+original runtime; new sessions use the updated release. Custom binary paths keep
+using the executable you selected.
 
 ## Models and threads
 
-The current official ACP exposes Gemini models only. T3 Code uses the model IDs and names
-returned for your account, including any model choices with different thinking levels. Models
-available in other Antigravity apps might not be available through this agent.
-The model picker updates when a running session reports new model choices.
+The model list comes from your Antigravity account, including Claude and GPT models
+when your plan has them. Pick a thinking level beside the model list in the model picker; it
+shows only the levels the selected model supports. A resumed thread keeps its
+selected model. If access to that model ends, select another available model
+before continuing.
 
-New threads use Gemini 3.8 Flash (High) when your account offers it. Older Gemini generations
-stay available under **Legacy models** in the picker.
+Antigravity creates empty `.gemini/skills` and `.agents/skills` folders in the
+workspace when a session starts. Git does not track empty folders, so they never
+appear in commits.
 
-Threads keep their selected model when you resume them. If that model is no longer available,
-T3 Code asks you to select an available model instead of silently changing it.
+Use Antigravity's native `/plan` command for planning. Tool approvals follow [Permission modes](./permission-modes.md).
+Questions with fixed choices still need one of the offered answers, even in
+**Full access**.
 
-Use Antigravity's native `/plan` command to request a plan. T3 Code's separate Plan mode control
-is not available for this provider.
+On web and desktop, [Edit from here](./composer.md#edit-an-earlier-prompt) works with
+Antigravity. Antigravity cannot rewind its own conversation, so the next turn
+starts a fresh Antigravity session and T3 Code sends it the kept conversation,
+without the turns you removed.
 
-Project skills should use `.agents/skills`. T3 Code also discovers `.gemini/skills` and the legacy
-`.agent/skills` location. When multiple locations define the same skill name, `.gemini/skills`
-takes precedence, followed by `.agents/skills` and then `.agent/skills`.
+Use `/compact` to summarize a long conversation when your Antigravity runtime
+offers that command. If it is unavailable, update Antigravity in provider settings
+or send `/clear` when you need a fresh context.
 
-Skills for every project go in `~/.gemini/config/skills` or `~/.gemini/antigravity-cli/skills`.
-Antigravity does not read `~/.agents/skills` unless the project itself is your home directory.
+### Skills and attachments
 
-Antigravity receives images directly. Every other attachment, including PDFs,
-text, audio, archives, and videos, is passed as a saved file path for the agent
-to inspect with its tools. A video path does not enable native video input.
+Put project skills in `.agents/skills`. T3 Code also reads `.gemini/skills` and the
+legacy `.agent/skills` directory. Among these project locations, the first copy
+wins in this order: `.gemini/skills`, `.agents/skills`, `.agent/skills`. See
+[commands and skills](./composer.md#commands-and-skills) for invoking them.
+
+Skills for every project go in `~/.gemini/config/skills` or
+`~/.gemini/antigravity-cli/skills`. Antigravity does not read `~/.agents/skills`
+on its own; to share a folder like that one, list it in `~/.gemini/config/skills.json`
+(or a project's `.agents/skills.json`), and T3 Code shows the skills it declares,
+honoring `inherits`, `include_only`, and `exclude`.
+
+Antigravity receives images and audio directly, and reads PDFs and text files as
+documents. Other attachments, including videos, are passed as a saved file path for
+the agent to inspect with its tools.
 
 ### Subagents
 
-Subagent launches appear as **Antigravity subagent batch** in **Agents** on web and desktop,
-and in the work log on mobile. One launch can start several agents. The batch stays active
-after launch while the parent turn runs. When that turn ends, the entry becomes idle and
-states that individual agent status is unavailable. Launch errors remain visible.
-The conversation summary counts launches as batches and shows idle or stopped batches
-without a completion checkmark.
-
-The official ACP agent does not send individual child status, names, models, token usage,
-or reply ownership. T3 Code cannot show separate child entries or separate child replies
-from the parent conversation. The launch description is not a child result. Batch entries
-cannot be opened or controlled as separate threads.
+Antigravity groups subagent activity into batches. Open a batch and select
+**Subagent work** (**Work** on mobile) to read each child's role, prompt, and recent steps. This view
+is read only: you cannot message or control individual subagents, and an idle
+batch does not confirm that every child succeeded. If Antigravity did not record
+which children a batch started, the view says so. See
+[agent work](./thread-sidebar.md#inspect-agent-work) for where to inspect
+activity.
 
 ## Accounts and removal
 
-Each Antigravity provider instance has its own Google sign-in on its environment. Use
-**Add provider** in web or desktop provider settings to create a separate instance for another
-account. To replace an instance's account, sign out first, then sign in again.
+Add an Antigravity provider instance for each Google account in
+**Settings > Providers** on web or desktop. Each has its own sign-in; downloaded
+runtimes are shared on the environment.
 
 | Action                    | Effect                                                            |
 | ------------------------- | ----------------------------------------------------------------- |
@@ -153,14 +133,26 @@ account. To replace an instance's account, sign out first, then sign in again.
 | Sign out                  | Stops the instance's sessions and removes its saved Google login. |
 | Remove downloaded runtime | Removes the shared installation and keeps Google credentials.     |
 
-Send `/logout` by itself in an Antigravity thread to sign out that provider instance. This has
-the same effect as **Sign out of Google**, including stopping its other sessions.
+All three keep thread history and workspace files. Sending `/logout` by itself in
+a thread signs out its instance, including stopping that instance's other sessions.
+That needs a client allowed to manage providers, and it has to be your own message:
+`/logout` from an agent or a scheduled task is refused.
+Sign out, then sign in again to replace an account.
 
-Before removing a managed runtime, disable the instances that use it and cancel any active
-installation. T3 Code refuses removal while the runtime is in use. An explicit **Binary path**
-that points into the managed runtime must be cleared first.
+Before removing a managed runtime, disable its instances and cancel any active
+installation. Clear any explicit binary path pointing into that runtime. Removal
+is refused while the runtime is in use.
 
-## Account access and errors
+## Run a native goal
+
+When your Antigravity runtime offers `/goal`, send `/goal` followed by a verifiable
+objective. Antigravity keeps working until it completes the goal or you cancel it.
+
+Use Stop to interrupt a running goal, then ask Antigravity to stop pursuing it
+before starting more work. Ordinary follow-ups wait until the running turn ends.
+T3 does not support Antigravity goal status, pause, resume, or clear commands.
+
+## Check access and troubleshoot
 
 Open **Usage > Limits** to see the remaining Gemini and shared Claude/GPT allowances
 for Google sign-ins. Each group has separate five-hour and weekly limits and reset
@@ -171,21 +163,10 @@ until a session, a refresh, or a sign-out reports something new.
 
 To check access and reload models, use **Refresh provider status** in web or desktop
 provider settings, or **Refresh models** in mobile thread settings. If asked to
-sign in again, use provider settings on web or desktop, or **Provider accounts** on mobile.
+sign in again, use provider settings on web or desktop, or **Settings > Providers** on mobile.
 
-To check account access and reload models on web or desktop, open **Settings** > **Providers**
-and select the circular arrow beside **Checked** at the top of the page. Its tooltip says
-**Refresh provider status**. On mobile, use **Refresh models** in the model picker.
-Refresh uses saved Google sign-in and does not open a login page. If sign-in is required,
-use the provider's setup controls. Automatic status checks verify the installation only.
+If Google reports `SUBSCRIPTION_REQUIRED`, an account restriction, or a usage limit,
+follow the provider's message and any retry time. See [Google's account plans][plans]
+for eligibility.
 
-The packaged runtime can be slow to start, especially on Windows. Health checks, model refresh,
-and sign-out each allow up to 90 seconds before reporting a timeout.
-
-If Google reports `SUBSCRIPTION_REQUIRED`, an account restriction, or a usage limit, read the
-provider's message. A finished turn can contain an upstream error instead of completed work.
-Use any retry time Google supplies. T3 Code does not switch to an API key to get past the limit.
-
-[registry]: https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json
 [plans]: https://antigravity.google/docs/plans
-[google-setup]: https://antigravity.google/docs/ide/extensions/zed

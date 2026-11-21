@@ -27,7 +27,7 @@ export const execute = DesktopIpc.makeIpcMethod({
   payload: DesktopComputerUseExecuteInput,
   result: Schema.Unknown,
   handler: ({ requestId, operation, input }) =>
-    Effect.tryPromise(() => executeComputerUse(requestId, operation, input)).pipe(Effect.orDie),
+    Effect.promise(() => executeComputerUse(requestId, operation, input)),
 });
 
 export const cancel = DesktopIpc.makeIpcMethod({

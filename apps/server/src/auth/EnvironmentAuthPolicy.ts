@@ -1,4 +1,8 @@
-import { AuthEnvironmentMaintainScope, type ServerAuthDescriptor } from "@t3tools/contracts";
+import {
+  AuthEnvironmentMaintainScope,
+  type ServerAuthDescriptor,
+  type ServerAuthPolicy,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -14,22 +18,24 @@ export class EnvironmentAuthPolicy extends Context.Service<
   }
 >()("t3/auth/EnvironmentAuthPolicy") {}
 
+/** The auth policy a server started with `config` runs under. */
+export function resolveServerAuthPolicy(
+  config: Pick<ServerConfig.ServerConfig["Service"], "mode" | "host"> &
+    Partial<Pick<ServerConfig.ServerConfig["Service"], "tailscaleServeEnabled">>,
+): ServerAuthPolicy {
+  // Tailscale Serve makes a loopback-bound backend remotely reachable through
+  // its authenticated HTTPS proxy without exposing the backend port itself.
+  if (isRemoteReachableHost(config.host) || config.tailscaleServeEnabled === true) {
+    return "remote-reachable";
+  }
+  return config.mode === "desktop" ? "desktop-managed-local" : "loopback-browser";
+}
+
 /** @public */
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
-  // Tailscale Serve makes a loopback-bound backend remotely reachable through
-  // its authenticated HTTPS proxy without exposing the backend port itself.
-  const isRemoteReachable = isRemoteReachableHost(config.host) || config.tailscaleServeEnabled;
-
-  const policy =
-    config.mode === "desktop"
-      ? isRemoteReachable
-        ? "remote-reachable"
-        : "desktop-managed-local"
-      : isRemoteReachable
-        ? "remote-reachable"
-        : "loopback-browser";
+  const policy = resolveServerAuthPolicy(config);
 
   const bootstrapMethods: ServerAuthDescriptor["bootstrapMethods"] =
     policy === "desktop-managed-local"
@@ -54,8 +60,9 @@ export const make = Effect.gen(function* () {
   };
 
   return EnvironmentAuthPolicy.of({
-    getDescriptor: () =>
-      Effect.succeed(descriptor).pipe(Effect.withSpan("EnvironmentAuthPolicy.getDescriptor")),
+    getDescriptor: Effect.fn("EnvironmentAuthPolicy.getDescriptor")(function () {
+      return Effect.succeed(descriptor);
+    }),
   });
 });
 

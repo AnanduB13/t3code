@@ -65,6 +65,18 @@ export function advanceWorkingStatusLabelState(
   };
 }
 
+export function sameWorkingStatusLabelState(
+  left: WorkingStatusLabelState,
+  right: WorkingStatusLabelState,
+): boolean {
+  return (
+    left.threadKey === right.threadKey &&
+    left.turnId === right.turnId &&
+    left.working === right.working &&
+    left.labelIndex === right.labelIndex
+  );
+}
+
 export function workingStatusLabel(state: WorkingStatusLabelState): string {
   return state.labelIndex === null
     ? WORKING_STATUS_LABELS[0]

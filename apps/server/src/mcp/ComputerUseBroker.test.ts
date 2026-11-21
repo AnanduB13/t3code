@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -9,6 +10,7 @@ import {
   type ComputerUseHost,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
@@ -47,7 +49,9 @@ const host = (clientId: string, target: ComputerUseDevice): ComputerUseHost => (
   device: target,
 });
 
-const makeBroker = ComputerUseBroker.make.pipe(Effect.provide(NodeServices.layer));
+const makeBroker = ComputerUseBroker.make.pipe(
+  Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 
 it.effect(
   "fails old pending work immediately when a client reconnects and keeps the new connection",

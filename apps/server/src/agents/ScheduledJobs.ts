@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Cron from "effect/Cron";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -86,7 +86,7 @@ export const make = Effect.gen(function* () {
   const threadLaunch = yield* ThreadLaunchService;
   const threads = yield* ThreadManagementService;
   const projects = yield* ProjectStoreV2;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const mutex = yield* Semaphore.make(1);
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const next = (input: ScheduledJobInput, at: string) =>
@@ -189,7 +189,7 @@ export const make = Effect.gen(function* () {
     return yield* runState(updated);
   });
   const enqueue = Effect.fn("ScheduledJobs.enqueue")(function* (job: ScheduledJob, at: string) {
-    const id = yield* crypto.randomUUIDv4();
+    const id = yield* random.uuidV4();
     const run: StoredRun = {
       id,
       jobId: job.id,
@@ -222,7 +222,7 @@ export const make = Effect.gen(function* () {
       const previous = id ? yield* getJob(id) : null;
       const job: ScheduledJob = {
         ...input,
-        id: previous?.id ?? (yield* crypto.randomUUIDv4()),
+        id: previous?.id ?? (yield* random.uuidV4()),
         enabled: previous?.enabled ?? true,
         nextRunAt,
         createdAt: previous?.createdAt ?? at,

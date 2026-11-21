@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -42,8 +43,12 @@ const client = McpSchema.McpServerClient.of({
   getClient: Effect.die("unused"),
 });
 const TestLayer = McpHttpServer.layerComputerUseToolkit.pipe(
-  Layer.provideMerge(McpServer.McpServer.layer),
-  Layer.provideMerge(ComputerUseBroker.layer.pipe(Layer.provide(NodeServices.layer))),
+  Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+  Layer.provideMerge(
+    ComputerUseBroker.layer.pipe(
+      Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    ),
+  ),
 );
 const state: ComputerUseAppState = {
   app: "Editor",

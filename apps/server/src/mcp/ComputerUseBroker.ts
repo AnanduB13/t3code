@@ -13,7 +13,7 @@ import {
   type ComputerUseStreamEvent,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -78,7 +78,7 @@ export class ComputerUseBroker extends Context.Service<
 >()("t3/mcp/ComputerUseBroker") {}
 
 export const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const state = yield* SynchronizedRef.make<State>({
     clients: new Map(),
     selections: new Map(),
@@ -124,7 +124,7 @@ export const make = Effect.gen(function* () {
           Effect.acquireRelease(
             Effect.gen(function* () {
               const queue = yield* Queue.unbounded<ComputerUseStreamEvent>();
-              const connectionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+              const connectionId = yield* random.uuidV4();
               const connection = { host, connectionId, queue } satisfies Connection;
               yield* Queue.offer(queue, { type: "connected", connectionId });
               const previous = yield* SynchronizedRef.modify(state, (current) => {
@@ -290,18 +290,13 @@ export const make = Effect.gen(function* () {
       Effect.onInterrupt(() => cancelHostRequest),
       Effect.ensuring(cleanup),
     );
-    return yield* Option.match(result, {
-      onNone: () =>
-        Effect.gen(function* () {
-          yield* cancelHostRequest;
-          return yield* new ComputerUseTimeoutError({
-            ...scopeFields(scope),
-            operation,
-            deviceId: connection.host.device.deviceId,
-            timeoutMs,
-          });
-        }),
-      onSome: (value) => Effect.succeed(value as A),
+    if (Option.isSome(result)) return result.value as A;
+    yield* cancelHostRequest;
+    return yield* new ComputerUseTimeoutError({
+      ...scopeFields(scope),
+      operation,
+      deviceId: connection.host.device.deviceId,
+      timeoutMs,
     });
   });
 

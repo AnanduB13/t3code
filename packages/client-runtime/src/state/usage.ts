@@ -1,9 +1,9 @@
 import type {
   EnvironmentId,
-  ServerProvider,
-  ServerConfig,
   ProviderUsageResult,
-  UsageSummary,
+  ServerConfig,
+  ServerProvider,
+  UsageModelFilter,
   UsageSummaryInput,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -42,34 +42,12 @@ export function createUsageLimitProvidersAtom<E>(input: {
   );
 }
 
-/** Offer the Cursor Keychain prompt only where a working Cursor provider could use it. */
-export function needsCursorKeychainAccess(
-  summary: UsageSummary | null,
-  providers: readonly ServerProvider[] | null,
-): boolean {
-  return (
-    summary?.sources.some((source) => source.action === "enableCursorKeychain") === true &&
-    providers?.some((provider) => provider.driver === "cursor" && provider.status === "ready") ===
-      true
-  );
-}
-
-/**
- * Any environment reading a Cursor account already reports that account's
- * history from every machine, so the prompt only adds duplicates there.
- */
-export function cursorKeychainAccessEnvironments<
-  E extends { readonly summary: UsageSummary | null; readonly needsCursorKeychainAccess: boolean },
->(environments: readonly E[]): readonly E[] {
-  const hasCursorAccount = environments.some((environment) =>
-    environment.summary?.sources.some(
-      (source) =>
-        source.fingerprint.provider === "cursor" && source.fingerprint.hostId === "cursor.com",
-    ),
-  );
-  return hasCursorAccount
-    ? []
-    : environments.filter((environment) => environment.needsCursorKeychainAccess);
+/** The Usage tab asks each environment with that environment's configured model filter. */
+export function usageSummaryInput(
+  input: UsageSummaryInput,
+  modelFilter: UsageModelFilter | undefined,
+): UsageSummaryInput {
+  return modelFilter === undefined ? input : { ...input, modelFilter };
 }
 
 const limitsRefreshAfter = new Map<EnvironmentId, number>();
@@ -79,16 +57,9 @@ export async function refreshUsageLimits<A>(
   environmentId: EnvironmentId,
   refresh: () => Promise<A>,
   automatic = false,
-  afterPending = false,
 ): Promise<A | undefined> {
   const pending = limitsRefreshes.get(environmentId);
   if (pending !== undefined) {
-    if (afterPending) {
-      try {
-        await pending;
-      } catch {}
-      return refreshUsageLimits(environmentId, refresh, false, true);
-    }
     return automatic ? undefined : ((await pending) as A);
   }
   const refreshAfter = limitsRefreshAfter.get(environmentId) ?? 0;
@@ -115,7 +86,7 @@ export async function refreshUsage({
   registry: AtomRegistry.AtomRegistry;
   server: Pick<
     ReturnType<typeof createServerEnvironmentAtoms>,
-    "usageSummary" | "refreshUsageRates"
+    "usageSummary" | "refreshUsageRates" | "usageModelFilterAtom"
   >;
   presentations: Pick<ReturnType<typeof createEnvironmentPresentationAtoms>, "presentationAtom">;
   environmentIds: readonly EnvironmentId[];
@@ -123,7 +94,10 @@ export async function refreshUsage({
 }): Promise<void> {
   await Promise.all(
     environmentIds.map(async (environmentId) => {
-      const query = server.usageSummary({ environmentId, input });
+      const query = server.usageSummary({
+        environmentId,
+        input: usageSummaryInput(input, registry.get(server.usageModelFilterAtom(environmentId))),
+      });
       const presentation = presentations.presentationAtom(environmentId);
       const controller = new AbortController();
       const abortWhenDisconnected = () => {

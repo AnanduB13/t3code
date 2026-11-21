@@ -1,11 +1,16 @@
 package expo.modules.t3nativecontrols
 
-import android.app.Activity
-import android.content.ActivityNotFoundException
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
-import android.speech.RecognizerIntent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.text.format.DateFormat
+import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
@@ -15,59 +20,32 @@ import java.net.URI
 
 class T3NativeControlsModule : Module() {
   private var filePreviewPromise: Promise? = null
-  private var dictationPromise: Promise? = null
-  private var dictationSessionId: String? = null
-  private var dictationActivity: Activity? = null
-  private var dictationCancelled = false
 
   @Suppress("TooGenericExceptionCaught") // Clear the pending promise before rethrowing.
   override fun definition() = ModuleDefinition {
     Name("T3NativeControls")
+
+    // React Native sets this once, at launch, from the system theme rather than the app's.
+    AsyncFunction("setNavigationBarStyle") { light: Boolean ->
+      // Below Android 10, React Native paints the navigation bar color itself.
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@AsyncFunction
+      val window = appContext.currentActivity?.window ?: return@AsyncFunction
+      val controller = WindowCompat.getInsetsController(window, window.decorView)
+      controller.isAppearanceLightNavigationBars = light
+    }.runOnQueue(Queues.MAIN)
 
     Function("is24HourFormat") {
       val context = appContext.reactContext ?: error("The app is not active.")
       DateFormat.is24HourFormat(context)
     }
 
-    AsyncFunction("startDictation") { locale: String, sessionId: String, promise: Promise ->
-      check(dictationPromise == null) { "Another voice input session is still finishing." }
-      val activity = appContext.currentActivity ?: error("The app is not active.")
-      val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
-        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")
-      }
-      dictationPromise = promise
-      dictationSessionId = sessionId
-      dictationActivity = activity
-      dictationCancelled = false
-      try {
-        activity.startActivityForResult(intent, DICTATION_REQUEST_CODE)
-      } catch (error: Exception) {
-        clearDictation()
-        if (error is ActivityNotFoundException) {
-          promise.reject(
-            "ERR_DICTATION_UNAVAILABLE",
-            "Install or enable a speech recognition app to use voice input.",
-            error
-          )
-        } else {
-          promise.reject(
-            "ERR_DICTATION_START",
-            "Could not open speech input. Please try again.",
-            error
-          )
-        }
-      }
-    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("generateDpopKey") { T3DpopKeys.generate() }
 
-    AsyncFunction("cancelDictation") { sessionId: String ->
-      if (dictationSessionId == sessionId) {
-        dictationCancelled = true
-        dictationActivity?.finishActivity(DICTATION_REQUEST_CODE)
-      }
-    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("dpopKeyMatches") { privateKey: ByteArray, publicKey: ByteArray ->
+      T3DpopKeys.matches(privateKey, publicKey)
+    }
+
+    AsyncFunction("signDpop") { key: ByteArray, input: ByteArray -> T3DpopKeys.sign(key, input) }
 
     AsyncFunction("openFile") { uri: String, mimeType: String, promise: Promise ->
       check(filePreviewPromise == null) { "A document viewer is already open." }
@@ -92,36 +70,20 @@ class T3NativeControlsModule : Module() {
       }
     }
 
-    OnActivityResult { _, (requestCode, resultCode, data) ->
+    AsyncFunction("saveImageToLibrary") { uri: String, mimeType: String, name: String ->
+      val context = appContext.reactContext ?: error("The app is not active.")
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        saveImageToPictures(context, Uri.parse(uri), mimeType, name)
+      } else {
+        error("Saving images needs Android 10 or later.")
+      }
+    }
+
+    OnActivityResult { _, (requestCode) ->
       if (requestCode == 7343) {
         filePreviewPromise?.resolve(null)
         filePreviewPromise = null
       }
-      if (requestCode == DICTATION_REQUEST_CODE) {
-        val promise = dictationPromise
-        val cancelled = dictationCancelled || resultCode == Activity.RESULT_CANCELED
-        clearDictation()
-        when {
-          cancelled -> promise?.resolve(null)
-          resultCode == Activity.RESULT_OK -> promise?.resolve(
-            data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
-          )
-          else -> promise?.reject(
-            "ERR_DICTATION_FAILED",
-            "Speech input failed. Please try again.",
-            null
-          )
-        }
-      }
-    }
-
-    OnDestroy {
-      val activity = dictationActivity
-      if (activity != null) {
-        activity.runOnUiThread { activity.finishActivity(DICTATION_REQUEST_CODE) }
-      }
-      dictationPromise?.resolve(null)
-      clearDictation()
     }
 
     Function("getShowcasePairingUrl") {
@@ -156,15 +118,33 @@ class T3NativeControlsModule : Module() {
         ?.writeText(scene)
     }
   }
+}
 
-  private fun clearDictation() {
-    dictationPromise = null
-    dictationSessionId = null
-    dictationActivity = null
-    dictationCancelled = false
+// Android 10+ lets apps add their own media without a storage permission.
+@RequiresApi(Build.VERSION_CODES.Q)
+private fun saveImageToPictures(context: Context, source: Uri, mimeType: String, name: String) {
+  val resolver = context.contentResolver
+  val values = ContentValues().apply {
+    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+    put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/T3 Code")
+    put(MediaStore.Images.Media.IS_PENDING, 1)
   }
-
-  private companion object {
-    const val DICTATION_REQUEST_CODE = 7344
-  }
+  val target = resolver.insert(
+    MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+    values
+  ) ?: error("Could not create the image in Pictures.")
+  runCatching {
+    val input = resolver.openInputStream(source) ?: error("The image is no longer available.")
+    input.use { from ->
+      val output = resolver.openOutputStream(target) ?: error("Could not write the image.")
+      output.use { from.copyTo(it) }
+    }
+    resolver.update(
+      target,
+      ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },
+      null,
+      null
+    )
+  }.onFailure { resolver.delete(target, null, null) }.getOrThrow()
 }

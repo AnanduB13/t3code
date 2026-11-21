@@ -6,8 +6,18 @@ import { DraftId } from "../../composerDraftStore";
 import { useChatWorkspaceLayoutStore } from "../../chatWorkspaceLayout";
 import { ChatWorkspace } from "./ChatWorkspace";
 
+// These renders have no I18nProvider, so GT passes copy through untranslated.
+vi.mock("gt-react", async (importOriginal) => {
+  const gt = (text: string) => text;
+  return {
+    ...(await importOriginal<typeof import("gt-react")>()),
+    T: ({ children }: { children: React.ReactNode }) => children,
+    useGT: () => gt,
+  };
+});
+
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
-vi.mock("../../hooks/useMediaQuery", () => ({ useIsMobile: () => false }));
+vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => false }));
 vi.mock("../../state/entities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../state/entities")>()),
   useThreadShell: () => ({}),

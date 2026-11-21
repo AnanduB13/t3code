@@ -62,8 +62,12 @@ function configString(instance: ProviderInstanceConfig | undefined, key: string)
 }
 
 function environmentValue(instance: ProviderInstanceConfig | undefined, name: string): string {
-  return instance?.environment?.find((entry) => entry.name === name)?.value.trim() ?? "";
+  const value = instance?.environment?.find((entry) => entry.name === name)?.value;
+  // Secret references resolve at launch; skill folders only follow plain values.
+  return typeof value === "string" ? value.trim() : "";
 }
+
+const processEnvValue = (name: string): string => process.env[name]?.trim() ?? "";
 
 const resolveUserSkillRoot = Effect.fn("resolveUserSkillRoot")(function* (
   provider: ProviderDriverKind,
@@ -74,7 +78,7 @@ const resolveUserSkillRoot = Effect.fn("resolveUserSkillRoot")(function* (
     const configuredHome =
       configString(instance, "homePath") ||
       environmentValue(instance, "CODEX_HOME") ||
-      process.env.CODEX_HOME?.trim() ||
+      processEnvValue("CODEX_HOME") ||
       path.join(NodeOS.homedir(), ".codex");
     return path.join(path.resolve(expandHomePath(configuredHome, NodeOS.homedir())), "skills");
   }
@@ -85,7 +89,7 @@ const resolveUserSkillRoot = Effect.fn("resolveUserSkillRoot")(function* (
     const configuredHome =
       configString(instance, "homePath") ||
       environmentValue(instance, "CLAUDE_CONFIG_DIR") ||
-      process.env.CLAUDE_CONFIG_DIR?.trim() ||
+      processEnvValue("CLAUDE_CONFIG_DIR") ||
       path.join(NodeOS.homedir(), ".claude");
     return path.join(path.resolve(expandHomePath(configuredHome, NodeOS.homedir())), "skills");
   }

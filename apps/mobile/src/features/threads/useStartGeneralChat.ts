@@ -1,3 +1,4 @@
+import { useGT } from "gt-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { AsyncResult } from "effect/reactivity";
 import {
@@ -21,11 +22,12 @@ export function useStartGeneralChat(
   selectedEnvironmentId: EnvironmentId | null,
   openDraft: (project: EnvironmentProject) => void,
 ) {
+  const gt = useGT();
   const projects = useProjects();
   const { environments } = useWorkspaceState();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const [pendingEnvironmentId, setPendingEnvironmentId] = useState<EnvironmentId | null>(null);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Open the draft only after the server shell publishes the newly created Chats project.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Open the draft only after the server shell publishes the newly created Chats project.
   useEffect(() => {
     if (pendingEnvironmentId === null) return;
     const project = projects.find(
@@ -48,7 +50,10 @@ export function useStartGeneralChat(
           candidate.connectionState === "connected",
       ) ?? environments.find((candidate) => candidate.connectionState === "connected");
     if (!environment) {
-      Dialog.alert("Could not start chat", "Connect an environment before starting a chat.");
+      Dialog.alert(
+        gt("Could not start chat"),
+        gt("Connect an environment before starting a chat."),
+      );
       return;
     }
     const existing = projects.find(
@@ -73,13 +78,14 @@ export function useStartGeneralChat(
       if (isGeneralChatsProjectAlreadyExistsError(error)) return;
       setPendingEnvironmentId(null);
       Dialog.alert(
-        "Could not start chat",
-        error instanceof Error ? error.message : "The chat could not be created.",
+        gt("Could not start chat"),
+        error instanceof Error ? error.message : gt("The chat could not be created."),
       );
     });
   }, [
     createProject,
     environments,
+    gt,
     openDraft,
     pendingEnvironmentId,
     projects,

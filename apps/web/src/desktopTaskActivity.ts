@@ -33,7 +33,7 @@ export function projectDesktopTasks(
   const tasks: DesktopTask[] = [];
   for (const thread of snapshot.threads) {
     if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent") continue;
-    const phase = resolveThreadAwarenessPhaseV2(thread);
+    const phase = resolveThreadAwarenessPhaseV2(thread, null);
     // A finished run held open by subagents or monitors is still being watched.
     const status =
       phase === "waiting_for_approval"

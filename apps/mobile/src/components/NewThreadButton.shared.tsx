@@ -1,3 +1,4 @@
+import { T, useGT } from "gt-react-native";
 import { Pressable, type StyleProp, type ViewStyle } from "react-native";
 
 import { cn } from "../lib/cn";
@@ -12,9 +13,10 @@ export function NewThreadButton(props: {
   readonly className?: string;
   readonly style?: StyleProp<ViewStyle>;
 }) {
+  const gt = useGT();
   return (
     <Pressable
-      accessibilityLabel={props.accessibilityLabel ?? "New thread"}
+      accessibilityLabel={props.accessibilityLabel ?? gt("New thread")}
       accessibilityRole="button"
       onPress={props.onPress}
       className={cn(
@@ -34,7 +36,7 @@ export function NewThreadButton(props: {
       />
       {props.extended && props.expanded !== false ? (
         <AppText className="text-[16px] font-t3-medium text-primary-foreground">
-          {props.accessibilityLabel ?? "New thread"}
+          {props.accessibilityLabel ?? <T>New thread</T>}
         </AppText>
       ) : null}
     </Pressable>

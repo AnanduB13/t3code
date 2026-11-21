@@ -1,8 +1,5 @@
 import { NATIVE_WORKSPACE_COLUMNS_SUPPORTED } from "../native/NativeWorkspaceColumns";
-import type {
-  NativeStackHeaderItem,
-  NativeStackNavigationOptions,
-} from "@react-navigation/native-stack";
+import { useGT } from "gt-react-native";
 import { useState } from "react";
 import { Platform, View } from "react-native";
 
@@ -10,29 +7,26 @@ import { AppText as Text } from "./ui/AppText";
 import { T3Wordmark } from "./T3Wordmark";
 import { IPAD_HOME_TITLE_OFFSET } from "../lib/layoutMetrics";
 import { MOBILE_EDITION_LABEL } from "../lib/mobileBranding";
-import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../native/native-glass";
 import { useAndroidControlSizing } from "./ui/useAndroidControlSizing";
 
-/**
- * Horizontal correction applied to content rendered in the brand title slot,
- * shared with the connection-status swap so both align identically.
- */
-export function brandTitleOffset(nativeLeadingItem = false): number {
+const BRAND_MAX_FONT_SCALE = 1.4;
+const WORDMARK_SUFFIX = "Code";
+
+export function brandTitleOffset(): number {
   if (Platform.OS !== "ios") return 0;
-  if (nativeLeadingItem) return Platform.isPad ? 7 : -6;
   return Platform.isPad && !NATIVE_WORKSPACE_COLUMNS_SUPPORTED ? IPAD_HOME_TITLE_OFFSET : 0;
 }
 
 export function CompactBrandTitle(
   props: {
     readonly allowFontScaling?: boolean;
-    readonly nativeLeadingItem?: boolean;
     readonly accessibilityLabel?: string;
     /** Fills the row and hides the stage badge when the full title does not fit. */
     readonly fit?: boolean;
   } = {},
 ) {
-  const titleOffset = brandTitleOffset(props.nativeLeadingItem);
+  const gt = useGT();
+  const titleOffset = brandTitleOffset();
   const { scale } = useAndroidControlSizing();
   const [availableWidth, setAvailableWidth] = useState<number | null>(null);
   // Measured only while the badge shows, so hiding it does not make it look like it fits.
@@ -46,7 +40,9 @@ export function CompactBrandTitle(
         props.fit && showStage ? (event) => setFullWidth(event.nativeEvent.layout.width) : undefined
       }
       aria-level={1}
-      accessibilityLabel={props.accessibilityLabel ?? "T3 Code: After Dark, Threads"}
+      accessibilityLabel={
+        props.accessibilityLabel ?? gt("{appName}, Threads", { appName: "T3 Code: After Dark" })
+      }
       accessible
       role="heading"
       className="flex-row items-center gap-1.5"
@@ -57,12 +53,14 @@ export function CompactBrandTitle(
       ]}
     >
       <T3Wordmark colorClassName="accent-icon" height={Math.round(15 * scale)} />
+      {/* A logo beside a fixed-size wordmark: it may grow with Dynamic Type, not crowd the bar. */}
       <Text
         allowFontScaling={props.allowFontScaling}
+        maxFontSizeMultiplier={BRAND_MAX_FONT_SCALE}
         className="font-t3-medium text-foreground-muted"
         style={{ fontSize: 21 * scale, letterSpacing: -0.5 * scale }}
       >
-        Code
+        {WORDMARK_SUFFIX}
       </Text>
       {showStage ? (
         <View
@@ -75,6 +73,7 @@ export function CompactBrandTitle(
         >
           <Text
             allowFontScaling={props.allowFontScaling}
+            maxFontSizeMultiplier={BRAND_MAX_FONT_SCALE}
             className="font-t3-bold text-foreground-muted uppercase"
             style={{ fontSize: 9 * scale, letterSpacing: 0.9 * scale }}
           >
@@ -95,37 +94,4 @@ export function CompactBrandTitle(
   ) : (
     title
   );
-}
-
-export function renderCompactBrandTitle() {
-  return <CompactBrandTitle allowFontScaling={Platform.OS === "ios"} />;
-}
-
-export function renderCompactBrandHeaderItems(): NativeStackHeaderItem[] {
-  return [
-    {
-      element: <CompactBrandTitle nativeLeadingItem allowFontScaling />,
-      hidesSharedBackground: true,
-      type: "custom",
-    },
-  ];
-}
-
-export function getCompactBrandHeaderOptions(
-  fallbackTitleStyle?: NativeStackNavigationOptions["headerTitleStyle"],
-): NativeStackNavigationOptions {
-  if (Platform.OS === "ios" && NATIVE_LIQUID_GLASS_SUPPORTED) {
-    return {
-      headerTitle: "Threads",
-      headerTitleStyle: { color: "transparent", fontSize: 18, fontWeight: "800" },
-      title: "Threads",
-      unstable_headerLeftItems: renderCompactBrandHeaderItems,
-    };
-  }
-  return {
-    headerTitle: renderCompactBrandTitle,
-    headerTitleStyle: fallbackTitleStyle,
-    title: "Threads",
-    unstable_headerLeftItems: undefined,
-  };
 }

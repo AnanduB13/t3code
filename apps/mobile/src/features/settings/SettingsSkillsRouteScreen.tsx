@@ -12,12 +12,11 @@ import {
 } from "@t3tools/contracts";
 import { normalizeSkillName } from "@t3tools/shared/skillName";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppBar } from "../../components/ui/AppBar";
 import { AppText as Text } from "../../components/ui/AppText";
-import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
@@ -112,7 +111,7 @@ export function SettingsSkillsRouteScreen() {
   const nextSelectedPath = selectedSkill?.path ?? null;
   if (nextSelectedPath !== selectedPath) setSelectedPath(nextSelectedPath);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- The editor reads skill content from the selected remote environment.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- The editor reads skill content from the selected remote environment.
   useEffect(() => {
     if (!environmentId || !selectedProvider || !selectedSkill) {
       // oxlint-disable-next-line react/set-state-in-effect -- Clear the remote editor when no skill is selected.
@@ -213,12 +212,7 @@ export function SettingsSkillsRouteScreen() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      {Platform.OS === "android" ? (
-        <>
-          <NativeStackScreenOptions options={{ headerShown: false }} />
-          <AndroidScreenHeader title="Skills" onBack={() => navigation.goBack()} />
-        </>
-      ) : null}
+      <AppBar title="Skills" onBack={() => navigation.goBack()} />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"

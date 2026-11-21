@@ -83,12 +83,12 @@ function NotificationWorker() {
   const queue = useRef(Promise.resolve());
   const pendingAlerts = useRef(new Map<string, AndroidChatNotification>());
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Subscribe to native foreground changes so monitoring follows the app lifecycle.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribe to native foreground changes so monitoring follows the app lifecycle.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", setAppState);
     return () => subscription.remove();
   }, []);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Create native notification channels and refresh system permission on foregrounding.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Create native notification channels and refresh system permission on foregrounding.
   useEffect(() => {
     // A saved choice also changes when permission is granted from the default-on state.
     if (savedChoice === false || appState !== "active") return;
@@ -105,7 +105,7 @@ function NotificationWorker() {
   }, [appState, savedChoice]);
   // Foreground presentation belongs to useAgentNotificationNavigation's single
   // handler: direct alerts banner like relay alerts unless their thread is on screen.
-  // oxlint-disable-next-line t3code/react-effect-budget -- Stop the native monitoring service and discard pending alerts when its owner unmounts.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Stop the native monitoring service and discard pending alerts when its owner unmounts.
   useEffect(
     () => () => {
       pendingAlerts.current.clear();
@@ -116,7 +116,7 @@ function NotificationWorker() {
     [],
   );
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Synchronize the system notification service with live remote thread state.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Synchronize the system notification service with live remote thread state.
   useEffect(() => {
     const change = reconcileAndroidChatNotifications(
       previous.current,

@@ -1,20 +1,23 @@
 import type { DesktopTaskActivityDisplay } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { useEffect, useState } from "react";
 
 import { useClientSettings, updateClientSettings } from "../../hooks/useSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 
 /** Display preferences belong to this desktop client, regardless of the connected environment. */
 export function MacTaskActivityDisplaySetting() {
+  const gt = useGT();
+  const setting = useSearchableSetting();
   const displayId = useClientSettings((settings) => settings.macTaskActivityDisplayId);
   const updateSettings = updateClientSettings;
   const bridge = window.desktopBridge;
   const [displays, setDisplays] = useState<readonly DesktopTaskActivityDisplay[] | null>(null);
   const [failed, setFailed] = useState(false);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- The Electron display list is external state; subscribe until this settings control unmounts.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- The Electron display list is external state; subscribe until this settings control unmounts.
   useEffect(() => {
     let active = true;
     let request = 0;
@@ -45,18 +48,20 @@ export function MacTaskActivityDisplaySetting() {
 
   return (
     <SettingsRow
-      {...searchableSetting("notch-display")}
+      {...setting("notch-display")}
       description={
         failed
-          ? "Connected displays couldn't be loaded. Reopen Settings to try again."
+          ? gt("Connected displays couldn't be loaded. Reopen Settings to try again.")
           : disconnected
-            ? "This display is disconnected. Activity follows T3 Code until it reconnects."
-            : "Choose where task activity appears. Your choice is remembered when a display reconnects."
+            ? gt("This display is disconnected. Activity follows T3 Code until it reconnects.")
+            : gt(
+                "Choose where task activity appears. Your choice is remembered when a display reconnects.",
+              )
       }
       resetAction={
         displayId !== null ? (
           <SettingResetButton
-            label="notch display"
+            ariaLabel={gt("Reset notch display to default")}
             onClick={() => updateSettings({ macTaskActivityDisplayId: null })}
           />
         ) : null
@@ -73,32 +78,32 @@ export function MacTaskActivityDisplaySetting() {
               }
             }}
           >
-            <SelectTrigger size="sm" className="w-full" aria-label="Notch display">
+            <SelectTrigger size="sm" className="w-full" aria-label={gt("Notch display")}>
               <SelectValue>
                 {displays === null && !failed
-                  ? "Loading displays…"
+                  ? gt("Loading displays…")
                   : displayId === null
-                    ? "Follow T3 Code"
-                    : (selected?.label ?? "Selected display (disconnected)")}
+                    ? gt("Follow T3 Code")
+                    : (selected?.label ?? gt("Selected display (disconnected)"))}
               </SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
               <SelectItem hideIndicator value="follow-app">
-                Follow T3 Code
+                <T>Follow T3 Code</T>
               </SelectItem>
               {displays?.map((display) => (
                 <SelectItem key={display.id} hideIndicator value={String(display.id)}>
                   {display.label} ·{" "}
                   {display.internal
-                    ? "Built-in"
+                    ? gt("Built-in")
                     : display.primary
-                      ? "Main"
+                      ? gt("Main")
                       : `${display.width} × ${display.height}`}
                 </SelectItem>
               ))}
               {disconnected ? (
                 <SelectItem disabled value={String(displayId)}>
-                  Selected display (disconnected)
+                  <T>Selected display (disconnected)</T>
                 </SelectItem>
               ) : null}
             </SelectPopup>

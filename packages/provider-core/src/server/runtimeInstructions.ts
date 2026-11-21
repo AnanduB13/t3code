@@ -6,8 +6,20 @@ When T3 worktree tools are available, use t3_worktree_status then t3_worktree_ha
 </workspace_instructions>`;
 
 const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
-Link each PR you create, take over, or push to: one link_pull_request per PR, full URL, every stack layer, as your next call. Host tools do not link for you. If linking fails, say so. Skip PRs you only read or review, and PRs named only as background. Call watch_pull_request when asked to monitor or babysit, or when work you were asked to do, such as a merge, still waits on checks or reviews, even after an earlier unwatch. Finish any needed branch update and push first, then watch and end your turn. Otherwise act now or hand back. Delegated children never watch, even if the brief says babysit. After PR work, a child's last line is: PR <full URL>, head <SHA>, checks and reviews <state>. Links and watches persist across pushes. Never wait with sleep, loops, gh --watch, Monitor, or ScheduleWakeup. Before handback, call unwatch_pull_request on any PR you watch.
+Link each PR you create, take over, or push to: link_pull_request, or link_pull_requests for several, full URL, every stack layer, as your next call. Host tools don't link for you. If linking fails, say so. Skip PRs you only read or review and PRs named only as background. Call watch_pull_request when asked to monitor or babysit, or when work you were asked to do, such as a merge, still waits on checks or reviews, even after an earlier unwatch. Finish any needed branch update and push first, then watch and end your turn. Otherwise act now or hand back. Delegated children never watch, even if the brief says babysit. After PR work, a child's last line is: PR <full URL>, head <SHA>, checks and reviews <state>. Links and watches persist across pushes. For PR waits, no sleep, loops, gh --watch, Monitor or ScheduleWakeup. Before handback, call unwatch_pull_request on any PR you watch. When pull_request_* tools are listed, use them, not gh or cafe, to read, list, open, edit, review, reply on, close, or merge PRs, and ci_logs and ci_rerun for their checks. pull_request_create links for you.
+If available, call link_issue for each issue you take on or file, even via CLI; skip issues you only read.
 </pull_request_linking>`;
+
+const RESEARCH_INSTRUCTIONS = `<research_instructions>
+For web research and product recommendations, use available browser or web-search tools to inspect results and relevant source or product pages before answering. A search URL alone does not complete a request to find or compare products unless the user only asked for that URL. Return concrete findings, direct product/source links obtained from the pages or tool results, and useful comparisons grounded in what you inspected. Verify current prices, availability, and relevant variants where accessible; distinguish unverified details and never invent product URLs or claim to have inspected a page you could not access. If a site blocks access, use another available source or research tool and explain any remaining limitation. If no research tools are available, say so instead of presenting a search link as completed research. Respect the user's requested scope and browser choice.
+</research_instructions>`;
+
+/** Session-invariant; harnesses with a native system-prompt append can carry it once per session. */
+export const SESSION_RUNTIME_INSTRUCTIONS = [
+  WORKSPACE_INSTRUCTIONS,
+  PULL_REQUEST_LINKING_INSTRUCTIONS,
+  RESEARCH_INSTRUCTIONS,
+].join("\n\n");
 
 /** Omit model and effort when the harness manages them dynamically. */
 export function buildRuntimeInstructions(runtime: {
@@ -16,6 +28,8 @@ export function buildRuntimeInstructions(runtime: {
   readonly model?: string | undefined;
   readonly modelName?: string | undefined;
   readonly reasoningEffort?: string | undefined;
+  /** False when the session's system prompt already carries SESSION_RUNTIME_INSTRUCTIONS. */
+  readonly pullRequestLinking?: boolean;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -25,8 +39,14 @@ export function buildRuntimeInstructions(runtime: {
     modelName && modelName !== model ? `${modelName} (model slug: ${model})` : model;
   const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
-  return `<runtime_info>In case you're asked: you are running in T3 Code through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images, video, and audio in your response using Markdown image syntax with absolute file paths. Link any other file you produce using its absolute path so the user can open it in T3 Code's files viewer.</runtime_info>\n\n${WORKSPACE_INSTRUCTIONS}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\nFor web research and product recommendations, use available browser or web-search tools to inspect results and relevant source or product pages before answering. A search URL alone does not complete a request to find or compare products unless the user only asked for that URL. Return concrete findings, direct product/source links obtained from the pages or tool results, and useful comparisons grounded in what you inspected. Verify current prices, availability, and relevant variants where accessible; distinguish unverified details and never invent product URLs or claim to have inspected a page you could not access. If a site blocks access, use another available source or research tool and explain any remaining limitation. If no research tools are available, say so instead of presenting a search link as completed research. Respect the user's requested scope and browser choice.
-${browserToolInstructions(runtime.browserToolsAvailable ?? false)}`;
+  const runtimeInfo = `<runtime_info>In case you're asked: you are running in T3 Code through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images, video, and audio using Markdown image syntax with absolute file paths. Link every other file you cite or produce by its absolute path, as in [http.ts:42](/abs/path/http.ts:42), so the user can open it in T3 Code's files viewer.</runtime_info>`;
+  return [
+    runtimeInfo,
+    runtime.pullRequestLinking === false ? "" : SESSION_RUNTIME_INSTRUCTIONS,
+    browserToolInstructions(runtime.browserToolsAvailable ?? false).trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function toSingleLine(value: string): string {

@@ -3,7 +3,7 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { migrationManifest, runMigrations } from "./Migrations.ts";
+import { hasPendingMigrations, migrationManifest, runMigrations } from "./Migrations.ts";
 import compatibility from "./Migrations/044_AfterDarkUpstreamCompatibility.ts";
 import lastVisited from "./Migrations/045_ProjectionThreadLastVisitedAt.ts";
 
@@ -160,5 +160,18 @@ it.effect("migrates the deployed After Dark ledger through orchestration V2", ()
       yield* sql`SELECT migration_id FROM after_dark_migrations ORDER BY migration_id`,
       [1, 2, 3, 4, 5, 6, 7, 8, 9].map((migration_id) => ({ migration_id })),
     );
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);
+
+// Sqlite.runMigrationsAsOwner skips the ownership lock when nothing is pending.
+it.effect("reports a pending After Dark ledger entry on an otherwise current database", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations();
+    assert.isFalse(yield* hasPendingMigrations());
+    yield* sql`DELETE FROM after_dark_migrations WHERE migration_id = 9`;
+    assert.isTrue(yield* hasPendingMigrations());
+    yield* runMigrations();
+    assert.isFalse(yield* hasPendingMigrations());
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

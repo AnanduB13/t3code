@@ -6,6 +6,15 @@ import type { TimelineEntriesInput } from "../session-logic";
 import { makeStreamingTimelineFixture } from "../test-fixtures";
 import { useIncrementalTimelineEntries } from "./useIncrementalTimelineEntries";
 
+vi.mock("gt-react", async (importOriginal) => {
+  const resolve = (message: string) => message;
+  return {
+    ...(await importOriginal<typeof import("gt-react")>()),
+    useLocale: () => "en",
+    useMessages: () => resolve,
+  };
+});
+
 let renderer: ReactTestRenderer | undefined;
 let entries: ReturnType<typeof useIncrementalTimelineEntries> = [];
 

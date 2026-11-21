@@ -2,7 +2,7 @@ import type { MenuAction } from "@react-native-menu/menu";
 import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 
-import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu";
+import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu.android";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText } from "../../components/ui/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";

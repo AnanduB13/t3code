@@ -9,6 +9,7 @@ export interface ExtractedPdfText {
   readonly characterCount: number;
 }
 
+// @effect-diagnostics-next-line extendsNativeError:off - promise-based parser; callers map it into Effect.
 export class PdfTextExtractionError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);

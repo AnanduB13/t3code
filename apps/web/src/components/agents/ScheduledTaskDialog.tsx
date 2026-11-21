@@ -1,4 +1,4 @@
-import { CalendarClockIcon, SparklesIcon } from "lucide-react";
+import { CalendarClockIcon, LightbulbIcon } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { HermesCronJob } from "@t3tools/contracts";
@@ -131,7 +131,7 @@ export function ScheduledTaskDialog({
             {!job ? (
               <section>
                 <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                  <SparklesIcon className="size-3.5" /> Start from a suggestion
+                  <LightbulbIcon className="size-3.5" /> Start from a suggestion
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {SUGGESTIONS.map((suggestion) => (

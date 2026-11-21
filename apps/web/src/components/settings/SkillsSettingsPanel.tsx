@@ -11,7 +11,7 @@ import {
   type ServerProviderSkill,
 } from "@t3tools/contracts";
 import { normalizeSkillName } from "@t3tools/shared/skillName";
-import { FileTextIcon, PlusIcon, RefreshCwIcon, SaveIcon, SparklesIcon } from "lucide-react";
+import { BoxIcon, FileTextIcon, PlusIcon, RefreshCwIcon, SaveIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/utils";
@@ -425,7 +425,7 @@ function EnvironmentSkills(props: {
                       )}
                       onClick={() => setSelectedPath(skill.path)}
                     >
-                      <SparklesIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                      <BoxIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">
                           {formatProviderSkillDisplayName(skill)}

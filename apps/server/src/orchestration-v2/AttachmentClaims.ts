@@ -19,6 +19,11 @@ import * as ServerConfig from "../config.ts";
 import { extractPdfText } from "../pdfTextExtraction.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 
+class PdfTextExtractionFailure extends Schema.TaggedError<PdfTextExtractionFailure>()(
+  "PdfTextExtractionFailure",
+  { cause: Schema.Defect() },
+) {}
+
 export class AttachmentClaimError extends Schema.TaggedError<AttachmentClaimError>()(
   "AttachmentClaimError",
   {
@@ -85,7 +90,10 @@ const writeExtractedPdfText = Effect.fn("AttachmentClaims.writeExtractedPdfText"
     if (textPath === null) return;
     yield* Effect.gen(function* () {
       const bytes = yield* fileSystem.readFile(input.pdfPath);
-      const extracted = yield* Effect.tryPromise(() => extractPdfText(bytes));
+      const extracted = yield* Effect.tryPromise({
+        try: () => extractPdfText(bytes),
+        catch: (cause) => new PdfTextExtractionFailure({ cause }),
+      });
       yield* fileSystem
         .writeFileString(textPath, extracted.text)
         .pipe(

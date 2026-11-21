@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
-import { useActiveEnvironmentId, useThreadShells } from "../../state/entities";
+import { useThreadShells } from "../../state/entities";
 import { cn } from "../../lib/utils";
 import { SettingsPageContainer } from "./settingsLayout";
 import { deriveUsageStats } from "./usageStats";
@@ -40,16 +40,12 @@ function formatTokens(value: number) {
 }
 
 function useProfileEnvironmentId() {
-  const activeEnvironmentId = useActiveEnvironmentId();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { environments } = useEnvironments();
   const availableEnvironmentIds = new Set(
     environments.map((environment) => environment.environmentId),
   );
 
-  if (activeEnvironmentId !== null && availableEnvironmentIds.has(activeEnvironmentId)) {
-    return activeEnvironmentId;
-  }
   if (primaryEnvironmentId !== null && availableEnvironmentIds.has(primaryEnvironmentId)) {
     return primaryEnvironmentId;
   }

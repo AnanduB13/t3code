@@ -1,3 +1,4 @@
+import { msg, T, useGT, useMessages } from "gt-react";
 import { useState } from "react";
 
 import { useSystemNotificationAccess } from "../../hooks/useSystemNotificationAccess";
@@ -13,26 +14,32 @@ import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { SettingsRow } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 const ACCESS_PROBLEMS: Partial<Record<SystemNotificationAccess, string>> = {
-  unsupported:
+  unsupported: msg(
     "This browser cannot show system notifications here. Open T3 Code over HTTPS or use the desktop app.",
-  denied:
+  ),
+  denied: msg(
     "Blocked by your browser or system. Allow notifications for this site in its settings, then come back.",
-  default: "Your browser has not allowed notifications yet.",
+  ),
+  default: msg("Your browser has not allowed notifications yet."),
 };
 
 /** System alerts and sound, plus a test so users can confirm alerts arrive. */
 export function NotificationSettings() {
+  const searchableSetting = useSearchableSetting();
+  const gt = useGT();
+  const m = useMessages();
   const mode = useScopedSettings((settings) => settings.notificationMode);
   const updateSettings = useUpdateScopedSettings();
   const { access, request } = useSystemNotificationAccess();
   const [requesting, setRequesting] = useState(false);
   const system = hasDesktopNotifications(mode);
   const sound = hasNotificationSound(mode);
-  const problem = system ? ACCESS_PROBLEMS[access] : undefined;
+  const problemMessage = system ? ACCESS_PROBLEMS[access] : undefined;
+  const problem = problemMessage === undefined ? undefined : m(problemMessage);
 
   const allow = async () => {
     setRequesting(true);
@@ -50,13 +57,13 @@ export function NotificationSettings() {
     }
     toastManager.add({
       type: "info",
-      title: "Test notification",
-      description: "In-app alerts look like this.",
+      title: gt("Test notification"),
+      description: gt("In-app alerts look like this."),
       data: { hideCopyButton: true },
     });
     if (system && access === "granted") {
-      const notification = new Notification("Test notification", {
-        body: "System alerts from T3 Code look like this.",
+      const notification = new Notification(gt("Test notification"), {
+        body: gt("System alerts from T3 Code look like this."),
         silent: sound,
       });
       notification.addEventListener("click", () => window.focus());
@@ -70,8 +77,10 @@ export function NotificationSettings() {
         description={
           problem ??
           (system
-            ? "OS alerts when a run finishes, and when a thread fails or needs your input while T3 Code is in the background."
-            : "Get an OS alert when a thread finishes, fails, or needs your input.")
+            ? gt(
+                "OS alerts when a run finishes, and when a thread fails or needs your input while T3 Code is in the background.",
+              )
+            : gt("Get an OS alert when a thread finishes, fails, or needs your input."))
         }
         control={
           <div className="flex items-center gap-2">
@@ -82,16 +91,16 @@ export function NotificationSettings() {
                 disabled={requesting}
                 onClick={() => void allow()}
               >
-                Allow
+                <T>Allow</T>
               </Button>
             ) : null}
             <Button variant="outline" size="sm" onClick={sendTest}>
-              Send test
+              <T>Send test</T>
             </Button>
             <Switch
               checked={system}
               disabled={requesting}
-              aria-label="System notifications"
+              aria-label={gt("System notifications")}
               onCheckedChange={async (checked) => {
                 if (checked && access !== "granted" && !(await allow())) return;
                 updateSettings({
@@ -104,11 +113,13 @@ export function NotificationSettings() {
       />
       <SettingsRow
         {...searchableSetting("notification-sound")}
-        description="Play a chime when a thread finishes or needs you, with or without system notifications."
+        description={gt(
+          "Play a chime when a thread finishes or needs you, with or without system notifications.",
+        )}
         control={
           <Switch
             checked={sound}
-            aria-label="Notification sound"
+            aria-label={gt("Notification sound")}
             onCheckedChange={(checked) => {
               if (checked) unlockNotificationAudio();
               updateSettings({ notificationMode: notificationModeFor({ system, sound: checked }) });

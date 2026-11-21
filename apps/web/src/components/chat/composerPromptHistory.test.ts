@@ -1,6 +1,10 @@
-import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
-import { buildPlanImplementationPrompt } from "../../proposedPlan";
-import { ScheduledTaskId } from "@t3tools/contracts";
+import { EnvironmentId, ScheduledTaskId, ThreadId } from "@t3tools/contracts";
+import {
+  ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+  formatComposerContextReference,
+  threadContextRecord,
+} from "@t3tools/shared/composerContextReferences";
+import { PLAN_IMPLEMENTATION_PROMPT_PREFIX } from "../../proposedPlan";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -9,6 +13,7 @@ import {
   stepComposerPromptHistory,
   type ComposerPromptHistoryPosition,
 } from "./composerPromptHistory";
+import { environmentContextRecord } from "../../lib/composerContextRecords";
 
 const entries = buildComposerPromptHistoryEntries([
   { id: "m1", role: "user", text: "first" },
@@ -98,9 +103,9 @@ describe("recallableComposerPrompt", () => {
   it("returns an empty string for app-composed sends", () => {
     expect(recallableComposerPrompt("   ")).toBe("");
     expect(recallableComposerPrompt(ATTACHMENT_ONLY_BOOTSTRAP_PROMPT)).toBe("");
-    const plan = buildPlanImplementationPrompt("# Plan\n1. do it");
+    const plan = `${PLAN_IMPLEMENTATION_PROMPT_PREFIX}# Plan\n1. do it`;
     expect(recallableComposerPrompt(plan)).toBe("");
-    expect(recallableComposerPrompt(plan, new Set())).toBe(plan);
+    expect(recallableComposerPrompt(plan, new Set(), { keepPlanImplementation: true })).toBe(plan);
   });
 });
 
@@ -112,11 +117,49 @@ describe("buildComposerPromptHistoryEntries", () => {
       { id: "m3", role: "user", text: "other" },
       { id: "m4", role: "user", text: "same" },
     ]);
-    expect(collapsed).toEqual([
+    expect(collapsed.map(({ id, prompt }) => ({ id, prompt }))).toEqual([
       { id: "m2", prompt: "same" },
       { id: "m3", prompt: "other" },
       { id: "m4", prompt: "same" },
     ]);
+  });
+
+  it("keeps thread and machine mentions with the records the draft needs to resolve them", () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const thread = threadContextRecord(
+      { environmentId, threadId: ThreadId.make("thread-1") },
+      "Correct invoice charge categories",
+    );
+    const unmentioned = threadContextRecord(
+      { environmentId, threadId: ThreadId.make("thread-2") },
+      "Removed before send",
+    );
+    const machine = environmentContextRecord(environmentId, "Build box");
+    const threadChip = formatComposerContextReference(thread);
+    const machineChip = formatComposerContextReference(machine);
+    const [entry] = buildComposerPromptHistoryEntries([
+      {
+        id: "m1",
+        role: "user",
+        text: `Agent in ${threadChip} finished on ${machineChip}. See [Gone](t3-context://v1/thread/gone) ![shot](t3-context://v1/image/img-1)`,
+        context: { version: 1, records: [thread, unmentioned, machine] },
+      },
+    ]);
+    expect(entry).toEqual({
+      id: "m1",
+      prompt: `Agent in ${threadChip} finished on ${machineChip}. See`,
+      mentions: { threadContexts: [thread], environmentContexts: [machine] },
+    });
+    const recalled = stepComposerPromptHistory({
+      direction: "backward",
+      entries: [entry!],
+      position: null,
+      currentPrompt: "",
+    });
+    expect(recalled?.mentions).toEqual({
+      threadContexts: [thread],
+      environmentContexts: [machine],
+    });
   });
 
   it("skips messages sent by automations, agents, and T3 Code", () => {
@@ -131,21 +174,28 @@ describe("buildComposerPromptHistoryEntries", () => {
       { id: "m3", role: "user", text: "from agent", createdBy: "agent", creationSource: "mcp" },
       { id: "m4", role: "user", text: "from server", createdBy: "agent", creationSource: "server" },
     ]);
-    expect(typed).toEqual([{ id: "m1", prompt: "typed" }]);
+    expect(typed.map((entry) => entry.id)).toEqual(["m1"]);
   });
 });
 
 describe("stepComposerPromptHistory", () => {
   it("walks back from the newest entry", () => {
     const first = backward(null, "");
-    expect(first).toEqual({ position: { entryId: "m3", recalled: "third" }, prompt: "third" });
+    expect(first).toMatchObject({
+      position: { entryId: "m3", recalled: "third" },
+      prompt: "third",
+    });
     expect(backward(first!.position, "third")?.prompt).toBe("second");
   });
 
   it("walks forward and empties the composer past the newest entry", () => {
     const newer = forward({ entryId: "m2", recalled: "second" }, "second");
     expect(newer?.prompt).toBe("third");
-    expect(forward(newer!.position, "third")).toEqual({ position: null, prompt: "" });
+    expect(forward(newer!.position, "third")).toEqual({
+      position: null,
+      prompt: "",
+      mentions: { threadContexts: [], environmentContexts: [] },
+    });
   });
 
   it("treats an edited recall as a fresh draft", () => {

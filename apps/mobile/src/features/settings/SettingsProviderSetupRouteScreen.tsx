@@ -13,7 +13,7 @@ import { useCallback, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppBar } from "../../components/ui/AppBar";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
@@ -220,7 +220,7 @@ function ProviderSetupScreen({ environmentId, instanceId }: ProviderSetupRoutePa
         }}
       />
       {Platform.OS === "android" ? (
-        <AndroidScreenHeader title={title} onBack={() => navigation.goBack()} />
+        <AppBar title={title} onBack={() => navigation.goBack()} />
       ) : null}
       <ScrollView
         className="flex-1"

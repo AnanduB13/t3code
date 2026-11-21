@@ -1,3 +1,4 @@
+import { useLocale, useMessages } from "gt-react";
 import { useState } from "react";
 import {
   deriveTimelineEntriesFromVisibleTurnItemsWithState,
@@ -17,15 +18,21 @@ function sameInput(left: TimelineEntriesInput, right: TimelineEntriesInput): boo
   );
 }
 
+// A closure instead of render-time setState: a changed input must not schedule another render.
 function createTimelineProjector() {
-  let previous: { threadKey: string | null; projection: TimelineEntriesProjection } | null = null;
-  return (threadKey: string | null, input: TimelineEntriesInput) => {
-    const projectionBefore = previous?.threadKey === threadKey ? previous.projection : null;
+  let previous: {
+    threadKey: string | null;
+    locale: string;
+    projection: TimelineEntriesProjection;
+  } | null = null;
+  return (threadKey: string | null, locale: string, input: TimelineEntriesInput) => {
+    const projectionBefore =
+      previous?.threadKey === threadKey && previous.locale === locale ? previous.projection : null;
     if (projectionBefore !== null && sameInput(projectionBefore.input, input)) {
       return projectionBefore.entries;
     }
     const projection = deriveTimelineEntriesFromVisibleTurnItemsWithState(input, projectionBefore);
-    previous = { threadKey, projection };
+    previous = { threadKey, locale, projection };
     return projection.entries;
   };
 }
@@ -33,12 +40,16 @@ function createTimelineProjector() {
 /**
  * Timeline entries for a thread, derived from the previous projection so
  * unchanged rows keep their identity and memoized rows skip rendering. A new
- * thread starts from scratch.
+ * thread or locale starts from scratch.
  */
 export function useIncrementalTimelineEntries(
   threadKey: string | null,
-  input: TimelineEntriesInput,
+  timelineInput: TimelineEntriesInput,
 ): TimelineEntriesProjection["entries"] {
+  // Keyed on the locale: without a GTProvider, useMessages() returns a new function every render.
+  const locale = useLocale();
+  const resolve = useMessages();
+  const input = { ...timelineInput, resolve: timelineInput.resolve ?? resolve };
   const [project] = useState(createTimelineProjector);
-  return project(threadKey, input);
+  return project(threadKey, locale, input);
 }

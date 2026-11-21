@@ -58,6 +58,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   queuedMessages,
   attachmentUrlById,
   steerDisabled,
+  isRunning = true,
   onSteer,
   onRemove,
   onUpdate,
@@ -66,6 +67,8 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
   readonly queuedMessages: ReadonlyArray<QueuedPrompt>;
   readonly attachmentUrlById?: ReadonlyMap<string, string>;
   readonly steerDisabled?: boolean;
+  /** Idle threads send a picked prompt now instead of steering it into a turn. */
+  readonly isRunning?: boolean;
   readonly onSteer: (messageId: MessageId, messageIds?: ReadonlyArray<MessageId>) => void;
   readonly onRemove: (messageId: MessageId) => void;
   readonly onUpdate: (messageId: MessageId, text: string) => void;
@@ -321,7 +324,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                                       size="xs"
                                       variant="ghost"
                                       disabled={steerDisabled}
-                                      aria-label={`Steer queued prompt ${index + 1}`}
+                                      aria-label={`${isRunning ? "Steer" : "Send now:"} queued prompt ${index + 1}`}
                                       onClick={() => {
                                         if (queuedMessages.length === 1)
                                           onSteer(queuedMessage.messageId);
@@ -331,12 +334,14 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                                   }
                                 >
                                   <CornerUpRightIcon className="size-3" />
-                                  Steer
+                                  {isRunning ? "Steer" : "Send now"}
                                 </TooltipTrigger>
                                 <TooltipPopup side="top" className="max-w-72 whitespace-normal">
                                   {steerDisabled
                                     ? "Waiting for the agent to start"
-                                    : "Send this prompt into the active turn"}
+                                    : isRunning
+                                      ? "Send this prompt into the active turn"
+                                      : "Send this queued prompt now"}
                                 </TooltipPopup>
                               </Tooltip>
                               <Tooltip>
@@ -374,7 +379,7 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
       >
         <DialogPopup>
           <div className="p-4">
-            <DialogTitle>Choose prompts to steer</DialogTitle>
+            <DialogTitle>Choose prompts to send</DialogTitle>
             <DialogDescription>
               Selected prompts are sent in queue order. Unselected prompts stay queued.
             </DialogDescription>
@@ -418,7 +423,8 @@ export const QueuedMessageChips = memo(function QueuedMessageChips({
                   setSteerSelection(null);
                 }}
               >
-                Steer selected ({selectedMessages.length})
+                {isRunning ? "Steer selected (" : "Send selected now ("}
+                {selectedMessages.length})
               </Button>
             </div>
           </div>

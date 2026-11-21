@@ -72,23 +72,43 @@ const legacyQueueImports = Effect.gen(function* () {
 
 const run = Migrator.make({});
 
+const afterDarkMigrations = {
+  "1_QueueAndLegacyCompatibility": AfterDarkCompatibility,
+  "2_ThreadLastVisitedAt": ProjectionThreadLastVisitedAt,
+  "3_RepairSkippedUpstreamMigrations": repairSkippedUpstreamMigrations,
+  "4_QueuedMessageContext": addQueuedMessageContext,
+  "5_QueuedMessageHold": addQueuedMessageHold,
+  "6_RepairLegacyMainCompatibility": repairLegacyMainCompatibility,
+  "7_ScheduledJobs": ScheduledJobs,
+  "8_LegacyQueueImports": legacyQueueImports,
+  "9_LegacyTokenUsage": LegacyTokenUsage,
+};
+const latestAfterDarkMigrationId = Math.max(
+  ...Object.keys(afterDarkMigrations).map((key) => Number.parseInt(key, 10)),
+);
+
 /** Runs fork additions separately, including repairs for old shared migration IDs. */
 export const runAfterDarkMigrations = (throughUpstreamId?: number) =>
   run({
     table: "after_dark_migrations",
-    loader: Migrator.fromRecord({
-      "1_QueueAndLegacyCompatibility": AfterDarkCompatibility,
-      ...(throughUpstreamId === undefined || throughUpstreamId >= 45
-        ? {
-            "2_ThreadLastVisitedAt": ProjectionThreadLastVisitedAt,
-            "3_RepairSkippedUpstreamMigrations": repairSkippedUpstreamMigrations,
-            "4_QueuedMessageContext": addQueuedMessageContext,
-            "5_QueuedMessageHold": addQueuedMessageHold,
-            "6_RepairLegacyMainCompatibility": repairLegacyMainCompatibility,
-            "7_ScheduledJobs": ScheduledJobs,
-            "8_LegacyQueueImports": legacyQueueImports,
-            "9_LegacyTokenUsage": LegacyTokenUsage,
-          }
-        : {}),
-    }),
+    loader: Migrator.fromRecord(
+      throughUpstreamId === undefined || throughUpstreamId >= 45
+        ? afterDarkMigrations
+        : { "1_QueueAndLegacyCompatibility": AfterDarkCompatibility },
+    ),
   });
+
+/** Like the migrator, counts only ledger ids above the highest recorded one. */
+export const hasPendingAfterDarkMigrations = Effect.fn("hasPendingAfterDarkMigrations")(
+  function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const tables = yield* sql`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'after_dark_migrations'
+    `;
+    if (tables.length === 0) return true;
+    const rows = yield* sql<{
+      readonly latestId: number | null;
+    }>`SELECT MAX(migration_id) AS latestId FROM after_dark_migrations`;
+    return (rows[0]?.latestId ?? 0) < latestAfterDarkMigrationId;
+  },
+);

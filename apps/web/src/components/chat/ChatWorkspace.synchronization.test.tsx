@@ -39,12 +39,22 @@ import { DraftId } from "../../composerDraftStore";
 import { useThreadProjection } from "../../state/entities";
 import { ChatWorkspace } from "./ChatWorkspace";
 
+// These renders have no I18nProvider, so GT passes copy through untranslated.
+vi.mock("gt-react", async (importOriginal) => {
+  const gt = (text: string) => text;
+  return {
+    ...(await importOriginal<typeof import("gt-react")>()),
+    T: ({ children }: { children: React.ReactNode }) => children,
+    useGT: () => gt,
+  };
+});
+
 const sources = vi.hoisted(() => ({
   details: null as ReturnType<typeof createEnvironmentThreadDetailAtoms> | null,
   shell: null as Atom.Writable<EnvironmentThreadShell | null> | null,
 }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
-vi.mock("../../hooks/useMediaQuery", () => ({ useIsMobile: () => false }));
+vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => false }));
 vi.mock("../../state/threads", () => ({
   environmentThreadDetails: {
     threadAtom: (...args: Parameters<NonNullable<typeof sources.details>["threadAtom"]>) =>
@@ -102,9 +112,10 @@ it.effect("receives new-thread responses without reloading after visiting the un
     const session: RpcSession = {
       client,
       initialConfig: Effect.succeed({ threadResumeCompletionMarker: true } as never),
-      subscribeServerConfig: (input) => client.subscribeServerConfig(input),
+      subscribeServerConfig: (input) => client.subscribeServerConfig(input ?? {}),
       ready: Effect.void,
       probe: Effect.void,
+      inboundFrames: Effect.succeed(0),
       closed: Effect.never,
     };
     const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({

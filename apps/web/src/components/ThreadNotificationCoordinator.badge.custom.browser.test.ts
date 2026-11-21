@@ -1,5 +1,4 @@
 import type { AnyRouter } from "@tanstack/react-router";
-import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
@@ -63,6 +62,9 @@ vi.mock(import("../threadNotifications"), async (original) => ({
 }));
 
 import { startThreadNotifications } from "./ThreadNotificationCoordinator";
+
+// Mirrors the unexported working-exit grace in client-runtime's thread inbox.
+const WORKING_EXIT_GRACE_MS = 2_000;
 
 let registry: AtomRegistry.AtomRegistry;
 const shellAtom = Atom.family((_id: string) => Atom.make<unknown>(null));
