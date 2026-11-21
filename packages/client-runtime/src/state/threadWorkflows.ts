@@ -3,6 +3,7 @@ import type {
   OrchestrationV2ProjectedTurnItem,
   OrchestrationV2ProviderCapabilities,
 } from "@t3tools/contracts";
+import { latestExecutedRun } from "@t3tools/shared/orchestrationV2ThreadError";
 import { copySorted } from "@t3tools/shared/Array";
 
 import type { ThreadStructure } from "./models.ts";
@@ -39,6 +40,23 @@ export interface ThreadQueueWorkflowState {
 
 export function resolveActiveThreadRun(projection: Pick<Projection, "runs">): Run | null {
   return projection.runs.findLast((run) => ACTIVE_RUN_STATUSES.has(run.status)) ?? null;
+}
+
+/** Returns the unfinished run a user can explicitly continue without releasing follow-ups. */
+export function resolveResumableThreadRun(projection: Projection): Run | null {
+  if (
+    projection.thread.archivedAt !== null ||
+    projection.thread.deletedAt !== null ||
+    projection.runtimeRequests.some((request) => request.status === "pending") ||
+    resolveActiveThreadRun(projection) !== null
+  )
+    return null;
+  const run = latestExecutedRun(projection.runs);
+  if (run?.status !== "failed" && run?.status !== "interrupted") return null;
+  // Failed workspace setup must be retried before any provider work starts.
+  if (run.workspacePreparation?.type === "worktree" && projection.thread.worktreePath === null)
+    return null;
+  return run;
 }
 
 /**

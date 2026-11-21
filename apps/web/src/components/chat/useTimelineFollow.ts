@@ -268,6 +268,11 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     // The anchored end space must be gone before the scroll measures, or the
     // list lands short of the real end.
     requestAnimationFrame(() => {
+      if (
+        liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current ||
+        timelineScrollModeRef.current !== "following-end"
+      )
+        return;
       const list = legendListRef.current;
       if (!list) return;
       void Promise.resolve(

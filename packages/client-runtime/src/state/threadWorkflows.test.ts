@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
+import * as DateTime from "effect/DateTime";
 import type { OrchestrationV2ThreadProjection } from "@t3tools/contracts";
 
 import {
   canForkProjectedAssistantItem,
   deriveThreadQueueWorkflowState,
   resolveLatestMergeBackRun,
+  resolveResumableThreadRun,
   threadSupportsProviderHandoff,
 } from "./threadWorkflows.ts";
 
@@ -380,4 +382,67 @@ describe("thread workflows", () => {
       expect(resolveLatestMergeBackRun(projection)).toBeNull();
     },
   );
+});
+
+describe("resumable thread work", () => {
+  const projection = (status: OrchestrationV2ThreadProjection["runs"][number]["status"]) =>
+    ({
+      thread: { archivedAt: null, deletedAt: null, worktreePath: null },
+      runs: [{ id: "unfinished", status, ordinal: 1, completedAt: null }],
+      runtimeRequests: [],
+    }) as unknown as OrchestrationV2ThreadProjection;
+
+  it.each(["failed", "interrupted"] as const)(
+    "continues a %s response ahead of queued follow-ups",
+    (status) => {
+      const thread = projection(status);
+      const queued = {
+        ...thread.runs[0]!,
+        id: "follow-up" as (typeof thread.runs)[number]["id"],
+        ordinal: 2,
+        status: "queued" as const,
+      };
+      expect(resolveResumableThreadRun({ ...thread, runs: [...thread.runs, queued] })?.id).toBe(
+        "unfinished",
+      );
+    },
+  );
+
+  it.each(["completed", "running", "starting", "waiting", "preparing", "cancelled"] as const)(
+    "does not offer continuation for %s work",
+    (status) => {
+      expect(resolveResumableThreadRun(projection(status))).toBeNull();
+    },
+  );
+
+  it("waits for pending questions and workspace setup instead of starting more work", () => {
+    const thread = projection("failed");
+    expect(
+      resolveResumableThreadRun({
+        ...thread,
+        runtimeRequests: [
+          { status: "pending" } as OrchestrationV2ThreadProjection["runtimeRequests"][number],
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      resolveResumableThreadRun({
+        ...thread,
+        runs: [
+          {
+            ...thread.runs[0]!,
+            workspacePreparation: {
+              type: "worktree",
+            } as OrchestrationV2ThreadProjection["runs"][number]["workspacePreparation"],
+          },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      resolveResumableThreadRun({
+        ...thread,
+        thread: { ...thread.thread, archivedAt: DateTime.makeUnsafe("2026-11-21T00:00:00Z") },
+      }),
+    ).toBeNull();
+  });
 });

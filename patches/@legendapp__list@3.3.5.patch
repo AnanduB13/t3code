@@ -421,6 +421,15 @@ index b3c5a306b293f797a8b338adfca3060c0f6db22b..d7f59b63cd4982dfc9c347732caa77e0
      }
      if (!state.maintainingScrollAtEnd) {
        const pendingState = maintainScrollAtEnd.animated ? "pending-animated" : "pending-instant";
+@@ -1578,7 +1626,7 @@ function doMaintainScrollAtEnd(ctx) {
+       requestAnimationFrame(() => {
+         const isStillWithinThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+         const didScrollSinceRequest = state.scroll !== scrollAtRequest;
+-        if (isStillWithinThreshold || !didScrollSinceRequest) {
++        if (state.props.maintainScrollAtEnd && state.scroll >= scrollAtRequest && (isStillWithinThreshold || !didScrollSinceRequest)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
 @@ -1591,9 +1639,18 @@ function doMaintainScrollAtEnd(ctx) {
                y: 0
              });
@@ -1061,6 +1070,15 @@ index 40e87cda8c9bc79a889e5542f29af429a24b24d4..c2ca39bab6ea1ebaaed25190a01e8cf2
      }
      if (!state.maintainingScrollAtEnd) {
        const pendingState = maintainScrollAtEnd.animated ? "pending-animated" : "pending-instant";
+@@ -1557,7 +1605,7 @@ function doMaintainScrollAtEnd(ctx) {
+       requestAnimationFrame(() => {
+         const isStillWithinThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+         const didScrollSinceRequest = state.scroll !== scrollAtRequest;
+-        if (isStillWithinThreshold || !didScrollSinceRequest) {
++        if (state.props.maintainScrollAtEnd && state.scroll >= scrollAtRequest && (isStillWithinThreshold || !didScrollSinceRequest)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
 @@ -1570,9 +1618,18 @@ function doMaintainScrollAtEnd(ctx) {
                y: 0
              });
@@ -1552,6 +1570,15 @@ diff --git a/react-native.web.js b/react-native.web.js
 index 914d2dafaafa001c9ab6791a0a0581659295e333..8b88b09d1269acef77c6ce0f8aaa1049d4fa26e9 100644
 --- a/react-native.web.js
 +++ b/react-native.web.js
+@@ -1454,7 +1454,7 @@ function doMaintainScrollAtEnd(ctx) {
+       requestAnimationFrame(() => {
+         const isStillWithinThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+         const didScrollSinceRequest = state.scroll !== scrollAtRequest;
+-        if (isStillWithinThreshold || !didScrollSinceRequest) {
++        if (state.props.maintainScrollAtEnd && state.scroll >= scrollAtRequest && (isStillWithinThreshold || !didScrollSinceRequest)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
 @@ -5651,6 +5651,18 @@ var ContainerSlot = typedMemo(function ContainerSlot2(props) {
  });
  
@@ -1587,6 +1614,15 @@ diff --git a/react-native.web.mjs b/react-native.web.mjs
 index 95465f2ab89ce41a10553f58af83618f7310e83c..d7cbe1cb43449cc29822b2646deabbddd67f1e7d 100644
 --- a/react-native.web.mjs
 +++ b/react-native.web.mjs
+@@ -1433,7 +1433,7 @@ function doMaintainScrollAtEnd(ctx) {
+       requestAnimationFrame(() => {
+         const isStillWithinThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+         const didScrollSinceRequest = state.scroll !== scrollAtRequest;
+-        if (isStillWithinThreshold || !didScrollSinceRequest) {
++        if (state.props.maintainScrollAtEnd && state.scroll >= scrollAtRequest && (isStillWithinThreshold || !didScrollSinceRequest)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
 @@ -5630,6 +5630,18 @@ var ContainerSlot = typedMemo(function ContainerSlot2(props) {
  });
  
@@ -1622,6 +1658,15 @@ diff --git a/react.js b/react.js
 index 914d2dafaafa001c9ab6791a0a0581659295e333..199aae77b3620b7c4bb2ecd96b82978c0430059a 100644
 --- a/react.js
 +++ b/react.js
+@@ -1454,7 +1454,7 @@ function doMaintainScrollAtEnd(ctx) {
+       requestAnimationFrame(() => {
+         const isStillWithinThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+         const didScrollSinceRequest = state.scroll !== scrollAtRequest;
+-        if (isStillWithinThreshold || !didScrollSinceRequest) {
++        if (state.props.maintainScrollAtEnd && state.scroll >= scrollAtRequest && (isStillWithinThreshold || !didScrollSinceRequest)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
 @@ -4702,7 +4702,8 @@ function maybeUpdateAnchoredEndSpace(ctx) {
        contentBelowAnchor = Math.max(0, contentBelowAnchor - ctx.scrollAxisGap);
        contentBelowAnchor += (ctx.values.get("footerSize") || 0) + getStylePaddingEnd(state.props);
@@ -1732,6 +1777,15 @@ diff --git a/react.mjs b/react.mjs
 index 95465f2ab89ce41a10553f58af83618f7310e83c..a123bd3e9df510100d44dfae1f59b87e2e456cfc 100644
 --- a/react.mjs
 +++ b/react.mjs
+@@ -1433,7 +1433,7 @@ function doMaintainScrollAtEnd(ctx) {
+       requestAnimationFrame(() => {
+         const isStillWithinThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+         const didScrollSinceRequest = state.scroll !== scrollAtRequest;
+-        if (isStillWithinThreshold || !didScrollSinceRequest) {
++        if (state.props.maintainScrollAtEnd && state.scroll >= scrollAtRequest && (isStillWithinThreshold || !didScrollSinceRequest)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
 @@ -4681,7 +4681,8 @@ function maybeUpdateAnchoredEndSpace(ctx) {
        contentBelowAnchor = Math.max(0, contentBelowAnchor - ctx.scrollAxisGap);
        contentBelowAnchor += (ctx.values.get("footerSize") || 0) + getStylePaddingEnd(state.props);

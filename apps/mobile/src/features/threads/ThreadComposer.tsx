@@ -461,7 +461,7 @@ const QueuedPromptStack = memo(function QueuedPromptStack(props: {
               Queue paused. Nothing sends until you resume.
             </Text>
             <Pressable
-              accessibilityLabel="Resume queue"
+              accessibilityLabel="Continue thread"
               accessibilityRole="button"
               disabled={resuming || busyMessageId !== null}
               onPress={() => {
@@ -1337,7 +1337,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 ) : showResumeAction ? (
                   <ComposerActionButton
                     size={hasSidebarTabBar ? "large" : "regular"}
-                    accessibilityLabel="Resume queue"
+                    accessibilityLabel="Continue thread"
                     icon="play"
                     disabled={!props.canOperateThread || resumingQueue}
                     onPress={() => void handleResumeQueue()}
@@ -1564,7 +1564,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     />
                   ) : showResumeAction && voicePresentation.showsSend ? (
                     <ComposerActionButton
-                      accessibilityLabel="Resume queue"
+                      accessibilityLabel="Continue thread"
                       icon="play"
                       disabled={!props.canOperateThread || resumingQueue}
                       onPress={() => void handleResumeQueue()}

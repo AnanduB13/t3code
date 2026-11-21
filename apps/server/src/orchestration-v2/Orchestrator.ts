@@ -1483,10 +1483,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       // Failed worktree creation would run queued work in the project checkout; wait for the user.
       const failedRun = latestExecutedRun(projection.runs);
-      const failureClass =
-        failedRun?.id === options?.failedRunId
-          ? latestRootProviderFailure(failedRun, projection.turnItems)?.class
-          : undefined;
+      const responseFailed =
+        failedRun?.status === "failed" && failedRun.id === options?.failedRunId;
       const worktreeMissing =
         failedRun?.id === options?.endedRunId &&
         failedRun?.workspacePreparation?.type === "worktree" &&
@@ -1506,13 +1504,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projectOverride !== undefined
           ? !projectOverride
           : machineInstance !== undefined && !resolveProviderInstanceEnabled(machineInstance);
-      if (
-        worktreeMissing ||
-        instanceDisabledForProject ||
-        (failureClass !== undefined &&
-          failureClass !== "validation_error" &&
-          failedRun?.providerInstanceId === queuedRun.providerInstanceId)
-      ) {
+      if (worktreeMissing || instanceDisabledForProject || responseFailed) {
         const now = yield* DateTime.now;
         yield* writeSystemEvents(
           projection.runs
@@ -4991,12 +4983,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
     if (command.manualContinuationOfRunId !== undefined) {
       const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
-      const limited = latestRootProviderFailure(source ?? null, projection.turnItems);
       if (
         command.dispatchMode.type !== "start_immediately" ||
         source === undefined ||
-        (source.status !== "interrupted" &&
-          !(source.status === "failed" && limited?.class === "usage_limit")) ||
+        (source.status !== "interrupted" && source.status !== "failed") ||
+        (source.workspacePreparation?.type === "worktree" &&
+          projection.thread.worktreePath === null) ||
         latestExecutedRun(projection.runs)?.id !== source.id ||
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null ||

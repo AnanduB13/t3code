@@ -19,7 +19,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ThreadId,
-  type MessageId,
+  MessageId,
   type ProjectScript,
 } from "@t3tools/contracts";
 import {
@@ -77,7 +77,10 @@ import { useSelectedThreadRequests } from "../../state/use-selected-thread-reque
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { resolveMergeBackTargetThreadId } from "@t3tools/client-runtime/state/thread-relationships";
-import { resolveLatestMergeBackRun } from "@t3tools/client-runtime/state/thread-workflows";
+import {
+  resolveResumableThreadRun,
+  resolveLatestMergeBackRun,
+} from "@t3tools/client-runtime/state/thread-workflows";
 import { threadEnvironment, useThreadFamily } from "../../state/threads";
 import { threadOutboxManager } from "../../state/thread-outbox";
 import { projectThreadContentPresentation } from "./threadContentPresentation";
@@ -349,6 +352,11 @@ function ThreadRouteContent(
   const removeQueuedMessage = useAtomCommand(threadEnvironment.removeQueuedMessage, {
     reportFailure: false,
   });
+  const continueThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const resumableRunId =
+    selectedThreadDetail === null
+      ? null
+      : (resolveResumableThreadRun(selectedThreadDetail)?.id ?? null);
   const resumeThreadQueue = useAtomCommand(threadEnvironment.resumeThreadQueue, {
     reportFailure: false,
   });
@@ -459,20 +467,39 @@ function ThreadRouteContent(
     },
     [removeQueuedMessage, selectedThread],
   );
-  const handleResumeQueue = useCallback(async () => {
+  const handleResumeQueue = async () => {
     if (!selectedThread) return;
-    const result = await resumeThreadQueue({
-      environmentId: selectedThread.environmentId,
-      input: { threadId: selectedThread.id },
-    });
+    const result =
+      resumableRunId === null
+        ? await resumeThreadQueue({
+            environmentId: selectedThread.environmentId,
+            input: { threadId: selectedThread.id },
+          })
+        : await continueThreadTurn({
+            environmentId: selectedThread.environmentId,
+            input: {
+              threadId: selectedThread.id,
+              manualContinuationOfRunId: resumableRunId,
+              message: {
+                messageId: MessageId.make(uuidv4()),
+                role: "user",
+                text: "Continue where you left off.",
+                attachments: [],
+              },
+              modelSelection: composer.modelSelection ?? selectedThread.modelSelection,
+              runtimeMode: composer.runtimeMode ?? selectedThread.runtimeMode,
+              interactionMode: composer.interactionMode ?? selectedThread.interactionMode,
+              dispatchMode: "start",
+            },
+          });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       Dialog.alert(
-        "Couldn’t resume queue",
+        "Couldn’t continue thread",
         error instanceof Error ? error.message : "Try again in a moment.",
       );
     }
-  }, [resumeThreadQueue, selectedThread]);
+  };
   const previewTarget = props.inspectorPresentation ? undefined : params.inspector;
   const inspectorMode = (() => {
     if (previewTarget) return "preview";
@@ -1130,7 +1157,7 @@ function ThreadRouteContent(
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
           onSteerQueuedMessage={handleSteerQueuedMessage}
           onRemoveQueuedMessage={handleRemoveQueuedMessage}
-          onResumeQueue={composer.queueHeld ? handleResumeQueue : null}
+          onResumeQueue={composer.queueHeld || resumableRunId !== null ? handleResumeQueue : null}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
           canSwitchThreadProvider={composer.canSwitchThreadProvider}
