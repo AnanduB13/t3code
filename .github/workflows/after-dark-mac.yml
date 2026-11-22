@@ -1,0 +1,172 @@
+name: After Dark Mac app
+
+# Builds the After Dark Mac app for every push to main and publishes it as a
+# GitHub Release, which the installed app's updater reads (Settings › Updates).
+# Builds are signed with a self-signed certificate rather than an Apple
+# Developer ID: the macOS updater only needs every build to carry the same
+# signing identity. There is no notarization, so a browser download needs one
+# manual approval the first time it opens; updates the app installs itself do
+# not.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "apps/mobile/**"
+      - "apps/marketing/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: after-dark-mac
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and publish
+    if: github.repository == 'AnanduB13/t3code'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # Public client identifiers baked into release builds, the same values the K11 server uses.
+      T3CODE_RELAY_URL: https://relay.t3.codes
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+      T3CODE_DESKTOP_MAC_SELF_SIGN_IDENTITY: After Dark Self-Signed
+    steps:
+      # This repository is public, so Git needs no credentials. checkout's
+      # credential cleanup fails on the orphaned gitlinks in the vendored .repos tree.
+      - name: Checkout
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git -c checkout.workers=0 checkout --detach FETCH_HEAD
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+
+      # The Apple Speech helper needs the macOS 26 SDK; without it the build skips on-device dictation.
+      - name: Select Xcode 26 or later
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [[ -n "$xcode" ]]; then
+            sudo xcode-select -s "$xcode/Contents/Developer"
+          else
+            echo "::warning::No Xcode 26 or later on this runner; on-device Mac dictation will be missing."
+          fi
+          xcodebuild -version
+
+      # Server version plus the run number: the core matches the K11 server so clients see no
+      # version skew, and the run number keeps every build newer than the last.
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(node -p 'require("./apps/server/package.json").version')"
+          version="${base}-ad.${GITHUB_RUN_NUMBER}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          node scripts/update-release-package-versions.ts "$version"
+
+      - name: Import signing certificate
+        shell: bash
+        env:
+          CERT_P12: ${{ secrets.AFTER_DARK_MAC_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.AFTER_DARK_MAC_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CERT_P12" || -z "$CERT_PASSWORD" ]]; then
+            echo "::error::AFTER_DARK_MAC_CERT_P12 and AFTER_DARK_MAC_CERT_PASSWORD secrets are required."
+            exit 1
+          fi
+          p12="$RUNNER_TEMP/after-dark-signing.p12"
+          keychain="$RUNNER_TEMP/after-dark-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          printf '%s' "$CERT_P12" | base64 -D > "$p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          existing="$(security list-keychains -d user | tr -d '"' | xargs)"
+          security list-keychains -d user -s "$keychain" $existing
+          # codesign only offers identities whose certificate is trusted for code signing.
+          security find-certificate -c "$T3CODE_DESKTOP_MAC_SELF_SIGN_IDENTITY" -p "$keychain" > "$RUNNER_TEMP/after-dark-signing.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/after-dark-signing.pem"
+          security find-identity -v -p codesigning "$keychain" | tee "$RUNNER_TEMP/identities.txt"
+          grep -q "\"$T3CODE_DESKTOP_MAC_SELF_SIGN_IDENTITY\"" "$RUNNER_TEMP/identities.txt"
+
+      - name: Build Mac app
+        shell: bash
+        run: |
+          node scripts/build-desktop-artifact.ts \
+            --platform mac \
+            --target dmg \
+            --arch arm64 \
+            --build-version "${{ steps.version.outputs.version }}" \
+            --verbose
+
+      - name: Verify signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find release -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          requirement="$(codesign -d -r- "$app" 2>&1 | sed -n 's/^designated => //p')"
+          echo "Designated requirement: $requirement"
+          # The updater accepts a new build only when it satisfies the installed app's requirement,
+          # which must name the certificate rather than a per-build hash.
+          [[ "$requirement" == *"certificate leaf"* ]]
+          test -f release/latest-mac.yml
+          ls -la release
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml)
+          gh release create "v$VERSION" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "After Dark $VERSION" \
+            --notes "Mac app built from ${GITHUB_SHA::10}. Update from Settings › Updates in the app." \
+            --latest
+
+      # Keep the ten newest app releases; the updater only reads the latest.
+      - name: Remove old releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | test("-ad\\.[0-9]+$"))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' \
+            | while read -r tag; do
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+              done

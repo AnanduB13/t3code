@@ -1772,6 +1772,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.notInclude(error.message, secret);
   });
 
+  it.effect("signs unsigned macOS builds with a configured self-signed identity", () =>
+    Effect.gen(function* () {
+      const macConfig = (env: Record<string, string>, signed = false) =>
+        createBuildConfig("mac", "dmg", "1.2.3", signed, false, undefined, undefined).pipe(
+          Effect.map((config) => config.mac as Record<string, unknown>),
+          Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+        );
+      const identity = { T3CODE_DESKTOP_MAC_SELF_SIGN_IDENTITY: " After Dark Self-Signed " };
+
+      const selfSigned = yield* macConfig(identity);
+      assert.equal(selfSigned.identity, "After Dark Self-Signed");
+      assert.isFalse(selfSigned.hardenedRuntime);
+      assert.isFalse(selfSigned.notarize);
+      assert.notProperty(yield* macConfig({}), "identity");
+      assert.notProperty(yield* macConfig(identity, true), "identity");
+    }),
+  );
+
   it.effect("adds passkey entitlements and both renderer protocols to signed macOS builds", () =>
     Effect.gen(function* () {
       const config = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined, {

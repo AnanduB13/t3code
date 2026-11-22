@@ -2869,6 +2869,15 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "mac") {
     const path = yield* Path.Path;
     const repoRoot = yield* RepoRoot;
+    // A self-signed certificate keeps one signing identity across builds, which the macOS
+    // updater requires; it is not trusted for Gatekeeper or notarization.
+    const selfSignIdentity = signed
+      ? Option.none()
+      : yield* Config.String("T3CODE_DESKTOP_MAC_SELF_SIGN_IDENTITY").pipe(
+          Config.option,
+          Config.map(Option.map((identity) => identity.trim())),
+          Config.map(Option.filter((identity) => identity.length > 0)),
+        );
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
@@ -2917,6 +2926,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      ...(Option.isSome(selfSignIdentity)
+        ? { identity: selfSignIdentity.value, hardenedRuntime: false, notarize: false }
+        : {}),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
