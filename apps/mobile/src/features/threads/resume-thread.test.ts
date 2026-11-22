@@ -37,30 +37,23 @@ function setup(options: { readonly startTurnFails?: boolean } = {}) {
 }
 
 describe("resumeThread", () => {
-  it("continues the limited run before resuming its held queue", async () => {
+  it("continues the run without releasing its held queue", async () => {
     const { calls, base } = setup();
-    const result = await resumeThread({ ...base, resumableRunId: runId, queueHeld: true });
+    const result = await resumeThread({ ...base, resumableRunId: runId });
 
     expect(result._tag).toBe("Success");
-    expect(calls.map((call) => call.command)).toEqual(["startTurn", "resumeQueue"]);
+    expect(calls.map((call) => call.command)).toEqual(["startTurn"]);
     expect(calls[0]?.input).toMatchObject({
       manualContinuationOfRunId: runId,
       dispatchMode: "start",
     });
   });
 
-  it("does not resume the queue when the continuation fails", async () => {
+  it("returns the failure when the continuation fails", async () => {
     const { calls, base } = setup({ startTurnFails: true });
-    const result = await resumeThread({ ...base, resumableRunId: runId, queueHeld: true });
+    const result = await resumeThread({ ...base, resumableRunId: runId });
 
     expect(result).toBe(failure);
-    expect(calls.map((call) => call.command)).toEqual(["startTurn"]);
-  });
-
-  it("only continues the run when nothing is queued", async () => {
-    const { calls, base } = setup();
-    await resumeThread({ ...base, resumableRunId: runId, queueHeld: false });
-
     expect(calls.map((call) => call.command)).toEqual(["startTurn"]);
   });
 
@@ -71,7 +64,6 @@ describe("resumeThread", () => {
       runtimeMode: "approval-required",
       interactionMode: "plan",
       resumableRunId: runId,
-      queueHeld: false,
     });
 
     expect(calls.map((call) => call.command)).toEqual([
@@ -83,7 +75,7 @@ describe("resumeThread", () => {
 
   it("resumes a held queue directly when no run needs continuing", async () => {
     const { calls, base } = setup();
-    await resumeThread({ ...base, resumableRunId: null, queueHeld: true });
+    await resumeThread({ ...base, resumableRunId: null });
 
     expect(calls.map((call) => call.command)).toEqual(["resumeQueue"]);
   });

@@ -51,7 +51,6 @@ function ResumeButton(props: {
     currentRouteThreadKeyRef: { current: "environment:test:thread:a" },
     activeThread: { id: threadA } as never,
     resumableRunId: RunId.make("run:interrupted"),
-    hasHeldQueuedRuns: false,
     canResume: true,
     isSendBusy: false,
     isRevertingCheckpoint: false,

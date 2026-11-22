@@ -312,6 +312,8 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     // The anchored end space must be gone before the scroll measures, or the
     // list lands short of the real end.
     requestAnimationFrame(() => {
+      // The user may have scrolled away before this frame; do not pull them back to the end.
+      if (readCurrentFollow().mode !== "following") return;
       const list = legendListRef.current;
       if (!list) return;
       void Promise.resolve(

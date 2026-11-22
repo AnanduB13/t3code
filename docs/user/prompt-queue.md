@@ -1,8 +1,9 @@
 # Queuing follow-up prompts
 
 When an agent is working, sending another prompt adds it to that thread's prompt queue. Prompts run
-in order after the active turn finishes. Stopping the active turn does not discard or pause the
-remaining queue; the next prompt starts after the provider acknowledges the stop.
+in order after the active turn finishes successfully. Stopping a turn or a failed response pauses
+its queued follow-ups without discarding them. Continue resumes unfinished work; use Send now on
+a queued prompt to run that prompt instead. You can also explicitly resume the queue.
 
 Once a prompt is accepted into the queue, the composer is ready for the next one. You can keep
 adding prompts while the agent works; there is no fixed limit on the number of queued prompts.

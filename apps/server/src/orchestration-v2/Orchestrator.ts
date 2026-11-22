@@ -2551,10 +2551,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         options?.latestRunEnded === true && failedRun?.status === "failed"
           ? failedRun.id
           : options?.failedRunId;
-      const failureClass =
-        failedRun && failedRunId !== undefined && failedRun.id === failedRunId
-          ? latestRootProviderFailure(failedRun, projection.turnItems)?.class
-          : undefined;
+      // Any failed response holds the queue so the user can retry before queued prompts run.
+      const responseFailed =
+        failedRun?.status === "failed" && failedRunId !== undefined && failedRun.id === failedRunId;
       const worktreeMissing =
         endedRunId !== undefined &&
         failedRun?.id === endedRunId &&
@@ -2575,11 +2574,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projectOverride !== undefined
           ? !projectOverride
           : machineInstance !== undefined && !resolveProviderInstanceEnabled(machineInstance);
-      const providerFailed =
-        failureClass !== undefined &&
-        failureClass !== "validation_error" &&
-        failedRun?.providerInstanceId === queuedRun.providerInstanceId;
-      if (worktreeMissing || instanceDisabledForProject || providerFailed) {
+      if (worktreeMissing || instanceDisabledForProject || responseFailed) {
         // A buffered wake prompts nothing: it replays output the CLI already produced.
         const wakes =
           worktreeMissing || instanceDisabledForProject
@@ -7151,12 +7146,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     if (command.manualContinuationOfRunId !== undefined) {
       const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
-      const limited = latestRootProviderFailure(source ?? null, projection.turnItems);
       if (
         command.dispatchMode.type !== "start_immediately" ||
         source === undefined ||
-        (source.status !== "interrupted" &&
-          !(source.status === "failed" && limited?.class === "usage_limit")) ||
+        (source.status !== "interrupted" && source.status !== "failed") ||
+        (source.workspacePreparation?.type === "worktree" &&
+          projection.thread.worktreePath === null) ||
         latestExecutedRun(projection.runs)?.id !== source.id ||
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null ||
@@ -14371,7 +14366,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     yield* holdStoppedThread({ command, events, projection, cohortRunIds: [], now });
-    // After Dark: a completed run may have lost its provider turn while tool rows stayed open.
+    // A completed run may have lost its provider turn while tool rows remained open.
     if (!hasLiveRun(projection)) {
       const { nodes } = yield* projectionStore
         .getThreadRecords(command.threadId, ["nodes"])

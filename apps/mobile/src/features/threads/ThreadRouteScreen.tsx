@@ -757,7 +757,6 @@ function ThreadRouteContent(
     const result = await resumeThread({
       thread: selectedThread,
       resumableRunId: composer.resumableRunId,
-      queueHeld: composer.queueHeld,
       runtimeMode: composer.runtimeMode ?? selectedThread.runtimeMode,
       interactionMode: composer.interactionMode ?? selectedThread.interactionMode,
       modelSelection: composer.modelSelection,

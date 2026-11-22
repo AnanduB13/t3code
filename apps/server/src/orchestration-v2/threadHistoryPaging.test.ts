@@ -658,6 +658,77 @@ describe("threadHistoryPaging", () => {
     expect(computeLatestLocalTurnOrdinal(full.turnItems)).toBe(40);
   });
 
+  it.each(["resolved", "cancelled"] as const)(
+    "keeps an older pending question available until it is %s",
+    (status) => {
+      const requestId = RuntimeRequestId.make("older-question");
+      const nodeId = NodeId.make("older-question-node");
+      const prompt: OrchestrationV2TurnItem = {
+        id: TurnItemId.make("item-0"),
+        threadId: THREAD,
+        runId: null,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 1,
+        title: null,
+        startedAt: NOW,
+        updatedAt: NOW,
+        type: "user_input_request",
+        nodeId,
+        requestId,
+        status: "waiting",
+        completedAt: null,
+        responseMode: "message",
+        questions: [{ id: "0", header: "Question", question: "Which test URL?", options: [] }],
+      };
+      const rows = Array.from({ length: 40 }, (_, index) => makeRow(index));
+      rows[0] = { ...rows[0]!, item: prompt };
+      const full = {
+        ...makeProjection(rows),
+        runtimeRequests: [
+          {
+            id: requestId,
+            nodeId,
+            providerTurnId: null,
+            nativeRequestRef: null,
+            kind: "user_input" as const,
+            status: "pending" as const,
+            responseCapability: { type: "message" as const },
+            createdAt: NOW,
+            resolvedAt: null,
+          },
+        ],
+      };
+      const policy = { maxItems: 1, maxEncodedBytes: 10_000_000 };
+      const bounded = buildBoundedThreadProjection({
+        projection: full,
+        snapshotSequence: 7,
+        policy,
+      });
+      expect(bounded.projection.visibleTurnItems.map((row) => row.sourceItemId)).toEqual([
+        rows.at(-1)!.sourceItemId,
+      ]);
+      expect(bounded.projection.turnItems).toContainEqual(prompt);
+      expect(bounded.hasMoreHistory).toBe(true);
+
+      const closed = buildBoundedThreadProjection({
+        projection: {
+          ...full,
+          runtimeRequests: full.runtimeRequests.map((request) => ({
+            ...request,
+            status,
+            resolvedAt: NOW,
+          })),
+        },
+        snapshotSequence: 8,
+        policy,
+      });
+      expect(closed.projection.turnItems).not.toContainEqual(prompt);
+    },
+  );
+
   it("carries a full-projection watermark when the bounded window is inherited-only", () => {
     const localOlder = makeRow(0);
     const localMid = makeRow(1);

@@ -8942,7 +8942,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
-  it.effect.each(["usage_limit", "provider_error"] as const)(
+  it.effect.each(["usage_limit", "provider_error", "unknown", "validation_error"] as const)(
     "handles a queued message after a %s failure",
     (failureClass) =>
       Effect.gen(function* () {
@@ -9054,7 +9054,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           ],
         });
 
-        if (failureClass === "provider_error") {
+        if (failureClass !== "usage_limit") {
           assert.equal(yield* Queue.take(heldRunIds), queuedRun.id);
           const held = yield* orchestrator.getThreadProjection(threadId);
           assert.equal(held.runs.find((run) => run.id === queuedRun.id)?.status, "queued");
@@ -13014,7 +13014,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("shared application data plane", (
 });
 
 it.layer(layerTest)("usage-limit recovery", (it) => {
-  it.effect.each(["interrupted", "usage_limit"] as const)(
+  it.effect.each(["interrupted", "usage_limit", "provider_error"] as const)(
     "manually resumes an %s run ahead of its queued message only once",
     (reason) =>
       Effect.gen(function* () {

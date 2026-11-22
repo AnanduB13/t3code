@@ -219,7 +219,7 @@ describe("thread execution presentation", () => {
     expect(source({ runs: starting, providerSessions: [session("Plan limit reached")] })).toBe(
       "limit-error@2026-07-28T10:00:00.000Z",
     );
-    expect(deriveResumableRunId(projection, deriveThreadRuntime(projection))).toBe(failed.id);
+    expect(deriveResumableRunId(projection)).toBe(failed.id);
     expect(
       deriveThreadRuntime({
         ...projection,
@@ -267,7 +267,7 @@ describe("thread execution presentation", () => {
         { id: sessionId, capabilities: { turns: { supportsNativeResume: nativeResume } } },
       ],
     } as unknown as typeof v2Projection;
-    expect(deriveResumableRunId(projection, null)).toBe(resumes ? stopped.id : null);
+    expect(deriveResumableRunId(projection)).toBe(resumes ? stopped.id : null);
   });
 
   // regression: #15029 working timers no longer reset on every background wake
@@ -323,7 +323,7 @@ describe("thread execution presentation", () => {
       lastError: "Plan limit reached",
       lastErrorClass: "usage_limit",
     });
-    expect(deriveResumableRunId(projection, deriveThreadRuntime(projection))).toBe(failed.id);
+    expect(deriveResumableRunId(projection)).toBe(failed.id);
     const cancelledQueued = {
       ...run("cancelled-queued", 3, "cancelled"),
       startedAt: null,
@@ -343,7 +343,14 @@ describe("thread execution presentation", () => {
       status: "queued",
       lastErrorClass: null,
     });
-    expect(deriveResumableRunId(providerError, deriveThreadRuntime(providerError))).toBeNull();
+    expect(deriveResumableRunId(providerError)).toBe(failed.id);
+    expect(
+      deriveResumableRunId({
+        ...providerError,
+        runs: [{ ...failed, workspacePreparation: { type: "worktree" } as never }],
+        thread: { ...providerError.thread, worktreePath: null },
+      }),
+    ).toBeNull();
   });
 
   it("keeps live activity attached to an executing run when a newer run is queued", () => {
@@ -447,7 +454,7 @@ describe("thread execution presentation", () => {
       status: "interrupted",
       activeRunId: null,
     });
-    expect(deriveResumableRunId(projection, deriveThreadRuntime(projection))).toBe(interrupted.id);
+    expect(deriveResumableRunId(projection)).toBe(interrupted.id);
 
     const resumed = { ...projection, runs: [interrupted, { ...held, queueHeld: false }] };
     expect(deriveThreadRuntime(resumed)).toMatchObject({ status: "queued" });

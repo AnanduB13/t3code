@@ -20,7 +20,7 @@ type Command<Input, E> = (request: {
   readonly input: Input;
 }) => Promise<AtomCommandResult<unknown, E>>;
 
-/** Resolves to the first failed command's result, or the last successful one. */
+/** Continues the resumable run, or releases the held queue when there is none. */
 export async function resumeThread<E>(input: {
   readonly thread: {
     readonly environmentId: EnvironmentId;
@@ -29,7 +29,6 @@ export async function resumeThread<E>(input: {
     readonly interactionMode: ProviderInteractionMode;
   };
   readonly resumableRunId: RunId | null;
-  readonly queueHeld: boolean;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
   readonly modelSelection: ModelSelection | null;
@@ -42,7 +41,7 @@ export async function resumeThread<E>(input: {
 }): Promise<AtomCommandResult<unknown, E>> {
   const { thread, runtimeMode, interactionMode, createdAt } = input;
   const environmentId = thread.environmentId;
-  // The server holds the queue behind a stopped or usage-limited run until that run is continued.
+  // The server holds the queue behind a stopped or failed run until that run is continued.
   if (input.resumableRunId !== null) {
     // A turn on an existing thread runs with the thread's saved modes, not the turn's.
     if (runtimeMode !== thread.runtimeMode) {
@@ -77,7 +76,8 @@ export async function resumeThread<E>(input: {
         dispatchMode: "start",
       },
     });
-    if (continued._tag === "Failure" || !input.queueHeld) return continued;
+    // Continuing leaves queued prompts held; the user releases them separately.
+    return continued;
   }
   return input.resumeQueue({ environmentId, input: { threadId: thread.id } });
 }

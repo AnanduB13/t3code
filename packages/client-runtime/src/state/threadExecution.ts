@@ -321,17 +321,16 @@ export function formatProviderSubagentStatus(
 export function deriveResumableRunId(
   projection: Pick<
     ThreadStructure,
-    "runs" | "turnItems" | "attempts" | "providerTurns" | "providerThreads" | "providerSessions"
+    "thread" | "runs" | "attempts" | "providerTurns" | "providerThreads" | "providerSessions"
   >,
-  runtime: Pick<ThreadStructureRuntime, "lastErrorClass"> | null,
 ): RunId | null {
+  if (projection.thread.archivedAt !== null || projection.thread.deletedAt !== null) return null;
   const run = latestExecutedRun(projection.runs);
-  const resumable =
-    run?.status === "interrupted" ||
-    (run?.status === "failed" &&
-      runtime?.lastErrorClass === "usage_limit" &&
-      latestRootProviderFailure(run, projection.turnItems)?.class === "usage_limit");
-  if (!resumable) return null;
+  if (run?.status !== "interrupted" && run?.status !== "failed") return null;
+  // Failed worktree setup must be retried before any provider work starts.
+  if (run.workspacePreparation?.type === "worktree" && projection.thread.worktreePath === null) {
+    return null;
+  }
   // Without native resume the server can only resend a message the provider never received.
   if (
     runProviderSession(projection, run)?.capabilities.turns.supportsNativeResume === false &&
