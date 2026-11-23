@@ -628,6 +628,42 @@ it("Enter on an empty prompt resumes an interrupted thread", async () => {
   );
 });
 
+it("the resting composer grows for a second line and for a line too long for its row", async () => {
+  const thread = threadWithHistory("growing-prompt", 1);
+  using _environment = installFakeEnvironment([thread]);
+  // The resting composer is desktop-only.
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(1400, 900);
+  await using _viewport = {
+    [Symbol.asyncDispose]: () => page.viewport(viewport.width, viewport.height),
+  };
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const router = getRouter(
+    createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+  );
+  await router.load();
+  await using _app = await render(<AppRoot router={router} />, {
+    // AppRoot brings its own router.
+    router: false,
+  });
+  const editor = page.getByTestId("composer-editor");
+  await expect.element(editor).toBeVisible();
+  const editorHeight = () => editor.element().getBoundingClientRect().height;
+  const restingHeight = editorHeight();
+
+  await userEvent.click(editor);
+  await userEvent.keyboard("first{Shift>}{Enter}{/Shift}second");
+  await vi.waitFor(() => expect(editorHeight()).toBeGreaterThan(restingHeight * 1.5));
+
+  await userEvent.keyboard("{Control>}a{/Control}{Backspace}");
+  await vi.waitFor(() => expect(editorHeight()).toBeLessThanOrEqual(restingHeight));
+  await userEvent.keyboard("word ".repeat(80));
+  await vi.waitFor(() => expect(editorHeight()).toBeGreaterThan(restingHeight * 1.5));
+});
+
 it("opening a thread or returning to the window on a touch tablet does not focus the composer", async () => {
   const realMatchMedia = window.matchMedia.bind(window);
   using _touch = vi

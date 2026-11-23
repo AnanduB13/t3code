@@ -2511,7 +2511,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       upload.environmentId === environmentId;
     return nonPersistedComposerImageIdSet.has(image.id) && !failedInCurrentEnvironment;
   });
+  const composerText = activePendingProgress ? activePendingProgress.customAnswer : prompt;
+  // Latched until the prompt empties: the expanded editor wraps, so it cannot
+  // tell whether the text would fit the one-row editor again.
+  const [restingOverflowDraftKey, setRestingOverflowDraftKey] = useState<string | null>(null);
+  if (restingOverflowDraftKey !== null && composerText.length === 0) {
+    setRestingOverflowDraftKey(null);
+  }
+  const restingPromptOverflowed = restingOverflowDraftKey === composerDraftTargetKey;
   const composerHasExpandedChrome =
+    composerText.includes("\n") ||
+    restingPromptOverflowed ||
     showComposerTopDrawer ||
     composerMenuOpen ||
     isStashMenuOpen ||
@@ -2558,6 +2568,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useLayoutEffect(() => {
     onRestingControlsVisibilityChange(composerControlsVisibleInStrip);
   }, [composerControlsVisibleInStrip, onRestingControlsVisibilityChange]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- only layout knows whether the one-row editor clips the prompt
+  useLayoutEffect(() => {
+    if (!isComposerResting || composerText.length === 0) return;
+    const editor = composerFormRef.current?.querySelector<HTMLElement>(
+      '[data-testid="composer-editor"]',
+    );
+    if (editor && editor.scrollWidth > editor.clientWidth + 1) {
+      setRestingOverflowDraftKey(composerDraftTargetKey);
+    }
+  }, [isComposerResting, composerText, composerDraftTargetKey]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the resting flag before the chat view's overlay measurement reads it
   useLayoutEffect(() => {
     onRestingChange(isComposerResting);
