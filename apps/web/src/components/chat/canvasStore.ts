@@ -3,7 +3,11 @@ import { createStore } from "zustand";
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
 import type { DetailsCardMeasurement } from "./ChatCanvasContext";
 import { resolveChatCanvasLayout, type ChatCanvasPreview } from "./chatCanvasLayout";
-import { resolveThreadDetailsCardLayout } from "./threadDetailsCardLayout";
+import {
+  THREAD_DETAILS_CARD_GAP,
+  THREAD_DETAILS_CARD_WIDTH,
+  resolveThreadDetailsCardLayout,
+} from "./threadDetailsCardLayout";
 
 interface CanvasEdges {
   readonly left: number;
@@ -99,6 +103,13 @@ export function resolveChatCanvasModel({
   const { findBar } = measurements;
   const detailsCardTopInset = findBar?.bottom ?? 0;
   const lane = { padding: measurements.padding, minChatWidth: measurements.minChatWidth };
+  // The card floats over the centered chat, so where they overlap it ends above the composer.
+  const chatWidth = Math.min(measurements.maxChatWidth, container.width - lane.padding * 2);
+  const chatRight = Math.max(lane.padding, (container.width - chatWidth) / 2) + chatWidth;
+  const bottomInset =
+    chatRight > container.width - THREAD_DETAILS_CARD_WIDTH - THREAD_DETAILS_CARD_GAP
+      ? measurements.composerHeight
+      : 0;
   // The preview avoids where an open inline card would sit, whether or not a
   // preview overlap has pushed the card itself into popover mode.
   const preferredDetailsCard = resolveThreadDetailsCardLayout({
@@ -107,6 +118,7 @@ export function resolveChatCanvasModel({
     lane,
     frame: null,
     topInset: detailsCardTopInset,
+    bottomInset,
   });
   // The canvas outlives thread switches, so a measurement only counts for the
   // thread whose card is shown now.
@@ -147,6 +159,7 @@ export function resolveChatCanvasModel({
     frame: layout.frame,
     overlapsDetailsCard: layout.overlapsDetailsCard,
     topInset: detailsCardTopInset,
+    bottomInset,
   });
   const detailsCardMode: ThreadPanelPresentation = detailsCardPlacement ? "inline" : "popover";
   return {

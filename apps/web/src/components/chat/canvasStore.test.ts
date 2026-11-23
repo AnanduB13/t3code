@@ -44,10 +44,33 @@ describe("chat canvas model", () => {
     expect(resolve(1400, 900)).toBe("popover");
   });
 
+  it("floats the details card over the chat but ends it above the composer", () => {
+    const resolve = (width: number) =>
+      resolveChatCanvasModel({
+        measurements: measurements(width),
+        detailsCardMeasurement: { threadRef, width: 280, fullContentHeight: 400 },
+        threadRef,
+        preview: null,
+        detailsCardInlineOpen: true,
+      });
+    const overlapping = resolve(1100);
+    expect(overlapping.layout.chat).toEqual(
+      resolveChatCanvasModel({
+        measurements: measurements(1100),
+        detailsCardMeasurement: null,
+        threadRef,
+        preview: null,
+        detailsCardInlineOpen: false,
+      }).layout.chat,
+    );
+    expect(overlapping.detailsCardPlacement?.height).toBe(900 - 24 - 180);
+    expect(resolve(1800).detailsCardPlacement?.height).toBe(900 - 24);
+  });
+
   it("moves the card into a popover when a preview below it leaves too little height", () => {
     const resolve = (fullContentHeight: number) =>
       resolveChatCanvasModel({
-        measurements: measurements(1100, 300),
+        measurements: { ...measurements(1100, 300), composerHeight: 0 },
         detailsCardMeasurement: { threadRef, width: 280, fullContentHeight },
         threadRef,
         preview: { ...preview, position: { x: 760, y: 150 }, lastInteraction: "drag" },
@@ -60,7 +83,7 @@ describe("chat canvas model", () => {
 
   it("ignores a details card measured for another thread", () => {
     const model = resolveChatCanvasModel({
-      measurements: measurements(1100, 300),
+      measurements: { ...measurements(1100, 300), composerHeight: 0 },
       detailsCardMeasurement: { threadRef: otherThreadRef, width: 280, fullContentHeight: 400 },
       threadRef,
       preview: { ...preview, position: { x: 760, y: 150 }, lastInteraction: "drag" },

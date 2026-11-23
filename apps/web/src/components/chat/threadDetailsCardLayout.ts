@@ -3,7 +3,7 @@ import { DETAILS_CARD_CLEARANCE } from "./chatCanvasLayout";
 
 export const THREAD_DETAILS_CARD_GAP = 12;
 // Keep in sync with --thread-details-panel-width.
-const THREAD_DETAILS_CARD_WIDTH = 280;
+export const THREAD_DETAILS_CARD_WIDTH = 280;
 
 export function resolveThreadDetailsCardDensity(
   height: number,
@@ -21,6 +21,7 @@ export function resolveThreadDetailsCardLayout({
   frame,
   overlapsDetailsCard = false,
   topInset = 0,
+  bottomInset = 0,
 }: {
   container: { width: number; height: number };
   // While a panel animates the container, the card fits only if it fits at both ends.
@@ -29,6 +30,8 @@ export function resolveThreadDetailsCardLayout({
   frame: PreviewMiniPlayerFrame | null;
   overlapsDetailsCard?: boolean;
   topInset?: number;
+  /** Space kept clear at the bottom, such as the composer the card floats beside. */
+  bottomInset?: number;
 }) {
   const gap = THREAD_DETAILS_CARD_GAP;
   const width = THREAD_DETAILS_CARD_WIDTH;
@@ -39,10 +42,11 @@ export function resolveThreadDetailsCardLayout({
   if (fitWidth - width - gap - DETAILS_CARD_CLEARANCE - lane.padding < lane.minChatWidth)
     return null;
   const y = gap + topInset;
+  const available = container.height - y - gap - bottomInset;
   const height =
     overlapsDetailsCard && frame && frame.x + frame.width > x - gap && frame.x < x + width + gap
-      ? Math.min(container.height - y - gap, frame.y - y - gap)
-      : container.height - y - gap;
+      ? Math.min(available, frame.y - y - gap)
+      : available;
   if (height < 160) return null;
   return {
     x,
