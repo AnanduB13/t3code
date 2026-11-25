@@ -1,10 +1,10 @@
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
-import type { ContextMenuSource } from "@t3tools/contracts";
+import type { ContextMenuSource, EnvironmentMachineKind } from "@t3tools/contracts";
 import { contextMenuSourceOf } from "../../contextMenuSource";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { T, useGT } from "gt-react";
-import { SquarePenIcon, XIcon } from "lucide-react";
+import { MessageSquareIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   memo,
   useState,
@@ -14,7 +14,13 @@ import {
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useShallow } from "zustand/react/shallow";
 import { cn } from "~/lib/utils";
-import { resolveSidebarRowAccessibility } from "../Sidebar.logic";
+import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import {
+  resolveSidebarRowAccessibility,
+  resolveSidebarThreadProviders,
+  type SidebarProviderEntryLike,
+} from "../Sidebar.logic";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -24,6 +30,7 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../../composerDraftStore";
+import { GENERAL_CHATS_PROJECT_ID } from "../../generalChats";
 import {
   draftPenClassName,
   draftSurfaceClassName,
@@ -31,11 +38,18 @@ import {
   JumpHintBadge,
 } from "./SidebarThreadRow";
 
+const EMPTY_DRAFT_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntryLike> = new Map();
+
 const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   draftId: DraftId;
+  session: DraftSessionState;
   composer: ComposerThreadDraftState;
   project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
+  currentEnvironmentId?: string | null | undefined;
+  environmentLabel?: string | null | undefined;
+  environmentMachine?: EnvironmentMachineKind | undefined;
+  providerEntryByInstanceId?: ReadonlyMap<string, SidebarProviderEntryLike> | undefined;
   isActive: boolean;
   jumpLabel: string | null;
   onNavigate: (draftId: DraftId) => void;
@@ -46,8 +60,26 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
     source: ContextMenuSource,
   ) => void;
 }) {
-  const { composer, draftId, onContextMenu, onDiscard, onNavigate } = props;
+  const { composer, draftId, onContextMenu, onDiscard, onNavigate, session } = props;
   const gt = useGT();
+  const isChatDraft = session.projectId === GENERAL_CHATS_PROJECT_ID;
+  const draftModelSelection =
+    (composer.activeProvider ? composer.modelSelectionByProvider[composer.activeProvider] : null) ??
+    Object.values(composer.modelSelectionByProvider).find((selection) => selection !== undefined) ??
+    null;
+  const draftProviders = draftModelSelection
+    ? resolveSidebarThreadProviders({
+        thread: {
+          modelSelection: draftModelSelection,
+          runtime: null,
+          providerInstanceHistory: [],
+        },
+        providerEntryByInstanceId: props.providerEntryByInstanceId ?? EMPTY_DRAFT_PROVIDER_ENTRIES,
+      })
+    : [];
+  const isRemote =
+    props.currentEnvironmentId != null && session.environmentId !== props.currentEnvironmentId;
+  const showChatDeviceIcon = isChatDraft && (isRemote || (props.environmentLabel ?? null) !== null);
   const promptPreview =
     assistantCitationsToPlainText(
       replaceComposerContextReferences(composer.prompt, (occurrence) => occurrence.label),
@@ -71,7 +103,7 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   const accessibility = resolveSidebarRowAccessibility({
     title: preview,
     statusLabel: gt("Unsent draft"),
-    projectDisplayName: props.projectDisplayName,
+    projectDisplayName: isChatDraft ? null : props.projectDisplayName,
     isActive: props.isActive,
   });
   const handleActivate = () => onNavigate(draftId);
@@ -115,15 +147,63 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
         onContextMenu={handleContextMenu}
         onKeyDown={handleKeyDown}
       >
-        <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
+        <div
+          className={cn(
+            "relative z-10 px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
+            isChatDraft ? "h-[3.75rem]" : "h-[4.875rem]",
+          )}
+        >
           <div className="flex h-5 min-w-0 items-center gap-1.5">
             <SquarePenIcon aria-hidden className={draftPenClassName} />
-            {props.project ? (
-              <ProjectFavicon project={props.project} className="size-4 shrink-0" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
-              {props.projectDisplayName}
-            </span>
+            {isChatDraft ? (
+              <>
+                <span aria-hidden className="inline-flex min-w-0 shrink-0 items-center gap-1">
+                  {draftProviders.length > 0 ? (
+                    draftProviders.map((provider) => (
+                      <span key={provider.instanceId} className="inline-flex shrink-0 items-center">
+                        <ProviderInstanceIcon
+                          driverKind={provider.driverKind}
+                          displayName={provider.displayName}
+                          accentColor={provider.accentColor}
+                          acpRegistryAgentId={provider.acpRegistryAgentId}
+                          acpRegistryIconUrl={provider.acpRegistryIconUrl}
+                          showBadge={provider.showInstanceBadge}
+                          size="compact"
+                          iconClassName="size-3.5 opacity-80"
+                        />
+                      </span>
+                    ))
+                  ) : (
+                    <MessageSquareIcon
+                      aria-hidden
+                      className="size-3.5 shrink-0 text-sidebar-muted-foreground/70"
+                    />
+                  )}
+                </span>
+                {showChatDeviceIcon ? (
+                  <span
+                    aria-hidden
+                    className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70"
+                  >
+                    <EnvironmentMachineIcon
+                      aria-hidden
+                      kind={props.environmentMachine ?? "server"}
+                      className="size-3.5"
+                    />
+                  </span>
+                ) : null}
+                <span className="flex-1" />
+              </>
+            ) : (
+              <>
+                {props.project ? (
+                  <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+                ) : null}
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
+                  {props.projectDisplayName}
+                </span>
+              </>
+            )}
             <span
               className={cn(
                 "ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end",
@@ -150,7 +230,14 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
               {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
             </span>
           </div>
-          <div className="mt-0.5 truncate text-sm font-medium text-foreground/90">{preview}</div>
+          <div
+            className={cn(
+              "truncate text-sm font-medium text-foreground/90",
+              isChatDraft ? "mt-1" : "mt-0.5",
+            )}
+          >
+            {preview}
+          </div>
         </div>
       </div>
     </li>
@@ -214,6 +301,12 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   jumpLabelByDraftId: ReadonlyMap<DraftId, string> | null;
   projectByKey: ReadonlyMap<string, EnvironmentProject>;
   projectDisplayNameByKey: ReadonlyMap<string, string>;
+  currentEnvironmentId?: string | null | undefined;
+  environmentLabelById?: ReadonlyMap<string, string> | undefined;
+  environmentMachineById?: ReadonlyMap<string, EnvironmentMachineKind> | undefined;
+  providerEntriesByEnvironment?:
+    | ReadonlyMap<string, ReadonlyMap<string, SidebarProviderEntryLike>>
+    | undefined;
   routeDraftId: string | null;
   onNavigateToDraft: (draftId: DraftId) => void;
   onDraftContextMenu: (
@@ -247,9 +340,19 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
           <SidebarDraftRow
             key={draftId}
             draftId={draftId}
+            session={session}
             composer={composer}
             project={props.projectByKey.get(projectKey) ?? null}
             projectDisplayName={props.projectDisplayNameByKey.get(projectKey) ?? null}
+            currentEnvironmentId={props.currentEnvironmentId}
+            environmentLabel={props.environmentLabelById?.get(session.environmentId) ?? null}
+            environmentMachine={
+              props.environmentMachineById?.get(session.environmentId) ?? "server"
+            }
+            providerEntryByInstanceId={
+              props.providerEntriesByEnvironment?.get(session.environmentId) ??
+              EMPTY_DRAFT_PROVIDER_ENTRIES
+            }
             isActive={draftId === props.routeDraftId}
             jumpLabel={props.jumpLabelByDraftId?.get(draftId) ?? null}
             onNavigate={props.onNavigateToDraft}

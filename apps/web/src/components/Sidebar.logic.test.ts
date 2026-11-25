@@ -10,7 +10,9 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   resolveSidebarRowAccessibility,
+  resolveSidebarThreadProviders,
   resolveSidebarThreadSection,
+  type SidebarProviderEntryLike,
   isTrailingDoubleClick,
   shouldCreateNewThreadInCurrentProject,
   resolveScopedNewThreadProjectRef,
@@ -52,7 +54,14 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveProjectExpanded } from "../uiStateStore";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import { EnvironmentId, ProjectId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import {
   DEFAULT_INTERACTION_MODE,
@@ -2125,5 +2134,205 @@ describe("resolveScopedNewThreadProjectRef", () => {
         viewed: viewedWeb,
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveSidebarThreadProviders", () => {
+  const makeEntry = (
+    overrides: Partial<SidebarProviderEntryLike> & {
+      readonly instanceId: ProviderInstanceId;
+      readonly driverKind: ProviderDriverKind;
+      readonly displayName: string;
+    },
+  ): SidebarProviderEntryLike => ({
+    enabled: true,
+    accentColor: undefined,
+    acpRegistryAgentId: undefined,
+    acpRegistryIconUrl: undefined,
+    models: [],
+    ...overrides,
+  });
+
+  const claudeEntry = makeEntry({
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    driverKind: ProviderDriverKind.make("claudeAgent"),
+    displayName: "Claude",
+    models: [
+      {
+        slug: "claude-opus-4-6",
+        name: "Claude Opus 4.6",
+        shortName: "Opus 4.6",
+        isCustom: false,
+        capabilities: null,
+      },
+    ],
+  });
+
+  const codexEntry = makeEntry({
+    instanceId: ProviderInstanceId.make("codex"),
+    driverKind: ProviderDriverKind.make("codex"),
+    displayName: "Codex",
+    models: [
+      {
+        slug: "gpt-5.4",
+        name: "GPT-5.4",
+        shortName: "GPT-5.4",
+        isCustom: false,
+        capabilities: null,
+      },
+    ],
+  });
+
+  it("resolves a single provider with its formatted model label", () => {
+    const map = new Map<string, SidebarProviderEntryLike>([
+      [claudeEntry.instanceId, claudeEntry],
+      [codexEntry.instanceId, codexEntry],
+    ]);
+
+    expect(
+      resolveSidebarThreadProviders({
+        thread: {
+          modelSelection: { instanceId: claudeEntry.instanceId, model: "claude-opus-4-6" },
+          runtime: {
+            status: "completed",
+            activeRunId: null,
+            providerInstanceId: claudeEntry.instanceId,
+            providerName: "Claude",
+            lastError: null,
+            lastErrorClass: null,
+            lastErrorCode: null,
+            usageLimitResetAt: null,
+            updatedAt: "2026-11-25T00:00:00.000Z",
+          },
+          providerInstanceHistory: [claudeEntry.instanceId],
+        },
+        providerEntryByInstanceId: map,
+      }),
+    ).toEqual([
+      {
+        instanceId: "claudeAgent",
+        driverKind: "claudeAgent",
+        displayName: "Claude",
+        accentColor: undefined,
+        acpRegistryAgentId: undefined,
+        acpRegistryIconUrl: undefined,
+        showInstanceBadge: false,
+        tooltipLabel: "Opus 4.6",
+        isCurrent: true,
+      },
+    ]);
+  });
+
+  it("returns the active provider first followed by handed-off providers from history", () => {
+    const map = new Map<string, SidebarProviderEntryLike>([
+      [claudeEntry.instanceId, claudeEntry],
+      [codexEntry.instanceId, codexEntry],
+    ]);
+
+    expect(
+      resolveSidebarThreadProviders({
+        thread: {
+          modelSelection: { instanceId: codexEntry.instanceId, model: "gpt-5.4" },
+          runtime: {
+            status: "completed",
+            activeRunId: null,
+            providerInstanceId: codexEntry.instanceId,
+            providerName: "Codex",
+            lastError: null,
+            lastErrorClass: null,
+            lastErrorCode: null,
+            usageLimitResetAt: null,
+            updatedAt: "2026-11-25T00:00:00.000Z",
+          },
+          providerInstanceHistory: [claudeEntry.instanceId, codexEntry.instanceId],
+        },
+        providerEntryByInstanceId: map,
+      }),
+    ).toEqual([
+      {
+        instanceId: "codex",
+        driverKind: "codex",
+        displayName: "Codex",
+        accentColor: undefined,
+        acpRegistryAgentId: undefined,
+        acpRegistryIconUrl: undefined,
+        showInstanceBadge: false,
+        tooltipLabel: "GPT-5.4",
+        isCurrent: true,
+      },
+      {
+        instanceId: "claudeAgent",
+        driverKind: "claudeAgent",
+        displayName: "Claude",
+        accentColor: undefined,
+        acpRegistryAgentId: undefined,
+        acpRegistryIconUrl: undefined,
+        showInstanceBadge: false,
+        tooltipLabel: "Claude",
+        isCurrent: false,
+      },
+    ]);
+  });
+
+  it("shows instance badges when multiple instances share a driver", () => {
+    const claudeWork = makeEntry({
+      instanceId: ProviderInstanceId.make("claude_work"),
+      driverKind: ProviderDriverKind.make("claudeAgent"),
+      displayName: "Claude Work",
+      accentColor: "#f97316",
+      models: claudeEntry.models,
+    });
+    const map = new Map<string, SidebarProviderEntryLike>([
+      [claudeEntry.instanceId, claudeEntry],
+      [claudeWork.instanceId, claudeWork],
+    ]);
+
+    expect(
+      resolveSidebarThreadProviders({
+        thread: {
+          modelSelection: { instanceId: claudeWork.instanceId, model: "claude-opus-4-6" },
+          runtime: null,
+          providerInstanceHistory: [],
+        },
+        providerEntryByInstanceId: map,
+      }),
+    ).toEqual([
+      {
+        instanceId: "claude_work",
+        driverKind: "claudeAgent",
+        displayName: "Claude Work",
+        accentColor: "#f97316",
+        acpRegistryAgentId: undefined,
+        acpRegistryIconUrl: undefined,
+        showInstanceBadge: true,
+        tooltipLabel: "Opus 4.6 · Claude Work",
+        isCurrent: true,
+      },
+    ]);
+  });
+
+  it("falls back to the built-in driver slug when provider metadata is not loaded", () => {
+    expect(
+      resolveSidebarThreadProviders({
+        thread: {
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtime: null,
+          providerInstanceHistory: [],
+        },
+        providerEntryByInstanceId: new Map(),
+      }),
+    ).toEqual([
+      {
+        instanceId: "codex",
+        driverKind: "codex",
+        displayName: "codex",
+        accentColor: undefined,
+        acpRegistryAgentId: undefined,
+        acpRegistryIconUrl: undefined,
+        showInstanceBadge: false,
+        tooltipLabel: "gpt-5.4",
+        isCurrent: true,
+      },
+    ]);
   });
 });

@@ -52,6 +52,7 @@ import {
   ClockIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
+  MessageSquareIcon,
   PinIcon,
   PinOffIcon,
   ShieldQuestionIcon,
@@ -95,7 +96,9 @@ import {
   hasUnseenCompletion,
   hasUnseenStop,
   resolveSidebarRowAccessibility,
+  resolveSidebarThreadProviders,
   type SidebarDropVerb,
+  type SidebarThreadProviderDisplay,
   resolveSidebarRowStatus,
   resolveThreadLastVisitedAt,
   shouldRecedeSidebarThread,
@@ -123,7 +126,6 @@ import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "../ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
 import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
 import { useThreadRunningTerminalIds } from "../../state/terminalSessions";
 import { InlineButton } from "../ui/button";
@@ -134,6 +136,7 @@ import { MiddleTruncate } from "../ui/middle-truncate";
 import { ActivityShimmerOverlay } from "../chat/TimelineRowParts";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
+import { GENERAL_CHATS_PROJECT_ID } from "../../generalChats";
 import { ThreadDetailsIssueRows } from "../chat/ThreadDetailsIssueRows";
 import { IssueGlyph, issueStatePresentation } from "../issue/issuePresentation";
 
@@ -262,11 +265,9 @@ function SidebarThreadTooltip({
   projectDisplayName,
   environmentLabel,
   environmentMachine,
-  providerEntry,
+  providers,
   providerEntryByInstanceId,
-  showInstanceBadge,
   modelInstanceId,
-  modelLabel,
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
@@ -276,11 +277,9 @@ function SidebarThreadTooltip({
   projectDisplayName: string | null;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
-  providerEntry: SidebarProviderEntry | null;
+  providers: readonly SidebarThreadProviderDisplay[];
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
-  showInstanceBadge: boolean;
   modelInstanceId: string;
-  modelLabel: string;
   branchMismatch: {
     threadBranch: string;
     currentBranch: string;
@@ -288,7 +287,6 @@ function SidebarThreadTooltip({
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
 }) {
-  const driverKind = providerEntry?.driverKind ?? null;
   const previousProviderNames = thread.providerInstanceHistory
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
@@ -336,29 +334,23 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
-        {driverKind ? (
-          <div className="flex min-w-0 items-center gap-2">
+        {providers.map((provider) => (
+          <div key={provider.instanceId} className="flex min-w-0 items-center gap-2">
             <ProviderInstanceIcon
-              driverKind={driverKind}
-              displayName={
-                providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
-              }
-              accentColor={providerEntry?.accentColor}
-              acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
-              acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
-              showBadge={showInstanceBadge && providerEntry?.accentColor !== undefined}
+              driverKind={provider.driverKind}
+              displayName={provider.displayName}
+              accentColor={provider.accentColor}
+              acpRegistryAgentId={provider.acpRegistryAgentId}
+              acpRegistryIconUrl={provider.acpRegistryIconUrl}
+              showBadge={provider.showInstanceBadge && provider.accentColor !== undefined}
               badgeContent="none"
               badgeClassName="h-2 min-w-2 px-0"
               iconClassName="size-3 shrink-0 opacity-60"
             />
-            <div className="min-w-0 truncate text-foreground/75">
-              {showInstanceBadge && providerEntry
-                ? `${modelLabel} · ${providerEntry.displayName}`
-                : modelLabel}
-            </div>
+            <div className="min-w-0 truncate text-foreground/75">{provider.tooltipLabel}</div>
           </div>
-        ) : null}
-        {previousProviderNames.length > 0 ? (
+        ))}
+        {previousProviderNames.length > 0 && providers.length <= 1 ? (
           <div className="flex min-w-0 items-center gap-2">
             <ArrowRightLeftIcon className="size-3 shrink-0 stroke-muted-foreground" />
             <div className="min-w-0 truncate text-foreground/75">
@@ -873,33 +865,31 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   });
   const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider, messages);
 
+  const isChatThread = thread.projectId === GENERAL_CHATS_PROJECT_ID;
+  const effectiveProject = isChatThread ? null : props.project;
+  const effectiveProjectDisplayName = isChatThread ? null : props.projectDisplayName;
   const modelInstanceId = thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
-  const providerEntry = props.providerEntryByInstanceId.get(modelInstanceId) ?? null;
-  const showInstanceBadge =
-    providerEntry !== null &&
-    shouldShowInstanceBadge(providerEntry, props.providerEntryByInstanceId.values());
-  const selectedModel = providerEntry?.models.find(
-    (model) => model.slug === thread.modelSelection.model,
-  );
-  const modelLabel = selectedModel
-    ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
-    : thread.modelSelection.model;
+  const threadProviders = resolveSidebarThreadProviders({
+    thread,
+    providerEntryByInstanceId: props.providerEntryByInstanceId,
+  });
+  const primaryProvider = threadProviders[0] ?? null;
 
   const isRemote = thread.environmentId !== props.currentEnvironmentId;
-  const showsScratchMachine = !checkoutThread.branch && props.scratchMachineLabel !== null;
+  const showChatDeviceIcon = isRemote || props.environmentLabel !== null;
+  const showsScratchMachine =
+    !isChatThread && !checkoutThread.branch && props.scratchMachineLabel !== null;
 
   const detailsTooltip = (
     <SidebarThreadTooltip
       thread={checkoutThread}
-      project={props.project}
-      projectDisplayName={props.projectDisplayName}
+      project={effectiveProject}
+      projectDisplayName={effectiveProjectDisplayName}
       environmentLabel={props.environmentLabel}
       environmentMachine={props.environmentMachine}
-      providerEntry={providerEntry}
+      providers={threadProviders}
       providerEntryByInstanceId={props.providerEntryByInstanceId}
-      showInstanceBadge={showInstanceBadge}
       modelInstanceId={modelInstanceId}
-      modelLabel={modelLabel}
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
@@ -1086,7 +1076,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: topStatus?.label ?? null,
-    projectDisplayName: props.projectDisplayName,
+    projectDisplayName: effectiveProjectDisplayName,
     isActive: props.isActive,
   });
 
@@ -1285,14 +1275,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     ) : null;
   const diff = latestRunDiff(thread);
-  // Only the trailing icons would remain, so the row moves them to the title line instead.
+  // Chat cards carry AI icon(s), device glyph, and any terminal/PR/issue badges
+  // in their top row, so they omit the branch meta line and title-line icons.
   const metaLineEmpty =
-    !checkoutThread.branch &&
-    !showsScratchMachine &&
-    prBadge === null &&
-    issueBadge === null &&
-    diff === null &&
-    runningTerminalIds.length === 0;
+    isChatThread ||
+    (!checkoutThread.branch &&
+      !showsScratchMachine &&
+      prBadge === null &&
+      issueBadge === null &&
+      diff === null &&
+      runningTerminalIds.length === 0);
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
       {checkoutThread.branch ? (
@@ -1335,15 +1327,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     </div>
   );
-  const titleLineIcons = metaLineEmpty ? (
-    <span aria-hidden className="inline-flex shrink-0 items-center gap-1">
-      {remoteMachineIcon}
-      <SidebarProviderStack
-        thread={thread}
-        providerEntryByInstanceId={props.providerEntryByInstanceId}
-      />
-    </span>
-  ) : null;
+  const titleLineIcons =
+    !isChatThread && metaLineEmpty ? (
+      <span aria-hidden className="inline-flex shrink-0 items-center gap-1">
+        {remoteMachineIcon}
+        <SidebarProviderStack
+          thread={thread}
+          providerEntryByInstanceId={props.providerEntryByInstanceId}
+        />
+      </span>
+    ) : null;
 
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
@@ -1397,7 +1390,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
                   )}
                 >
-                  {props.project ? (
+                  {isChatThread ? (
+                    primaryProvider ? (
+                      <ProviderInstanceIcon
+                        driverKind={primaryProvider.driverKind}
+                        displayName={primaryProvider.displayName}
+                        accentColor={primaryProvider.accentColor}
+                        acpRegistryAgentId={primaryProvider.acpRegistryAgentId}
+                        acpRegistryIconUrl={primaryProvider.acpRegistryIconUrl}
+                        showBadge={primaryProvider.showInstanceBadge}
+                        size="compact"
+                        iconClassName="size-4"
+                      />
+                    ) : (
+                      <MessageSquareIcon
+                        aria-hidden
+                        className="size-4 text-sidebar-muted-foreground"
+                      />
+                    )
+                  ) : props.project ? (
                     <ProjectFavicon project={props.project} className="size-4" />
                   ) : null}
                 </span>
@@ -1594,20 +1605,80 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
-              {props.project ? (
-                <ProjectFavicon project={props.project} className="size-4 shrink-0" />
-              ) : null}
-              {/* Left of the status slot, the pin would slide when hover swaps the
-                label for the wider row controls. */}
-              {pinIndicator}
-              {props.projectDisplayName ? (
-                <span
-                  className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
-                >
-                  {props.projectDisplayName}
-                </span>
+              {isChatThread ? (
+                <>
+                  <span aria-hidden className="inline-flex min-w-0 shrink-0 items-center gap-1">
+                    {threadProviders.length > 0 ? (
+                      threadProviders.map((provider) => (
+                        <span
+                          key={provider.instanceId}
+                          className="inline-flex shrink-0 items-center"
+                        >
+                          <ProviderInstanceIcon
+                            driverKind={provider.driverKind}
+                            displayName={provider.displayName}
+                            accentColor={provider.accentColor}
+                            acpRegistryAgentId={provider.acpRegistryAgentId}
+                            acpRegistryIconUrl={provider.acpRegistryIconUrl}
+                            showBadge={provider.showInstanceBadge}
+                            size="compact"
+                            iconClassName={cn(
+                              "size-3.5 transition-opacity",
+                              provider.isCurrent
+                                ? shouldRecede
+                                  ? "opacity-60 group-hover/sidebar-row:opacity-90"
+                                  : "opacity-80 group-hover/sidebar-row:opacity-100"
+                                : "opacity-55 group-hover/sidebar-row:opacity-85",
+                            )}
+                          />
+                        </span>
+                      ))
+                    ) : (
+                      <MessageSquareIcon
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-sidebar-muted-foreground/70"
+                      />
+                    )}
+                  </span>
+                  {showChatDeviceIcon ? (
+                    <span
+                      aria-hidden
+                      className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70"
+                    >
+                      <EnvironmentMachineIcon
+                        aria-hidden
+                        kind={props.environmentMachine}
+                        className="size-3.5"
+                      />
+                    </span>
+                  ) : null}
+                  {/* Left of the status slot, the pin stays put when hover swaps in row controls. */}
+                  {pinIndicator}
+                  {terminalStatusIcon}
+                  {prBadge}
+                  {issueBadge}
+                  <span className="flex-1" />
+                </>
               ) : (
-                <span className="flex-1" />
+                <>
+                  {props.project ? (
+                    <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+                  ) : null}
+                  {/* Left of the status slot, the pin would slide when hover swaps the
+                    label for the wider row controls. */}
+                  {pinIndicator}
+                  {props.projectDisplayName ? (
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate font-normal text-secondary-label text-xs",
+                      )}
+                    >
+                      {props.projectDisplayName}
+                    </span>
+                  ) : (
+                    <span className="flex-1" />
+                  )}
+                </>
               )}
               {sortable?.isDragging ? (
                 dragDestination
@@ -1808,10 +1879,13 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
   const messages = useMessages();
   const thread =
     useThreadShell(scopeThreadRef(props.thread.environmentId, props.thread.id)) ?? props.thread;
+  const isChatThread = thread.projectId === GENERAL_CHATS_PROJECT_ID;
+  const effectiveProject = isChatThread ? null : props.project;
+  const effectiveProjectDisplayName = isChatThread ? null : props.projectDisplayName;
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: null,
-    projectDisplayName: props.projectDisplayName,
+    projectDisplayName: effectiveProjectDisplayName,
     isActive: props.isRouteActive,
   });
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
@@ -1853,16 +1927,11 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
     currentGitBranch: visibleGitStatus?.refName ?? null,
   });
   const modelInstanceId = thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
-  const providerEntry = props.providerEntryByInstanceId.get(modelInstanceId) ?? null;
-  const showInstanceBadge =
-    providerEntry !== null &&
-    shouldShowInstanceBadge(providerEntry, props.providerEntryByInstanceId.values());
-  const selectedModel = providerEntry?.models.find(
-    (model) => model.slug === thread.modelSelection.model,
-  );
-  const modelLabel = selectedModel
-    ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
-    : thread.modelSelection.model;
+  const threadProviders = resolveSidebarThreadProviders({
+    thread,
+    providerEntryByInstanceId: props.providerEntryByInstanceId,
+  });
+  const primaryProvider = threadProviders[0] ?? null;
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
     threadId: thread.id,
@@ -1926,7 +1995,32 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
             />
           }
         >
-          {props.project ? (
+          {isChatThread ? (
+            <span
+              className={cn(
+                "flex shrink-0 items-center transition-opacity",
+                props.isSettled &&
+                  !props.isRouteActive &&
+                  !props.isHighlighted &&
+                  "opacity-40 grayscale group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
+              )}
+            >
+              {primaryProvider ? (
+                <ProviderInstanceIcon
+                  driverKind={primaryProvider.driverKind}
+                  displayName={primaryProvider.displayName}
+                  accentColor={primaryProvider.accentColor}
+                  acpRegistryAgentId={primaryProvider.acpRegistryAgentId}
+                  acpRegistryIconUrl={primaryProvider.acpRegistryIconUrl}
+                  showBadge={primaryProvider.showInstanceBadge}
+                  size="compact"
+                  iconClassName="size-4"
+                />
+              ) : (
+                <MessageSquareIcon aria-hidden className="size-4 text-sidebar-muted-foreground" />
+              )}
+            </span>
+          ) : props.project ? (
             <ProjectFavicon
               project={props.project}
               className={cn(
@@ -1971,9 +2065,9 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
                 <RelativeTimeLabel timestamp={resolveThreadActivityTimestamp(thread)} />
               </span>
             </span>
-            {props.projectDisplayName ? (
+            {effectiveProjectDisplayName ? (
               <span className="truncate text-xs text-muted-foreground/70">
-                {props.projectDisplayName}
+                {effectiveProjectDisplayName}
               </span>
             ) : null}
             {props.searchMatch ? (
@@ -1989,15 +2083,13 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
         </TooltipTrigger>
         <SidebarThreadTooltip
           thread={checkoutThread}
-          project={props.project}
-          projectDisplayName={props.projectDisplayName}
+          project={effectiveProject}
+          projectDisplayName={effectiveProjectDisplayName}
           environmentLabel={props.environmentLabel}
           environmentMachine={props.environmentMachine}
-          providerEntry={providerEntry}
+          providers={threadProviders}
           providerEntryByInstanceId={props.providerEntryByInstanceId}
-          showInstanceBadge={showInstanceBadge}
           modelInstanceId={modelInstanceId}
-          modelLabel={modelLabel}
           branchMismatch={branchMismatch}
           terminalStatus={terminalStatus}
           terminalProcessCount={runningTerminalIds.length}

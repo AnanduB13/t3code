@@ -725,4 +725,26 @@ describe("lifted card clearance", () => {
     expect(511 + apply(511, 36, -500, 96).y).toBe(128);
     expect(511 + apply(511, 36, -500, 136, 114).y).toBe(250);
   });
+
+  it("uses defaultCardHeight when promoting a slim row into an empty card section", () => {
+    const items = [
+      pinnedHeader,
+      divider,
+      marker("active-placeholder"),
+      settledHeader,
+      marker("settled-placeholder"),
+      thread("s", "settled"),
+    ];
+    const result = preview(
+      {
+        items,
+        settledOrder: [],
+        settledExpanded: true,
+        defaultCardHeight: 64,
+      },
+      "s",
+      sidebarMarkerId("active-placeholder"),
+    );
+    expect(result.get(sidebarMarkerId("settled-header"))).toEqual({ ...stationary, y: 64 });
+  });
 });

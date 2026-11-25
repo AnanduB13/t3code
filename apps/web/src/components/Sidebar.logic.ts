@@ -1,7 +1,10 @@
 import { isLatestTurnCompleted } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import {
+  resolveThreadProviderStack,
+  resolveThreadWorkingStartedAt,
+} from "@t3tools/client-runtime/state/models";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
@@ -20,12 +23,14 @@ import {
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
 import {
+  ProviderDriverKind,
   type ContextMenuItem,
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import {
@@ -40,9 +45,11 @@ import {
   toSortableTimestamp,
   type ThreadSortInput,
 } from "@t3tools/client-runtime/state/thread-sort";
+import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../providerInstances";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
+import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { THREAD_STATUS_TEXT } from "@t3tools/client-runtime/state/thread-activity-announcement";
 import { observeIntersection } from "../lib/observeIntersection";
 import { deadlineAfter, deadlineStore, type ClockStore } from "@t3tools/client-runtime/clock";
@@ -85,6 +92,118 @@ export function resolveSidebarRowAccessibility(input: {
     label: [input.title, input.statusLabel, input.projectDisplayName].filter(Boolean).join(", "),
     current: input.isActive ? "page" : undefined,
   };
+}
+
+const isProviderDriverKind = Schema.is(ProviderDriverKind);
+
+export type SidebarProviderEntryLike = Pick<
+  ProviderInstanceEntry,
+  | "instanceId"
+  | "driverKind"
+  | "enabled"
+  | "displayName"
+  | "accentColor"
+  | "acpRegistryAgentId"
+  | "acpRegistryIconUrl"
+  | "models"
+>;
+
+export interface SidebarThreadProviderDisplay {
+  readonly instanceId: string;
+  readonly driverKind: ProviderDriverKind;
+  readonly displayName: string;
+  readonly accentColor: string | undefined;
+  readonly acpRegistryAgentId: string | undefined;
+  readonly acpRegistryIconUrl: string | undefined;
+  readonly showInstanceBadge: boolean;
+  readonly tooltipLabel: string;
+  readonly isCurrent: boolean;
+}
+
+/**
+ * Resolve every distinct AI provider instance associated with a thread for
+ * chat-mode sidebar icons and hover details. Puts the active/current provider
+ * first, followed by any other participating instances from history or model
+ * selection, with a built-in driver fallback when provider metadata is absent.
+ */
+export function resolveSidebarThreadProviders(input: {
+  readonly thread: Pick<
+    SidebarThreadSummary,
+    "providerInstanceHistory" | "modelSelection" | "runtime"
+  >;
+  readonly providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntryLike>;
+}): readonly SidebarThreadProviderDisplay[] {
+  const { thread, providerEntryByInstanceId } = input;
+  const stack = resolveThreadProviderStack(thread);
+  const currentInstanceId = stack[stack.length - 1] ?? thread.modelSelection.instanceId;
+
+  const candidateIds: string[] = [];
+  const addCandidate = (candidate: string | null | undefined) => {
+    if (!candidate || candidateIds.includes(candidate)) return;
+    candidateIds.push(candidate);
+  };
+
+  // Lead with the current/active provider, then any distinct model selection or prior handoffs.
+  addCandidate(currentInstanceId);
+  addCandidate(thread.modelSelection.instanceId);
+  for (let index = stack.length - 2; index >= 0; index -= 1) {
+    addCandidate(stack[index]);
+  }
+
+  const allEntries = [...providerEntryByInstanceId.values()];
+  const result: SidebarThreadProviderDisplay[] = [];
+
+  for (const instanceId of candidateIds) {
+    const providerEntry = providerEntryByInstanceId.get(instanceId) ?? null;
+    const isRuntimeInstance = instanceId === thread.runtime?.providerInstanceId;
+    const driverKind =
+      providerEntry?.driverKind ??
+      (isProviderDriverKind(instanceId)
+        ? instanceId
+        : isRuntimeInstance &&
+            thread.runtime?.providerName &&
+            isProviderDriverKind(thread.runtime.providerName)
+          ? thread.runtime.providerName
+          : null);
+    if (driverKind === null) continue;
+
+    const showInstanceBadge =
+      providerEntry !== null && shouldShowInstanceBadge(providerEntry, allEntries);
+    const displayName =
+      providerEntry?.displayName ??
+      (isRuntimeInstance ? thread.runtime?.providerName : null) ??
+      instanceId;
+
+    const isModelSelectionInstance = instanceId === thread.modelSelection.instanceId;
+    const selectedModel = isModelSelectionInstance
+      ? providerEntry?.models.find((model) => model.slug === thread.modelSelection.model)
+      : undefined;
+    const modelLabel = isModelSelectionInstance
+      ? selectedModel
+        ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
+        : thread.modelSelection.model
+      : null;
+    const tooltipLabel =
+      modelLabel && modelLabel.length > 0
+        ? showInstanceBadge && providerEntry
+          ? `${modelLabel} · ${providerEntry.displayName}`
+          : modelLabel
+        : displayName;
+
+    result.push({
+      instanceId,
+      driverKind,
+      displayName,
+      accentColor: providerEntry?.accentColor,
+      acpRegistryAgentId: providerEntry?.acpRegistryAgentId,
+      acpRegistryIconUrl: providerEntry?.acpRegistryIconUrl,
+      showInstanceBadge,
+      tooltipLabel,
+      isCurrent: instanceId === currentInstanceId,
+    });
+  }
+
+  return result;
 }
 
 // Each prewarm retains growing thread detail and a live subscription, multiplying heap and server load.
