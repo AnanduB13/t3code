@@ -45,3 +45,10 @@ it.each([
   ]);
   expect(assetLinks.map((link) => link.target.package_name)).toContain(identifier);
 });
+
+it("starts Observe without an EAS project but never lets it send", async () => {
+  const config = await loadConfig("production");
+  // expo-observe's native module throws during React Native startup without a project id.
+  expect(config.extra?.eas?.projectId).toEqual(expect.any(String));
+  expect(new URL(config.extra?.eas?.observe?.endpointUrl).hostname).toMatch(/\.invalid$/);
+});
