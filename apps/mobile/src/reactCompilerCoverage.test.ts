@@ -137,6 +137,21 @@ function compilerCachedCalls(file: string, callee: string): boolean[] {
   return cached;
 }
 
+// Whether each named `const` takes a compiler cache temporary (`const x = t3`) rather than a
+// function rebuilt on every render.
+function compilerCachedBindings(file: string, names: readonly string[]) {
+  const result = compileLikeMetro(file, [], { ast: true });
+  const bindings: { name: string; cached: boolean }[] = [];
+  if (typeof result !== "object" || result === null || !("ast" in result)) return bindings;
+  walkAst(result.ast, (node) => {
+    if (node.type !== "VariableDeclarator" || !isAstNode(node.id) || !isAstNode(node.init)) return;
+    const name = node.id.type === "Identifier" ? node.id.name : undefined;
+    if (typeof name !== "string" || !names.includes(name)) return;
+    bindings.push({ name, cached: node.init.type === "Identifier" });
+  });
+  return bindings;
+}
+
 describe("React Compiler coverage", () => {
   it("Metro's transformer applies the compiler", async () => {
     const { transformer } = await metroConfig;
@@ -200,6 +215,24 @@ describe("React Compiler coverage", () => {
         "registerWorkspaceInspector",
       ),
     ).toEqual([true]);
+  });
+
+  // A handler that called one declared later went uncached, and so did everything calling it:
+  // every thread row got new props on each render, so the whole list re-rendered.
+  it("caches the thread list action handlers", () => {
+    const names = [
+      "moveThread",
+      "pinThread",
+      "settleThread",
+      "snoozeThread",
+      "unpinThread",
+      "unsettleThread",
+      "unsnoozeThread",
+    ];
+    const handlers = compilerCachedBindings("src/features/home/useThreadListActions.ts", names);
+    expect(handlers.toSorted((a, b) => a.name.localeCompare(b.name))).toEqual(
+      names.map((name) => ({ name, cached: true })),
+    );
   });
 
   it("lists only files that exist", () => {
