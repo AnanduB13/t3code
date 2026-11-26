@@ -236,7 +236,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: appIdentity.scheme,
-  version: repoEnv.T3CODE_MOBILE_VERSION ?? "2.3.1",
+  version: repoEnv.T3CODE_MOBILE_VERSION ?? "2.3.2",
   runtimeVersion: {
     // Skip costly fingerprinting on dev launches; preview and production OTAs require matching native projects.
     policy: runtimeVersionPolicy,
@@ -300,7 +300,7 @@ const config: ExpoConfig = {
   android: {
     icon: variant.assets.appIcon,
     package: appIdentity.androidPackage,
-    versionCode: 4,
+    versionCode: 5,
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
       ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
       : {}),
