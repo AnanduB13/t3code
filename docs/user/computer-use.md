@@ -46,6 +46,13 @@ Computer Use is available only through T3 Code Desktop. To make a device availab
 3. Grant screen-capture and accessibility permissions in your operating-system settings, then turn
    the setting off and on once so T3 Code can refresh the device status.
 
+Once a device is enabled, you can ask for Computer Use from any client connected to that
+environment, including the mobile app: the agent runs on the server and acts through the Desktop
+host. On macOS the agent can also launch an application by name and open a link in it, such as a
+page in a specific browser. The host must be awake, logged in, and unlocked with the Desktop app
+open; it cannot act on a sleeping or locked computer. To keep a Mac reachable, add T3 Code to
+**System Settings → General → Login Items** and allow it to stay awake while plugged in.
+
 The setting is off by default and applies only to that Desktop installation. When you enable it,
 choose which connected environments may use the device. Environments connected later remain off
 until you allow them explicitly. Removing an environment or using **Stop** cancels queued work and

@@ -127,7 +127,7 @@ it.effect(
         yield* Deferred.await(connected);
 
         expect(server.tools.filter(({ tool }) => tool.name.startsWith("computer_")).length).toBe(
-          10,
+          11,
         );
         expect(
           server.tools.find(({ tool }) => tool.name === "computer_click")?.tool.annotations,

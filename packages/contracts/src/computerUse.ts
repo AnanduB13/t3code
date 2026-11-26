@@ -12,6 +12,7 @@ const COMPUTER_USE_OPERATIONS = [
   "pressKey",
   "scroll",
   "typeText",
+  "openApp",
 ] as const;
 
 export const ComputerUseOperation = Schema.Literals(COMPUTER_USE_OPERATIONS);
@@ -113,6 +114,18 @@ export const ComputerUseScrollInput = Schema.Struct({
 export const ComputerUseTypeTextInput = Schema.Struct({
   ...ComputerUseObservedWindowInput,
   text: Schema.String.check(Schema.isMaxLength(32_000)),
+});
+
+export const ComputerUseOpenAppInput = Schema.Struct({
+  app: TrimmedNonEmptyString.check(Schema.isMaxLength(256)).annotate({
+    description:
+      'Application name as it appears in /Applications or Spotlight, such as "Zen", "Safari", or "System Settings".',
+  }),
+  url: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(8_192), Schema.isPattern(/^https?:\/\/\S+$/i)),
+  ).annotate({
+    description: "An http(s) URL for the application to open, such as a browser page.",
+  }),
 });
 
 export const ComputerUseApp = Schema.Struct({

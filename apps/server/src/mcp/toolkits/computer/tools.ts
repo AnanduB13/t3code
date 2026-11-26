@@ -9,6 +9,7 @@ import {
   ComputerUseDragInput,
   ComputerUseError,
   ComputerUseMoveInput,
+  ComputerUseOpenAppInput,
   ComputerUsePressKeyInput,
   ComputerUseScrollInput,
   ComputerUseSelectDeviceInput,
@@ -78,6 +79,17 @@ const ComputerListAppsTool = readonly(
     failure: ComputerUseError,
     dependencies,
   }).annotate(Tool.Title, "List desktop applications"),
+);
+
+const ComputerOpenAppTool = navigationAction(
+  Tool.make("computer_open_app", {
+    description:
+      "Launch or bring forward an application on the selected computer by name, optionally opening an http(s) URL in it (for example a page in a specific browser). Use this instead of searching for launchers in the UI. Returns the visible windows once the launch settles; call computer_list_apps again if the new window is not listed yet, then observe it before acting.",
+    parameters: ComputerUseOpenAppInput,
+    success: ComputerUseAppList,
+    failure: ComputerUseError,
+    dependencies,
+  }).annotate(Tool.Title, "Open desktop application"),
 );
 
 const ComputerGetAppStateTool = observation(
@@ -156,6 +168,7 @@ export const ComputerUseToolkit = Toolkit.make(
   ComputerListDevicesTool,
   ComputerSelectDeviceTool,
   ComputerListAppsTool,
+  ComputerOpenAppTool,
   ComputerGetAppStateTool,
   ComputerMoveTool,
   ComputerClickTool,
@@ -169,6 +182,7 @@ export const ComputerUseStandardToolkit = Toolkit.make(
   ComputerListDevicesTool,
   ComputerSelectDeviceTool,
   ComputerListAppsTool,
+  ComputerOpenAppTool,
 );
 
 export const ComputerUseSnapshotToolkit = Toolkit.make(

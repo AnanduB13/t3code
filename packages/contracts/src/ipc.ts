@@ -7,6 +7,7 @@ import {
   ComputerUseDevice,
   ComputerUseDragInput,
   ComputerUseMoveInput,
+  ComputerUseOpenAppInput,
   ComputerUseOperation,
   ComputerUsePressKeyInput,
   ComputerUseRequest,
@@ -1647,6 +1648,11 @@ export const DesktopComputerUseExecuteInput = Schema.Union([
     requestId: ComputerUseRequestId,
     operation: Schema.Literal("typeText"),
     input: ComputerUseTypeTextInput,
+  }),
+  Schema.Struct({
+    requestId: ComputerUseRequestId,
+    operation: Schema.Literal("openApp"),
+    input: ComputerUseOpenAppInput,
   }),
 ]);
 export const DesktopComputerUseCancelInput = Schema.Struct({ requestId: ComputerUseRequestId });

@@ -95,6 +95,13 @@ it.effect(
         expect(yield* broker.invoke({ scope, operation: "listApps", input: {} })).toEqual({
           apps: [],
         });
+        const unsupported = yield* broker
+          .invoke({ scope, operation: "openApp", input: { app: "Zen" } })
+          .pipe(Effect.result);
+        expect(Result.isFailure(unsupported) && unsupported.failure).toMatchObject({
+          _tag: "ComputerUseUnavailableError",
+          reason: expect.stringContaining("does not support openApp"),
+        });
       }),
     ),
 );

@@ -18,6 +18,7 @@ const native = vi.hoisted(() => {
     getActiveWindow: vi.fn(async () => window),
     getWindowRegion: vi.fn(async () => bounds),
     getSources: vi.fn(),
+    execFile: vi.fn(),
     wait: vi.fn(async (_duration: number) => undefined),
     keyboard: {
       config: { autoDelayMs: 300 },
@@ -70,6 +71,7 @@ vi.mock("electron", () => ({
   screen: { getDisplayMatching: () => ({ scaleFactor: 1 }) },
 }));
 vi.mock("node:timers/promises", () => ({ setTimeout: native.wait }));
+vi.mock("node:child_process", () => ({ execFile: native.execFile }));
 vi.mock("@nut-tree-fork/nut-js", () => ({
   getWindows: native.getWindows,
   getActiveWindow: native.getActiveWindow,
@@ -130,6 +132,23 @@ beforeEach(async () => {
 });
 
 describe("native Computer Use adapter", () => {
+  it("opens an application by name without an observation and lists its windows", async () => {
+    native.execFile.mockImplementation(
+      (_file: string, _args: string[], _options: unknown, callback: (error: null) => void) =>
+        callback(null),
+    );
+    const result = await host.executeComputerUse("open-1", "openApp", {
+      app: "Zen",
+      url: "https://example.com",
+    });
+    expect(native.execFile.mock.calls[0]?.slice(0, 2)).toEqual([
+      "/usr/bin/open",
+      ["-a", "Zen", "https://example.com"],
+    ]);
+    expect(result).toMatchObject({ apps: [{ title: "Editor" }] });
+    expect(native.window.focus).not.toHaveBeenCalled();
+  });
+
   it("captures once and leaves the already focused window alone", async () => {
     const state = await observe();
     expect(state.app).toBe("Editor");

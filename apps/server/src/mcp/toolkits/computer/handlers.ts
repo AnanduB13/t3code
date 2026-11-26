@@ -38,6 +38,7 @@ const handlers = {
     context().pipe(Effect.flatMap(({ scope, broker }) => broker.selectDevice(scope, deviceId))),
   ),
   computer_list_apps: McpToolAccess.reads(() => invoke<ComputerUseAppList>("listApps", {})),
+  computer_open_app: McpToolAccess.reads((input) => invoke<ComputerUseAppList>("openApp", input)),
   computer_get_app_state: McpToolAccess.reads((input) =>
     invoke<ComputerUseAppState>("getAppState", input),
   ),
@@ -53,11 +54,16 @@ const handlers = {
   ),
 } satisfies McpToolAccess.Handlers<typeof ComputerUseToolkit.tools>;
 
-const { computer_list_devices, computer_select_device, computer_list_apps, ...snapshotHandlers } =
-  handlers;
+const {
+  computer_list_devices,
+  computer_select_device,
+  computer_list_apps,
+  computer_open_app,
+  ...snapshotHandlers
+} = handlers;
 export const ComputerUseStandardToolkitHandlersLive = McpToolAccess.toLayer(
   ComputerUseStandardToolkit,
-  { computer_list_devices, computer_select_device, computer_list_apps },
+  { computer_list_devices, computer_select_device, computer_list_apps, computer_open_app },
 );
 export const ComputerUseSnapshotToolkitHandlersLive = McpToolAccess.toLayer(
   ComputerUseSnapshotToolkit,

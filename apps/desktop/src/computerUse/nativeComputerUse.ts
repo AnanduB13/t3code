@@ -9,6 +9,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { app, desktopCapturer, screen as electronScreen, systemPreferences } from "electron";
 import Store from "electron-store";
 import * as Effect from "effect/Effect";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodePerfHooks from "node:perf_hooks";
 import * as NodeTimersPromises from "node:timers/promises";
@@ -111,6 +112,7 @@ export const describeComputerUseDevice = (runtime = readRuntime()): ComputerUseD
     "pressKey",
     "scroll",
     "typeText",
+    ...(runtime.platform === "darwin" ? (["openApp"] as const) : []),
   ],
 });
 
@@ -258,6 +260,20 @@ const listApps = async () => {
     })),
   };
 };
+
+// LaunchServices resolves names the way Finder and Spotlight do; execFile keeps them out of a shell.
+const openApp = (app: string, url: string | undefined, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    NodeChildProcess.execFile(
+      "/usr/bin/open",
+      ["-a", app, ...(url ? [url] : [])],
+      { timeout: 10_000, signal },
+      (error, _stdout, stderr) => {
+        if (error) reject(new Error(stderr.trim() || error.message));
+        else resolve();
+      },
+    );
+  });
 
 const captureDisplayCrop = async (bounds: ComputerUseBounds) => {
   const display = electronScreen.getDisplayMatching(bounds);
@@ -603,6 +619,13 @@ async function executeComputerUseNow(
     return result;
   }
   if (operation === "getAppState") return await getAppState(input, signal);
+  if (operation === "openApp") {
+    if (runtime.platform !== "darwin")
+      throw new Error("Opening applications is supported on macOS.");
+    await openApp(String(input.app), typeof input.url === "string" ? input.url : undefined, signal);
+    await wait(1_000, signal);
+    return await listApps();
+  }
 
   const { observation } = await requireFreshObservation(input, signal);
   const nut = await loadNut();
@@ -719,7 +742,13 @@ const executor = createSerializedAbortableExecutor(
     signal,
   ) => {
     const result = await executeComputerUseNow(input.operation, input.rawInput, signal);
-    if (input.operation === "listApps" || input.operation === "getAppState") return result;
+    if (
+      input.operation === "listApps" ||
+      input.operation === "getAppState" ||
+      input.operation === "openApp"
+    ) {
+      return result;
+    }
     const action = input.rawInput as { readonly observeAfter?: boolean; readonly windowId: string };
     if (!action.observeAfter) return result;
     requireNotAborted(signal);
